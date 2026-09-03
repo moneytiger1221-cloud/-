@@ -12995,12 +12995,14 @@
   }
   var pwInp = { width: "100%", background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "11px", color: "#e2e8f0", fontSize: 14, boxSizing: "border-box", outline: "none" };
   function App() {
-    const [locked, setLocked] = (0, import_react.useState)(true);
+    // パスワード画面は廃止（2026-09-04）。データの保護はスプレッドシート同期の合言葉が担っており、
+    // この画面はHTMLを直接読めば回避できるため、実質的な防御になっていなかった。
+    const [locked, setLocked] = (0, import_react.useState)(false);
     const [showPwModal, setShowPwModal] = (0, import_react.useState)(false);
     const lockTimer = (0, import_react.useRef)(null);
     const resetLockTimer = (0, import_react.useCallback)(() => {
+      // 自動ロックも廃止。ロック画面が無いので再ロックすると開けなくなる。
       if (lockTimer.current) clearTimeout(lockTimer.current);
-      lockTimer.current = setTimeout(() => setLocked(true), AUTO_LOCK_MINUTES * 60 * 1e3);
     }, []);
     (0, import_react.useEffect)(() => {
       if (locked) return;
