@@ -1,0 +1,1808 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="アンケート確認">
+<title>アンケート確認ツール</title>
+<style>
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; font-family:'Hiragino Sans','Noto Sans JP',sans-serif; background:#f0f4f8; color:#1e293b; -webkit-text-size-adjust:100%; }
+  .header { background:#0f172a; color:#fff; padding:11px 14px; position:sticky; top:0; z-index:10; }
+  .header-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .title { font-size:16px; font-weight:700; }
+  .btn { padding:7px 12px; border-radius:7px; cursor:pointer; font-size:12px; border:none; font-weight:600; color:#fff; display:inline-block; }
+  .selrow { display:flex; gap:8px; margin-top:9px; flex-wrap:wrap; align-items:center; }
+  label.lbl { font-size:11px; color:#94a3b8; }
+  input, select { padding:6px 9px; border:1px solid #e2e8f0; border-radius:7px; font-size:13px; background:#fff; color:#334155; }
+  .summary { background:#fff; border-bottom:1px solid #e2e8f0; padding:8px 14px; display:flex; gap:14px; font-size:12px; flex-wrap:wrap; }
+  .tabs { display:flex; gap:2px; background:#e2e8f0; padding:7px 10px 0; flex-wrap:wrap; overflow-x:auto; }
+  .tab { padding:9px 12px; border:none; cursor:pointer; border-radius:7px 7px 0 0; font-size:12px; background:transparent; color:#64748b; white-space:nowrap; }
+  .tab.active { background:#fff; color:#0f172a; font-weight:700; }
+  .content { padding:14px; }
+  .card { background:#fff; border-radius:10px; box-shadow:0 1px 3px rgba(0,0,0,.07); }
+  table { width:100%; border-collapse:collapse; font-size:11px; }
+  th { padding:6px 5px; text-align:left; border-bottom:1px solid #e2e8f0; font-weight:600; color:#64748b; white-space:nowrap; background:#f8fafc; }
+  td { padding:5px; border-bottom:1px solid #f1f5f9; vertical-align:top; }
+  .chip { padding:2px 6px; border-radius:4px; font-size:10px; font-weight:500; display:inline-block; }
+  .filterbar { display:flex; gap:7px; flex-wrap:wrap; margin-bottom:11px; background:#fff; padding:9px 12px; border-radius:10px; box-shadow:0 1px 3px rgba(0,0,0,.07); align-items:center; }
+  .flagbtn { background:none; border:none; cursor:pointer; font-size:15px; padding:0; }
+  .statcard { flex:1; background:#fff; border-radius:10px; padding:12px 16px; box-shadow:0 1px 3px rgba(0,0,0,.07); min-width:88px; }
+  .barwrap { display:flex; align-items:flex-end; gap:8px; height:160px; padding:10px 0; }
+  .bar-col { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:4px; }
+  .bar { width:100%; border-radius:4px 4px 0 0; min-height:2px; }
+  .save-status { font-size:11px; color:#86efac; }
+  .err { font-size:11px; }
+  .radar-wrap { width:200px; height:184px; }
+  .decbtn { padding:5px 11px; border-radius:7px; font-size:11px; cursor:pointer; font-weight:600; background:#fff; }
+  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; z-index:100; padding:24px; }
+  .modal { background:#fff; border-radius:12px; padding:20px; max-width:340px; width:100%; box-shadow:0 10px 40px rgba(0,0,0,.3); }
+  .sec-title { font-size:13px; font-weight:700; color:#334155; margin:0 0 10px; }
+  .setrow { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid #f1f5f9; flex-wrap:wrap; }
+  .comment-dot { cursor:pointer; font-size:14px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="modal"></div>
+
+<script>
+// ════════════════════════════════════════════════════════════
+// ①〜④用スコア（満足5/まあ満足4/ふつう3/やや不満2/不満1）
+const SCORE_Q14 = { "満足":5,"まあ満足":4,"ふつう":3,"やや不満":2,"不満":1 };
+// ⑤総合用スコア（大満足5/満足4/ふつう3/やや不満2/かえてほしい1）
+const SCORE_Q5  = { "大満足":5,"満足":4,"ふつう":3,"やや不満":2,"かえて欲しい":1,"かえてほしい":1 };
+// 後方互換（色判定などで使う汎用表）
+const SCORE_MAP = Object.assign({}, SCORE_Q14, SCORE_Q5);
+const Q5_COLOR  = { "大満足":"#22c55e","満足":"#86efac","まあ満足":"#fde68a","ふつう":"#94a3b8","やや不満":"#fb923c","かえて欲しい":"#ef4444","不満":"#ef4444" };
+const Q5_ORDER  = ["大満足","満足","まあ満足","ふつう","やや不満","かえて欲しい"];
+const CHANGE_Q5 = new Set(["かえて欲しい","やや不満","不満"]);
+
+// 高校細目 → 中学5教科 への変換マッピング
+const SUBJECT_MAP = [
+  ["国語", ["国語","現代文","現代の国語","古典","古文","漢文","言語文化","論理国語","文学国語","国語表現","作文"]],
+  ["数学", ["数学","数Ⅰ","数I","数Ⅱ","数II","数Ⅲ","数III","数A","数Ａ","数B","数Ｂ","数C","数Ｃ","算数"]],
+  ["英語", ["英語","英コミ","英語コミュニケーション","コミュ英","論表","論理表現","英表","英語表現","リーディング","ライティング"]],
+  ["理科", ["理科","物理","物理基礎","化学","化学基礎","生物","生物基礎","地学","地学基礎"]],
+  ["社会", ["社会","地理","地理総合","歴史","歴史総合","日本史","世界史","地理歴史","公共","倫理","政治経済","政経","現代社会","公民"]],
+];
+// 5教科に当てはまらないが、照合する独立科目（担当も回答もこの科目名なら一致）
+const SUBJECT_STANDALONE = ["総合型","総合型選抜","小論文"];
+// 完全に照合対象外（担当ペアからも除外する科目）
+const SUBJECT_IGNORE = ["探究","探求","推薦","面接","志望理由",
+  "英単語DOJO","英単語dojo","DOJO","キュレオ","入自理","入自社",
+  "算数","小国語","小学英語","入門"];
+
+function toCoreSubject(s){
+  s=String(s||"").trim();
+  if(!s) return "";
+  if(SUBJECT_IGNORE.some(x=>s.includes(x))) return "__ignore__";
+  // 総合型・小論文は5教科に混ぜず、その科目名のまま照合
+  for(const x of SUBJECT_STANDALONE){ if(s.includes(x)) return x==="総合型選抜"?"総合型":x; }
+  for(const [core,list] of SUBJECT_MAP){
+    if(core===s) return core;
+    if(list.some(x=>s.includes(x)||x.includes(s))) return core;
+  }
+  return "__unknown__"; // 分類不明
+}
+// カナ（半角/全角）→ひらがな
+function toHira(s){
+  s=String(s||"").normalize("NFKC");
+  return s.replace(/[\u30a1-\u30f6]/g,c=>String.fromCharCode(c.charCodeAt(0)-0x60));
+}
+// 異体字の正規化テーブル（旧字・異体字 → 常用字）。名前でよく使われるもの。
+const KANJI_VARIANTS = {
+  "髙":"高","﨑":"崎","嵜":"崎","邊":"辺","邉":"辺","德":"徳","眞":"真",
+  "廣":"広","澤":"沢","齋":"斎","齊":"斉","濱":"浜","國":"国","榮":"栄",
+  "龍":"竜","瀨":"瀬","渕":"淵","條":"条","桒":"桑","靑":"青","𠮷":"吉",
+  "槇":"槙","萬":"万","與":"与","盃":"杯",
+};
+function normName(s){
+  let str=toHira(s);
+  str=str.replace(/./g,c=>KANJI_VARIANTS[c]||c); // 異体字を1文字ずつ置換
+  return str.replace(/[\s　・･,，、]/g,"").trim();
+}
+// 学年が小学生かどうか
+function isElementary(grade){ return /小|小学|^[1-6]年$/.test(String(grade||"")); }
+// 先生名字→先生コード（名簿roster利用、姓の一致）
+function teacherNameToCode(name, roster){
+  name=String(name||"").trim();
+  if(!name) return "";
+  const entries=Object.entries(roster);
+  const seiOf=t=>(t.name||"").split(/[ 　]/)[0];
+  // ① フルネーム完全一致
+  for(const [code,t] of entries){ if(name===t.name) return code; }
+  // ② 姓の完全一致（「宮本」=「宮本」を優先、「宮」には誤マッチさせない）
+  for(const [code,t] of entries){ if(seiOf(t)===name) return code; }
+  // ③ 名簿名が入力名で始まる（入力が姓のみで名簿がフルネーム等）。最長一致を採用
+  let best="", bestLen=-1;
+  for(const [code,t] of entries){
+    const sei=seiOf(t); if(!sei) continue;
+    // 入力「姓＋名」←→名簿の「姓」のように、入力が姓で始まるケースも拾う
+    if(name.startsWith(sei) || sei.startsWith(name)){
+      const matchLen=Math.min(name.length, sei.length);
+      if(matchLen>bestLen){ bestLen=matchLen; best=code; }
+    }
+  }
+  return best;
+}
+
+const SAMPLE_RESPONSES = [
+  {id:1,campus:"戸塚西口",studentName:"いしわたすかい",grade:"中２",teacherCode:"291",subject:"英語",q1:"ふつう",q2:"ふつう",q3:"ふつう",q4:"ふつう",q5:"ふつう",comment:"変えない"},
+  {id:2,campus:"戸塚西口",studentName:"いしわたすかい",grade:"中２",teacherCode:"291",subject:"英語",q1:"ふつう",q2:"ふつう",q3:"ふつう",q4:"ふつう",q5:"ふつう",comment:"変えない"},
+  {id:3,campus:"戸塚西口",studentName:"おおがねちえり",grade:"中３",teacherCode:"279",subject:"英語",q1:"満足",q2:"満足",q3:"満足",q4:"満足",q5:"大満足",comment:""},
+  {id:4,campus:"戸塚西口",studentName:"おおがねちえり",grade:"中３",teacherCode:"299",subject:"数学",q1:"満足",q2:"満足",q3:"満足",q4:"満足",q5:"大満足",comment:""},
+  {id:5,campus:"戸塚西口",studentName:"たかはし ゆうと",grade:"中３",teacherCode:"289",subject:"社会",q1:"満足",q2:"満足",q3:"満足",q4:"満足",q5:"大満足",comment:""},
+  {id:6,campus:"戸塚西口",studentName:"たかはし ゆうと",grade:"中３",teacherCode:"310",subject:"国語",q1:"満足",q2:"満足",q3:"満足",q4:"満足",q5:"大満足",comment:""},
+  {id:7,campus:"戸塚西口",studentName:"たかはし ゆうと",grade:"中３",teacherCode:"322",subject:"英語",q1:"満足",q2:"満足",q3:"満足",q4:"満足",q5:"大満足",comment:""},
+  {id:8,campus:"戸塚西口",studentName:"たかはし ゆうと",grade:"中３",teacherCode:"301",subject:"理科",q1:"満足",q2:"満足",q3:"満足",q4:"満足",q5:"大満足",comment:""},
+  {id:9,campus:"戸塚西口",studentName:"たかはし ゆうと",grade:"中３",teacherCode:"328",subject:"数学",q1:"満足",q2:"満足",q3:"満足",q4:"満足",q5:"大満足",comment:""},
+  {id:10,campus:"戸塚西口",studentName:"いずみしゅうご",grade:"中１",teacherCode:"289",subject:"数学",q1:"まあ満足",q2:"まあ満足",q3:"まあ満足",q4:"まあ満足",q5:"大満足",comment:""},
+  {id:11,campus:"戸塚西口",studentName:"いずみしゅうご",grade:"中１",teacherCode:"301",subject:"英語",q1:"満足",q2:"満足",q3:"満足",q4:"満足",q5:"大満足",comment:""},
+];
+
+const SAMPLE_ROSTER = {  // 公開版のため空。先生名簿は先生CSV取込またはスプシ同期で入る
+};
+
+// ════════════════════════════════════════════════════════════
+const LS = {
+  get(k,def){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):def; }catch{ return def; } },
+  set(k,v){
+    try{
+      const str=JSON.stringify(v);
+      localStorage.setItem(k,str);
+      // 書き込めたか確認（容量オーバーの場合サイレントに失敗することがある）
+      if(localStorage.getItem(k)===null){
+        console.warn("LS write silently failed:", k);
+        return false;
+      }
+      return true;
+    }catch(e){
+      // 容量オーバーなど
+      console.warn("LS write error:", k, e.message);
+      return false;
+    }
+  },
+  del(k){ try{ localStorage.removeItem(k); }catch{} },
+  // バイト数を推定
+  sizeOf(v){ try{ return new Blob([JSON.stringify(v)]).size; }catch{ return 0; } },
+};
+
+let state = {
+  allRecords: LS.get("survey_allRecords", SAMPLE_RESPONSES),
+  roster: Object.assign({}, SAMPLE_ROSTER, LS.get("survey_roster", {})),
+  campus: LS.get("survey_campus", "戸塚西口"),
+  tab: "list",
+  threshold: LS.get("survey_threshold", 1),
+  archives: LS.get("survey_archives", {}),   // {archiveName: {records, work, savedAt}}
+  assignments: LS.get("survey_assignments", []), // 担当ペア [{seiHira,name,grade,subject,core,yobi,teacher}]
+  viewingArchive: null,                       // 閲覧中アーカイブ名（nullなら現役）
+  filter: { teacher:"",subject:"",q5:"",flagOnly:false,query:"" },
+  err: "",
+  saveStatus: "",
+  modal: null,
+  expandedDays: null, // null=初期状態（今日だけ自動展開）、Set=ユーザーが操作した状態
+  expandedTeachers: {}, // 先生別タブの生徒一覧の展開状態
+  rankMetric: "q1", // 集計ランキングの選択項目
+  nameAliases: LS.get("survey_nameAliases", {}), // 手動名寄せ {回答名(正規化): 名簿フルネーム(正規化)}
+};
+
+// 判断キー: 生徒×先生（id単位で一意）
+function workKey(){ return `survey_work__${state.campus}`; }
+function loadWork(){
+  const w=LS.get(workKey(),{flags:{},decisions:{},notes:{}});
+  state.flags=w.flags||{}; state.decisions=w.decisions||{}; state.notes=w.notes||{};
+}
+function saveWork(){
+  const ok=LS.set(workKey(),{flags:state.flags,decisions:state.decisions,notes:state.notes});
+  if(ok===false){
+    flashSave("⚠ 保存失敗（容量不足？）");
+  } else {
+    flashSave("✅ 保存済み");
+  }
+}
+loadWork();
+
+let saveTimer=null, statusTimer=null;
+function flashSave(msg){
+  state.saveStatus=msg;
+  const el=document.getElementById("saveStatus"); if(el) el.textContent=msg;
+  clearTimeout(statusTimer);
+  statusTimer=setTimeout(()=>{ state.saveStatus=""; const e=document.getElementById("saveStatus"); if(e)e.textContent=""; },1500);
+}
+
+// ════════════════════════════════════════════════════════════
+// 項目別スコア: q5は⑤用、q1〜q4は①〜④用
+function scKey(v,key){ return (key==="q5"?SCORE_Q5:SCORE_Q14)[v] ?? 3; }
+const sc = v => SCORE_MAP[v] ?? 3; // 汎用（⑤の相対比較で使用）
+const avgSc = (arr,key) => arr.length ? +(arr.reduce((s,r)=>s+scKey(r[key],key),0)/arr.length).toFixed(2) : 0;
+const esc = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+function tName(code){ return state.roster[code]?.name || ""; }
+function tLabel(code){ const n=tName(code); return n?`${code} ${n}`:code; }
+const scoreColor = function(v){ const s=sc(v); return s>=4?"#16a34a":s>=3?"#ca8a04":"#dc2626"; };
+// 先生コードの正規化：小数点除去・数字だけ抽出・下3桁を3桁ゼロ埋め
+function normCode(v){
+  let s=String(v==null?"":v).trim();
+  if(s.includes(".")) s=s.split(".")[0];     // "291.0" → "291"
+  s=s.replace(/[^0-9]/g,"");                  // 数字以外を除去
+  if(s.length>3) s=s.slice(-3);               // 7桁等なら下3桁
+  return s.padStart(3,"0");
+}
+
+// 現役 or アーカイブ閲覧中かでデータ源を切替
+function activeRecords(){
+  if(state.viewingArchive){ return state.archives[state.viewingArchive]?.records || []; }
+  return state.allRecords;
+}
+function responses(){ return activeRecords().filter(r=>!state.campus||r.campus===state.campus); }
+function campuses(){ return [...new Set(state.allRecords.map(r=>r.campus).filter(Boolean))].sort(); }
+function teachers(){ return [...new Set(responses().map(r=>r.teacherCode))].sort(); }
+function subjects(){ return [...new Set(responses().map(r=>r.subject))].sort(); }
+
+function filtered(){
+  const f=state.filter;
+  return responses().filter(r=>{
+    if(f.teacher && r.teacherCode!==f.teacher) return false;
+    if(f.subject && r.subject!==f.subject) return false;
+    if(f.q5 && r.q5!==f.q5) return false;
+    if(f.flagOnly && !state.flags[r.id]) return false;
+    if(f.query){
+      const hay=`${r.studentName}${r.teacherCode}${tName(r.teacherCode)}${r.subject}${r.comment}`;
+      if(!hay.includes(f.query)) return false;
+    }
+    return true;
+  });
+}
+function dups(){
+  const seen={},res=[];
+  responses().forEach(r=>{ const k=`${r.studentName}__${r.teacherCode}`; if(seen[k])res.push({cur:r,prev:seen[k]}); else seen[k]=r; });
+  return res;
+}
+// 重複を一括削除：同じ生徒×先生のうち id 最大（最新取り込み）だけ残す
+function dedupeKeepLatest(){
+  const groups={};
+  responses().forEach(r=>{ const k=`${r.studentName}__${r.teacherCode}`; (groups[k]=groups[k]||[]).push(r); });
+  const toDelete=[];
+  Object.values(groups).forEach(list=>{
+    if(list.length<2) return;
+    const keepId=Math.max(...list.map(r=>r.id));
+    list.forEach(r=>{ if(r.id!==keepId) toDelete.push(r.id); });
+  });
+  if(!toDelete.length){ toast("重複はありません"); return; }
+  askConfirm(`重複した回答 ${toDelete.length}件 を削除します（各組で最新の回答だけ残します）。続けますか？`, ()=>{
+    const delSet=new Set(toDelete);
+    state.allRecords=state.allRecords.filter(r=>!delSet.has(r.id));
+    LS.set("survey_allRecords",state.allRecords);
+    toDelete.forEach(id=>{ delete state.flags[id]; delete state.decisions[id]; delete state.notes[id]; });
+    saveWork();
+    toast(`✅ 重複 ${toDelete.length}件 を削除しました`); render();
+  });
+}
+function teacherStats(){
+  return teachers().map(t=>{
+    const tr=responses().filter(r=>r.teacherCode===t);
+    return { code:t,count:tr.length,subjects:[...new Set(tr.map(r=>r.subject))].join("・"),
+      avgQ1:avgSc(tr,"q1"),avgQ2:avgSc(tr,"q2"),avgQ3:avgSc(tr,"q3"),avgQ4:avgSc(tr,"q4"),avgQ5:avgSc(tr,"q5") };
+  });
+}
+// 1回答の①〜⑤平均（5項目を1〜5で平均）
+function rowAvg(r){
+  return (scKey(r.q1,"q1")+scKey(r.q2,"q2")+scKey(r.q3,"q3")+scKey(r.q4,"q4")+scKey(r.q5,"q5"))/5;
+}
+// この回答に不満系が含まれるか（①〜④の「不満/やや不満」＋⑤の「かえてほしい/やや不満」）
+const CHANGE_Q14=new Set(["不満","やや不満"]);
+function hasDirectComplaint(r){
+  if(CHANGE_Q5.has(r.q5)) return true;
+  return [r.q1,r.q2,r.q3,r.q4].some(v=>CHANGE_Q14.has(v));
+}
+function reviewCandidates(){
+  const rs=responses(), names=[...new Set(rs.map(r=>r.studentName))], result={};
+  teachers().forEach(t=>{ result[t]={code:t,reasons:[]}; });
+  // 直接不満：①〜④の不満系 または ⑤のかえてほしい
+  rs.forEach(r=>{ if(hasDirectComplaint(r)) result[r.teacherCode].reasons.push({type:"direct",r}); });
+  // 相対低評価：同じ生徒の中で、この先生への①〜⑤平均 vs 他先生への①〜⑤平均
+  names.forEach(name=>{
+    const sr=rs.filter(r=>r.studentName===name); if(sr.length<2) return;
+    sr.forEach(r=>{
+      const others=sr.filter(o=>o.teacherCode!==r.teacherCode); if(!others.length) return;
+      const oAvg=others.reduce((s,o)=>s+rowAvg(o),0)/others.length, my=rowAvg(r);
+      if(oAvg-my>=state.threshold && !hasDirectComplaint(r)){
+        if(!result[r.teacherCode].reasons.some(x=>x.r.id===r.id))
+          result[r.teacherCode].reasons.push({type:"relative",r,myScore:+my.toFixed(1),othersAvg:+oAvg.toFixed(1)});
+      }
+    });
+  });
+  return Object.values(result).filter(t=>t.reasons.length>0);
+}
+
+// ── 担当ペア照合 ──────────────────────────────────────────────
+// アンケート回答の生徒姓(ひらがな)を取得（姓名つながりなので前方一致用）
+function respSei(r){ return toHira(r.studentName); }
+// 回答の生徒名を比較用に正規化（漢字/カタカナ/ひらがな/空白ゆらぎ吸収）
+function respNameNorm(r){ return normName(r.studentName); }
+// 回答(r)が担当ペア(a)と同一生徒かを判定（ひらがな・漢字・異体字・手動名寄せで照合）
+function sameStudent(r, a){
+  const rn=respNameNorm(r);           // 回答名を正規化
+  if(a.fullHira && rn===a.fullHira) return true;          // ひらがなフルネーム一致
+  if(a.fullKanji && rn===a.fullKanji) return true;        // 漢字フルネーム一致
+  // 手動名寄せ：回答名→名簿フルネームの対応が登録されていれば一致
+  const alias=state.nameAliases[rn];
+  if(alias && (alias===a.fullHira || alias===a.fullKanji)) return true;
+  // フルネームが取れない場合は姓の前方一致でフォールバック
+  if(!a.fullHira && a.seiHira && rn.startsWith(a.seiHira)) return true;
+  return false;
+}
+// 担当ペア名簿のどの生徒とも一致しない回答の生徒名一覧（手動名寄せ候補）
+function unmatchedStudents(){
+  if(!state.assignments.length) return [];
+  const rs=responses();
+  const seen={};
+  rs.forEach(r=>{
+    if(r.elem) return; // 小学生は担当ペア名簿対象外なので照合しない
+    const rn=respNameNorm(r);
+    if(seen[rn]!==undefined) return;
+    const matched=state.assignments.some(a=>sameStudent(r,a));
+    seen[rn]={ norm:rn, name:r.studentName, grade:r.grade, matched };
+  });
+  return Object.values(seen).filter(s=>!s.matched);
+}
+// 名簿の生徒フルネーム一覧（名寄せ先の選択肢）
+function rosterStudents(){
+  const m={};
+  state.assignments.forEach(a=>{
+    const key=a.fullKanji||a.fullHira;
+    if(key && !m[key]) m[key]={ label:a.fullHira||a.fullKanji, fullHira:a.fullHira, fullKanji:a.fullKanji, grade:a.grade };
+  });
+  return Object.values(m);
+}
+function openAliasModal(respNorm, respName){
+  state.modal={ type:"alias", respNorm, respName, target:"" };
+  render();
+}
+function applyAlias(){
+  const m=state.modal; if(!m||!m.target){ toast("名簿の生徒を選んでください"); return; }
+  state.nameAliases[m.respNorm]=m.target;
+  LS.set("survey_nameAliases",state.nameAliases);
+  state.modal=null; toast("✅ 名寄せしました"); render();
+}
+function removeAlias(respNorm){
+  delete state.nameAliases[respNorm];
+  LS.set("survey_nameAliases",state.nameAliases);
+  toast("名寄せを解除しました"); render();
+}
+// 担当ペアを生徒姓ごとにまとめる
+function assignBySei(){
+  const m={};
+  state.assignments.forEach(a=>{ (m[a.seiHira]=m[a.seiHira]||[]).push(a); });
+  return m;
+}
+// 回答が担当ペアと一致するか照合し、誤入力を理由別に分類
+function matchResults(){
+  const aMap=assignBySei();
+  const rs=responses();
+  const errors={ teacher:[], subject:[], pair:[] }; // 先生番号ミス / 科目ちがい / 担当ペアなし
+  rs.forEach(r=>{
+    if(r.elem) return; // 小学生は照合対象外
+    // この回答の生徒の担当ペアを探す（ひらがな・漢字どちらの入力でも照合）
+    let myAssigns=null;
+    for(const list of Object.values(aMap)){
+      if(list.some(a=>sameStudent(r,a))){ myAssigns=list; break; }
+    }
+    if(!myAssigns){ return; } // 名簿にいない生徒はスルー（小学生や未取り込み）
+    const respTeacherName=tName(r.teacherCode);
+    const respSeiName=(respTeacherName||"").split(/[ 　]/)[0];
+    const respCore=toCoreSubject(r.subject);
+    // この生徒の担当ペアの中で、先生姓が一致するものを探す
+    const teacherMatch=myAssigns.filter(a=>{
+      const aCode=teacherNameToCode(a.teacher,state.roster);
+      return aCode && aCode===r.teacherCode;
+    });
+    if(!teacherMatch.length){
+      errors.teacher.push({r, assigns:myAssigns}); return;
+    }
+    // 先生は合っている → 科目照合（5教科変換後）
+    const subjOk=teacherMatch.some(a=>{
+      const ac=a.core;
+      if(ac==="__ignore__"||respCore==="__ignore__") return true; // 総合型等はスルー
+      return ac===respCore;
+    });
+    if(!subjOk){
+      errors.subject.push({r, expect:teacherMatch.map(a=>a.core==="__unknown__"?a.subject:a.core)}); 
+    }
+  });
+  return errors;
+}
+// 曜日別の未回答生徒
+// ── 回答率の計算 ──────────────────────────────────────────────
+// 担当ペア1件ごとに「回答済みか」を判定して返す（曜日別・未回答リスト用。週複数回もそのまま）
+function assignmentAnswerStatus(){
+  const rs=responses();
+  return state.assignments.map(a=>{
+    const code=teacherNameToCode(a.teacher,state.roster);
+    const answered=rs.some(r=>r.teacherCode===code && sameStudent(r,a));
+    return { ...a, code, answered };
+  });
+}
+// 「生徒×先生×科目」でユニーク化した担当ペア（回答率の分母用。週2回は1件に集約）
+function uniqueAssignments(){
+  const seen={}, out=[];
+  assignmentAnswerStatus().forEach(s=>{
+    const key=`${s.fullHira||s.seiHira}__${s.code}__${toCoreSubject(s.subject)}`;
+    if(seen[key]){ if(s.answered) seen[key].answered=true; return; } // 同キーは1件に、回答済みを優先
+    seen[key]={...s}; out.push(seen[key]);
+  });
+  return out;
+}
+// 全体＆曜日別の回答率（分母は 生徒×先生×科目 のユニーク）
+function responseRates(){
+  const uniq=uniqueAssignments();
+  const week={ "月":{a:0,t:0},"火":{a:0,t:0},"水":{a:0,t:0},"木":{a:0,t:0},"金":{a:0,t:0},"土":{a:0,t:0} };
+  let totA=0, totT=0;
+  // 曜日別は「その曜日に授業がある担当ペア」を数える（曜日情報が要るので元データで集計）
+  assignmentAnswerStatus().forEach(s=>{
+    if(s.yobi&&week[s.yobi]){ week[s.yobi].t++; if(s.answered)week[s.yobi].a++; }
+  });
+  // 全体はユニークで数える
+  uniq.forEach(s=>{ totT++; if(s.answered)totA++; });
+  return { week, total:{a:totA,t:totT} };
+}
+// 先生別の回答率（分母=生徒×先生×科目のユニーク担当ペア、分子=実際の回答レコード数）
+function teacherResponseRates(){
+  const m={};
+  // 分母：担当ペアのユニーク数
+  uniqueAssignments().forEach(s=>{ if(!s.code)return; (m[s.code]=m[s.code]||{a:0,t:0}); m[s.code].t++; });
+  // 分子：実際の回答レコード数（小学生は担当ペア対象外なので除外）
+  responses().forEach(r=>{ if(r.elem)return; if(!m[r.teacherCode]) m[r.teacherCode]={a:0,t:0}; m[r.teacherCode].a++; });
+  return m;
+}
+
+function weekdayAbsentees(){
+  const aMap=assignBySei();
+  const rs=responses();
+  const isAnswered=(a, code)=>rs.some(r=>r.teacherCode===code && sameStudent(r,a));
+  const week={ "月":[],"火":[],"水":[],"木":[],"金":[],"土":[] };
+  Object.entries(aMap).forEach(([sei,list])=>{
+    list.forEach(a=>{
+      if(!a.yobi||!week[a.yobi]) return;
+      const code=teacherNameToCode(a.teacher,state.roster);
+      if(!isAnswered(a, code)){
+        week[a.yobi].push({ sei:(a.fullHira||sei), grade:a.grade, subject:a.subject, teacher:a.teacher, code });
+      }
+    });
+  });
+  return week;
+}
+
+// ════════════════════════════════════════════════════════════
+//  文字コード判別
+// ════════════════════════════════════════════════════════════
+function decodeBytes(buf){
+  const bytes=new Uint8Array(buf);
+  const utf8=new TextDecoder("utf-8",{fatal:false}).decode(bytes);
+  const bad=(utf8.match(/\uFFFD/g)||[]).length;
+  if(bad>0){
+    try{
+      const sjis=new TextDecoder("shift_jis",{fatal:false}).decode(bytes);
+      if(((sjis.match(/\uFFFD/g)||[]).length)<=bad) return sjis;
+    }catch{}
+  }
+  return utf8;
+}
+function stripHTML(text){
+  if(!/<[a-z!][\s\S]*>/i.test(text)) return text;
+  const tmp=document.createElement("div"); tmp.innerHTML=text;
+  return tmp.textContent||tmp.innerText||text;
+}
+
+// ════════════════════════════════════════════════════════════
+//  ファイル取り込み
+// ════════════════════════════════════════════════════════════
+// ── 自前XLSXパーサー（外部ライブラリ不要・オフライン対応） ──
+// XLSXはZIP。ブラウザ標準のDecompressionStreamでdeflate展開して読む。
+async function inflateRaw(bytes){
+  const ds=new DecompressionStream("deflate-raw");
+  const stream=new Blob([bytes]).stream().pipeThrough(ds);
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+// ZIP内の各ファイルを {name: Uint8Array} で返す
+async function unzip(buf){
+  const dv=new DataView(buf), bytes=new Uint8Array(buf), files={};
+  // End of Central Directory を末尾から探す
+  let eocd=-1;
+  for(let i=bytes.length-22; i>=0; i--){ if(dv.getUint32(i,true)===0x06054b50){ eocd=i; break; } }
+  if(eocd<0) throw new Error("ZIP構造が不正です");
+  let cdOff=dv.getUint32(eocd+16,true), cnt=dv.getUint16(eocd+10,true), p=cdOff;
+  for(let i=0;i<cnt;i++){
+    if(dv.getUint32(p,true)!==0x02014b50) break;
+    const method=dv.getUint16(p+10,true);
+    const compSize=dv.getUint32(p+20,true);
+    const nameLen=dv.getUint16(p+28,true);
+    const extraLen=dv.getUint16(p+30,true);
+    const commLen=dv.getUint16(p+32,true);
+    const lhOff=dv.getUint32(p+42,true);
+    const name=new TextDecoder("utf-8").decode(bytes.subarray(p+46,p+46+nameLen));
+    // ローカルヘッダから実データ位置を計算
+    const lhNameLen=dv.getUint16(lhOff+26,true);
+    const lhExtraLen=dv.getUint16(lhOff+28,true);
+    const dataStart=lhOff+30+lhNameLen+lhExtraLen;
+    const comp=bytes.subarray(dataStart,dataStart+compSize);
+    files[name]= method===0 ? comp.slice() : await inflateRaw(comp);
+    p+=46+nameLen+extraLen+commLen;
+  }
+  return files;
+}
+function xmlText(u8){ return new TextDecoder("utf-8").decode(u8); }
+// セル参照 "C5" → 列インデックス(0始まり)
+function colIndex(ref){
+  const m=ref.match(/^([A-Z]+)/); if(!m) return 0;
+  let n=0; for(const ch of m[1]) n=n*26+(ch.charCodeAt(0)-64);
+  return n-1;
+}
+async function parseXLSX(buf, sheetNameWanted){
+  const files=await unzip(buf);
+  // sharedStrings
+  const shared=[];
+  if(files["xl/sharedStrings.xml"]){
+    const xml=xmlText(files["xl/sharedStrings.xml"]);
+    const siRe=/<si\b[^>]*>([\s\S]*?)<\/si>/g; let m;
+    while((m=siRe.exec(xml))){
+      const tRe=/<t\b[^>]*>([\s\S]*?)<\/t>/g; let t,s="";
+      while((t=tRe.exec(m[1]))) s+=decodeXMLEntities(t[1]);
+      shared.push(s);
+    }
+  }
+  // シート特定：名前指定があれば workbook.xml + rels から該当シートXMLを探す
+  let sheetFile=null;
+  if(sheetNameWanted && files["xl/workbook.xml"] && files["xl/_rels/workbook.xml.rels"]){
+    const wb=xmlText(files["xl/workbook.xml"]);
+    const rels=xmlText(files["xl/_rels/workbook.xml.rels"]);
+    // シート名→r:id
+    let sm, rid=null;
+    const sRe=/<sheet\b[^>]*name="([^"]*)"[^>]*r:id="([^"]*)"[^>]*\/?>/g;
+    while((sm=sRe.exec(wb))){ if(decodeXMLEntities(sm[1])===sheetNameWanted){ rid=sm[2]; break; } }
+    if(rid){
+      // r:id→ファイルパス
+      const rRe=new RegExp('<Relationship\\b[^>]*Id="'+rid+'"[^>]*Target="([^"]*)"','i');
+      const rmn=rels.match(rRe);
+      if(rmn){ let tgt=rmn[1].replace(/^\/?xl\//,"").replace(/^\//,""); sheetFile="xl/"+tgt.replace(/^xl\//,""); }
+    }
+  }
+  // 見つからなければ従来通り sheet1
+  let sheetName=sheetFile && files[sheetFile] ? sheetFile
+    : (Object.keys(files).find(n=>/^xl\/worksheets\/sheet1\.xml$/.test(n))
+       || Object.keys(files).find(n=>/^xl\/worksheets\/.*\.xml$/.test(n)));
+  const sx=xmlText(files[sheetName]);
+  const rows=[];
+  const rowRe=/<row\b[^>]*>([\s\S]*?)<\/row>/g; let rm;
+  while((rm=rowRe.exec(sx))){
+    const cells=[];
+    const cRe=/<c\b([^>]*)>([\s\S]*?)<\/c>|<c\b([^>]*)\/>/g; let cm;
+    while((cm=cRe.exec(rm[1]))){
+      const attr=(cm[1]||cm[3]||""); const inner=cm[2]||"";
+      const refM=attr.match(/r="([A-Z]+\d+)"/); const idx=refM?colIndex(refM[1]):cells.length;
+      const isStr=/t="s"/.test(attr);
+      const vM=inner.match(/<v\b[^>]*>([\s\S]*?)<\/v>/);
+      const isInline=/t="inlineStr"/.test(attr);
+      let val="";
+      if(isInline){ const tM=inner.match(/<t\b[^>]*>([\s\S]*?)<\/t>/); val=tM?decodeXMLEntities(tM[1]):""; }
+      else if(vM){ val = isStr ? (shared[parseInt(vM[1],10)]||"") : decodeXMLEntities(vM[1]); }
+      cells[idx]=val;
+    }
+    for(let i=0;i<cells.length;i++) if(cells[i]==null) cells[i]="";
+    rows.push(cells);
+  }
+  return rows;
+}
+// xlsxに含まれる全シート名を取得
+async function xlsxSheetNames(buf){
+  const files=await unzip(buf);
+  if(!files["xl/workbook.xml"]) return [];
+  const wb=xmlText(files["xl/workbook.xml"]);
+  const names=[]; let sm;
+  const sRe=/<sheet\b[^>]*name="([^"]*)"/g;
+  while((sm=sRe.exec(wb))) names.push(decodeXMLEntities(sm[1]));
+  return names;
+}
+function decodeXMLEntities(s){
+  return s.replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(+n)).replace(/&amp;/g,"&");
+}
+
+async function onSurveyFile(input){
+  const file=input.files[0]; if(!file) return;
+  state.err="読み込み中…"; render();
+  try{
+    const buf=await file.arrayBuffer();
+    let raw;
+    if(/\.csv$/i.test(file.name)){
+      const text=stripHTML(decodeBytes(buf));
+      raw=text.replace(/\r/g,"").trim().split("\n").map(line=>{
+        const cells=[]; let cur="",inQ=false;
+        for(const ch of line){ if(ch==='"')inQ=!inQ; else if(ch===','&&!inQ){cells.push(cur);cur="";} else cur+=ch; }
+        cells.push(cur); return cells;
+      });
+    } else {
+      raw=await parseXLSX(buf); // 自前パーサーのみ（外部ライブラリ不使用）
+    }
+    const headers=raw[0]||[];
+    const tcCols=headers.reduce((a,h,i)=>{ if(String(h).includes("先生コード"))a.push(i); return a; },[]);
+    if(!tcCols.length) throw new Error("「先生コード」列が見つかりません");
+    // 生徒の一言（BG列）：最後の先生ブロックの後ろにある列。
+    // 「理由も書いて」は各先生ブロックに出るので最後の出現を使い、その次の列を生徒メッセージとする
+    let lastReasonCol=-1;
+    headers.forEach((h,i)=>{ if(String(h).includes("理由も書いて")) lastReasonCol=i; });
+    let msgCol = lastReasonCol>=0 ? lastReasonCol+1 : headers.length-1;
+    const recs=[]; let uid=0;
+    raw.slice(1).forEach(row=>{
+      const camp=row[1];
+      const studentMsg=String(row[msgCol]||"").trim();
+      tcCols.forEach(base=>{
+        const tc=row[base]; if(!tc) return;
+        uid++;
+        recs.push({ id:uid,campus:camp||"",studentName:row[2]||"",grade:row[3]||"",
+          teacherCode:normCode(tc),subject:row[base+1]||"",
+          q1:row[base+2]||"",q2:row[base+3]||"",q3:row[base+4]||"",q4:row[base+5]||"",q5:row[base+6]||"",
+          comment:String(row[base+7]||"").trim(),
+          studentMsg });
+      });
+    });
+    state.allRecords=recs;
+    const campusList=[...new Set(recs.map(r=>r.campus).filter(Boolean))];
+    const first=campusList.includes(state.campus)?state.campus:(campusList[0]||"");
+    state.campus=first; LS.set("survey_campus",first);
+    // localStorageには選択校舎のデータだけ保存（容量節約）
+    const toSave=first ? recs.filter(r=>r.campus===first) : recs;
+    const sizeKB=Math.round(LS.sizeOf(toSave)/1024);
+    const ok=LS.set("survey_allRecords", toSave);
+    if(!ok){
+      state.err=`⚠ データの保存に失敗しました（推定${sizeKB}KB）。容量不足の可能性があります。`;
+    }
+    loadWork();
+    toast(`✅ ${toSave.length} 件を取り込みました（${sizeKB}KB）${first?" · "+first:""}`); render();
+  }catch(err){ state.err="読み込みエラー: "+err.message; render(); }
+  input.value="";
+}
+function onTeacherFile(input){
+  const file=input.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      let text=stripHTML(decodeBytes(e.target.result));
+      const lines=text.replace(/\r/g,"").trim().split("\n");
+      const roster={...state.roster}; const dupWarn=[]; let added=0;
+      lines.forEach(line=>{
+        const cells=[]; let cur="",inQ=false;
+        for(const ch of line){ if(ch==='"')inQ=!inQ; else if(ch===','&&!inQ){cells.push(cur);cur="";} else cur+=ch; }
+        cells.push(cur);
+        const full=String(cells[0]||"").trim();
+        const name=String(cells[1]||"").trim().replace(/^"|"$/g,"");
+        const nick=String(cells[6]||"").trim().replace(/^"|"$/g,"");
+        if(!/^\d{6,7}$/.test(full)) return;
+        const code=full.slice(-3);
+        if(roster[code]&&roster[code].full!==full) dupWarn.push(code);
+        roster[code]={full,name,nick}; added++;
+      });
+      state.roster=roster; LS.set("survey_roster",roster);
+      state.err = added===0 ? "⚠ 先生番号が見つかりませんでした"
+                : dupWarn.length ? `⚠ 下3桁が重複: ${[...new Set(dupWarn)].join(",")}`
+                : `✅ 先生 ${added} 名を取り込みました`;
+      render(); if(added>0) setTimeout(()=>{ state.err=""; render(); },2500);
+    }catch(err){ state.err="名簿読み込みエラー: "+err.message; render(); }
+  };
+  reader.readAsArrayBuffer(file); input.value="";
+}
+
+// ── 担当ペア名簿（時間割）取り込み: Excel/CSV両対応 ──
+// ── 小学生アンケート取り込み（縦長フォーマット・校舎シート別） ──
+async function onElemSurveyFile(input){
+  const file=input.files[0]; if(!file) return;
+  state.err="読み込み中…"; render();
+  try{
+    const buf=await file.arrayBuffer();
+    // 今の校舎のシートを探す
+    const sheets=await xlsxSheetNames(buf);
+    if(!sheets.length) throw new Error("シートが見つかりません");
+    let target=sheets.find(n=>n===state.campus);
+    if(!target) target=sheets.find(n=>state.campus && (n.includes(state.campus)||state.campus.includes(n)));
+    if(!target) throw new Error(`「${state.campus||"校舎未選択"}」のシートが見つかりません。校舎を選んでから取り込んでください。`);
+    const raw=await parseXLSX(buf, target);
+    // ヘッダー行を探す（「先生番号」を含む行）
+    let hRow=raw.findIndex(row=>row.some(c=>String(c).includes("先生番号")));
+    if(hRow<0) hRow=8; // フォールバック
+    const H=raw[hRow].map(x=>String(x||""));
+    const col=(kw)=>H.findIndex(h=>h.includes(kw));
+    const cName=col("お名前")>=0?col("お名前"):col("名前");
+    const cGrade=col("学年");
+    const cTcode=col("先生番号");
+    const cSubj=col("科目");
+    const cMsg=H.findIndex(h=>h.includes("伝えたい"));
+    // ①〜⑤は「No.1」〜「No.5」を含む列
+    const cQ=[1,2,3,4,5].map(n=>H.findIndex(h=>h.includes(`No.${n}`)));
+    const cReason=H.findIndex(h=>h.includes("No.6")||h.includes("理由"));
+    // 既存レコードの最大idから続ける
+    let uid=Math.max(0,...state.allRecords.map(r=>r.id||0));
+    const recs=[];
+    raw.slice(hRow+1).forEach(row=>{
+      const name=row[cName]; const tc=row[cTcode];
+      if(!name||!tc) return; // 生徒名か先生番号が空はスキップ
+      uid++;
+      recs.push({ id:uid, campus:state.campus, studentName:String(name).trim(), grade:String(row[cGrade]||"").trim(),
+        teacherCode:normCode(tc), subject:String(row[cSubj]||"").trim(),
+        q1:row[cQ[0]]||"",q2:row[cQ[1]]||"",q3:row[cQ[2]]||"",q4:row[cQ[3]]||"",q5:row[cQ[4]]||"",
+        comment:cReason>=0?String(row[cReason]||"").trim():"",
+        studentMsg:cMsg>=0?String(row[cMsg]||"").trim():"",
+        elem:true });
+    });
+    if(!recs.length) throw new Error("回答データが見つかりませんでした");
+    // 既存データに合流（追加）
+    state.allRecords=state.allRecords.concat(recs);
+    const toSave=state.campus ? state.allRecords.filter(r=>r.campus===state.campus) : state.allRecords;
+    const sizeKB=Math.round(LS.sizeOf(toSave)/1024);
+    const ok=LS.set("survey_allRecords", toSave);
+    if(!ok) state.err=`⚠ 保存に失敗しました（推定${sizeKB}KB）。容量不足の可能性があります。`;
+    toast(`✅ 小学生 ${recs.length}件を合流しました（${target}）`);
+    render();
+  }catch(err){ state.err="小学生アンケート読み込みエラー: "+err.message; render(); }
+  input.value="";
+}
+
+async function onAssignFile(input){
+  const file=input.files[0]; if(!file) return;
+  state.err="読み込み中…"; render();
+  try{
+    const buf=await file.arrayBuffer();
+    let rows;
+    const isCSV=/\.csv$/i.test(file.name);
+    if(isCSV){
+      const text=stripHTML(decodeBytes(buf));
+      rows=text.replace(/\r/g,"").trim().split("\n").map(line=>{
+        const cells=[]; let cur="",inQ=false;
+        for(const ch of line){ if(ch==='"')inQ=!inQ; else if(ch===','&&!inQ){cells.push(cur);cur="";} else cur+=ch; }
+        cells.push(cur); return cells;
+      });
+    } else {
+      rows=await parseXLSX(buf); // 自前パーサーのみ
+    }
+    const H=rows[0].map(x=>String(x||""));
+    const idx=(kw)=>H.findIndex(h=>h.includes(kw));
+    const seiCol=idx("ｾｲ")>=0?idx("ｾｲ"):idx("セイ");
+    const meiCol=idx("ﾒｲ")>=0?idx("ﾒｲ"):idx("メイ");
+    // 漢字の姓名列（「姓」「名」。ｾｲ/ﾒｲと混同しないよう完全一致で探す）
+    const seiKanjiCol=H.findIndex(h=>h==="姓");
+    const meiKanjiCol=H.findIndex(h=>h==="名");
+    const gradeCol=idx("学年");
+    // 通常授業の「科目(通常授業)①」位置から、6枠×3列を取得
+    let normStart=H.findIndex(h=>h.includes("科目(通常授業)")||h.includes("科目（通常授業）"));
+    if(normStart<0) normStart=H.findIndex(h=>h.includes("科目")); // フォールバック
+    const assigns=[]; let students=0, skipped=0;
+    rows.slice(1).forEach(r=>{
+      const grade=r[gradeCol]; const sei=r[seiCol]; const mei=meiCol>=0?r[meiCol]:"";
+      if(!sei) return;
+      if(isElementary(grade)){ skipped++; return; } // 小学生除外
+      students++;
+      const seiHira=toHira(sei);
+      const fullHira=toHira(sei)+toHira(mei); // 姓+名のフルネーム（同姓区別用）
+      // 漢字フルネーム（生徒が漢字で入力した場合の照合用）
+      const kanjiSei=seiKanjiCol>=0?String(r[seiKanjiCol]||""):"";
+      const kanjiMei=meiKanjiCol>=0?String(r[meiKanjiCol]||""):"";
+      const fullKanji=normName(kanjiSei+kanjiMei);
+      for(let k=0;k<6;k++){
+        const base=normStart+k*3;
+        const subj=r[base], yobiRaw=r[base+1], tch=r[base+2];
+        if(!subj||!tch) continue;
+        const subjStr=String(subj).trim();
+        const tchStr=String(tch).trim();
+        // 先生が時刻・数値の場合は除外（Excelの列ズレ）
+        if(/^\d+[\.:]\d+/.test(tchStr)||tchStr==="[object Object]") continue;
+        // 集計対象外科目・小学生科目を除外
+        if(toCoreSubject(subjStr)==="__ignore__") continue;
+        if(SUBJECT_IGNORE.some(x=>subjStr.includes(x))) continue;
+        const ym=String(yobiRaw||"").match(/[月火水木金土日]/);
+        assigns.push({ seiHira, fullHira, fullKanji, grade:String(grade||""), subject:String(subj),
+          core:toCoreSubject(subj), yobi:ym?ym[0]:"", teacher:String(tch).trim() });
+      }
+    });
+    state.assignments=assigns; LS.set("survey_assignments",assigns);
+    toast(`✅ 担当ペア ${assigns.length}件（生徒${students}名）を取り込みました${skipped?`／小学生${skipped}名を除外`:""}`);
+    render();
+  }catch(err){ state.err="担当ペア読み込みエラー: "+err.message; render(); }
+  input.value="";
+}
+
+// ════════════════════════════════════════════════════════════
+//  リセット・アーカイブ
+// ════════════════════════════════════════════════════════════
+function doArchiveAndReset(){
+  const name=(state.modal&&state.modal.value||"").trim();
+  if(!name){ toast("⚠ 学期名を入力してください（例: 2025冬）"); return; }
+  // 選択中の校舎の回答だけをアーカイブに保存
+  const campusRecords=state.allRecords.filter(r=>!state.campus||r.campus===state.campus);
+  const archiveName = state.campus ? `${name}／${state.campus}` : name;
+  state.archives[archiveName]={
+    campus: state.campus,
+    records: campusRecords,
+    work: {flags:state.flags,decisions:state.decisions,notes:state.notes},
+    savedAt: new Date().toISOString(),
+  };
+  LS.set("survey_archives",state.archives);
+  // リセット：選択校舎の回答だけ消す（他校舎は残す）
+  state.allRecords=state.allRecords.filter(r=>state.campus && r.campus!==state.campus);
+  LS.set("survey_allRecords",state.allRecords);
+  state.flags={}; state.decisions={}; state.notes={}; saveWork();
+  state.modal=null;
+  state.err=`✅ 「${archiveName}」を保存してリセットしました`;
+  render(); setTimeout(()=>{ state.err=""; render(); },3000);
+}
+function openArchiveModal(){ state.modal={type:"archive",value:guessTermName()}; render(); }
+function guessTermName(){
+  const m=new Date().getMonth()+1;
+  const y=new Date().getFullYear();
+  const season = m>=3&&m<=5?"春":m>=6&&m<=8?"夏":m>=9&&m<=11?"秋":"冬";
+  return `${y}${season}`;
+}
+function resetResponsesOnly(){
+  askConfirm("回答データを消去します。先にアーカイブ保存を推奨。続けますか？", ()=>{
+    state.allRecords=[]; LS.set("survey_allRecords",[]);
+    state.flags={}; state.decisions={}; state.notes={}; saveWork();
+    toast("✅ 回答データを消去しました"); render();
+  });
+}
+function resetRoster(){
+  askConfirm("先生名簿を初期状態に戻します。続けますか？", ()=>{
+    state.roster={...SAMPLE_ROSTER}; LS.del("survey_roster");
+    toast("✅ 名簿を初期化しました"); render();
+  });
+}
+function resetAssignments(){
+  askConfirm("担当ペア名簿を消去します。続けますか？", ()=>{
+    state.assignments=[]; LS.del("survey_assignments");
+    toast("✅ 担当ペア名簿を消去しました"); render();
+  });
+}
+// 異動：今の校舎を全部まっさらにして、新しい校舎を始める
+function startNewCampus(){
+  askConfirm("異動の準備をします。今の校舎の回答・先生名簿・担当ペア名簿・判断をすべて消去して、新しい校舎を始めます。\n\n※先に「💾保存」でバックアップを取っておくことを強くおすすめします。続けますか？", ()=>{
+    // 回答・名簿・担当ペア・作業データを全消去
+    state.allRecords=[]; LS.set("survey_allRecords",[]);
+    state.roster={...SAMPLE_ROSTER}; LS.del("survey_roster");
+    state.assignments=[]; LS.del("survey_assignments");
+    state.flags={}; state.decisions={}; state.notes={};
+    // 旧校舎の作業キーも消す
+    LS.del(workKey());
+    state.campus=""; LS.del("survey_campus");
+    state.viewingArchive=null;
+    toast("✅ 新しい校舎の準備ができました。アンケート・先生名簿・担当ペア名簿を取り込んでください。");
+    state.tab="settings"; render();
+  });
+}
+function viewArchive(name){ state.viewingArchive=name; state.tab="list"; render(); }
+function exitArchive(){ state.viewingArchive=null; render(); }
+function deleteArchive(name){
+  askConfirm(`アーカイブ「${name}」を削除しますか？`, ()=>{
+    delete state.archives[name]; LS.set("survey_archives",state.archives);
+    if(state.viewingArchive===name) state.viewingArchive=null;
+    toast("✅ 削除しました"); render();
+  });
+}
+function copyBackupText(){
+  const ta=document.getElementById("backupText");
+  if(!ta) return;
+  ta.select();
+  let ok=false;
+  try{ ok=document.execCommand("copy"); }catch(e){ ok=false; }
+  if(navigator.clipboard){
+    navigator.clipboard.writeText(ta.value).then(()=>toast("✅ コピーしました")).catch(()=>{ if(!ok)toast("⚠ コピーできません。手動で選択してください"); });
+  } else {
+    toast(ok?"✅ コピーしました":"⚠ 手動で選択してコピーしてください");
+  }
+}
+function exportBackup(){
+  const data={ allRecords:state.allRecords, roster:state.roster, archives:state.archives, assignments:state.assignments,
+    nameAliases:state.nameAliases,
+    work:{flags:state.flags,decisions:state.decisions,notes:state.notes}, exportedAt:new Date().toISOString() };
+  const json=JSON.stringify(data,null,2);
+  let downloaded=false;
+  try{
+    const blob=new Blob([json],{type:"application/json"});
+    const url=URL.createObjectURL(blob), a=document.createElement("a");
+    a.href=url; a.download=`アンケートバックアップ_${guessTermName()}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    downloaded=true;
+  }catch(e){ downloaded=false; }
+  // ダウンロードを試みた結果を必ず通知。失敗時／不安な時はコピー用テキストも出す
+  state.modal={ type:"backup", json, downloaded };
+  render();
+}
+function importBackup(input){
+  const file=input.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const d=JSON.parse(e.target.result);
+      applyBackupData(d);
+      state.err="✅ バックアップを復元しました"; render(); setTimeout(()=>{ state.err=""; render(); },2500);
+    }catch(err){ state.err="復元エラー: "+err.message; render(); }
+  };
+  reader.readAsText(file,"UTF-8"); input.value="";
+}
+function applyBackupData(d){
+  if(d.allRecords){ state.allRecords=d.allRecords; LS.set("survey_allRecords",d.allRecords); }
+  if(d.roster){ state.roster=d.roster; LS.set("survey_roster",d.roster); }
+  if(d.archives){ state.archives=d.archives; LS.set("survey_archives",d.archives); }
+  if(d.assignments){ state.assignments=d.assignments; LS.set("survey_assignments",d.assignments); }
+  if(d.nameAliases){ state.nameAliases=d.nameAliases; LS.set("survey_nameAliases",d.nameAliases); }
+  if(d.work){ state.flags=d.work.flags||{}; state.decisions=d.work.decisions||{}; state.notes=d.work.notes||{}; saveWork(); }
+}
+function syncMsgSet(text,color){ const el=document.getElementById("syncMsg2"); if(el){ el.textContent=text; el.style.color=color||"#94a3b8"; } }
+async function syncSave(){
+  const url=(LS.get('survey_syncUrl','')||'').trim(), key=(LS.get('survey_syncKey','')||'').trim();
+  if(!url||!key){ syncMsgSet("接続先URLと合言葉を入力してください","#f87171"); return; }
+  syncMsgSet("スプシに保存中…","#94a3b8");
+  const data={ allRecords:state.allRecords, roster:state.roster, archives:state.archives, assignments:state.assignments,
+    nameAliases:state.nameAliases, work:{flags:state.flags,decisions:state.decisions,notes:state.notes} };
+  try{
+    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({key,tool:'survey',data:JSON.stringify(data)})});
+    const d=await res.json();
+    if(d.ok) syncMsgSet("✅ 保存しました（"+new Date().toLocaleTimeString()+"）","#16a34a");
+    else syncMsgSet("エラー: "+(d.error||"不明"),"#f87171");
+  }catch(e){ syncMsgSet("通信エラー: ネット接続を確認してください","#f87171"); }
+}
+async function syncLoad(){
+  const url=(LS.get('survey_syncUrl','')||'').trim(), key=(LS.get('survey_syncKey','')||'').trim();
+  if(!url||!key){ syncMsgSet("接続先URLと合言葉を入力してください","#f87171"); return; }
+  if(!confirm('スプシの内容で、この端末のデータを上書きします。よろしいですか？'))return;
+  syncMsgSet("スプシから読込中…","#94a3b8");
+  try{
+    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({key,tool:'survey',action:'load'})});
+    const d=await res.json();
+    if(d.ok){
+      if(!d.data){ syncMsgSet("スプシにまだデータがありません（先に保存してください）","#f87171"); return; }
+      applyBackupData(JSON.parse(d.data));
+      syncMsgSet("✅ 読み込みました","#16a34a");
+      toast("✅ スプシから読み込みました");
+    } else { syncMsgSet("エラー: "+(d.error||"不明"),"#f87171"); }
+  }catch(e){ syncMsgSet("通信エラー: ネット接続を確認してください","#f87171"); }
+}
+function openPasteRestore(){ state.modal={type:"pasteRestore"}; render(); }
+function applyPasteRestore(){
+  const ta=document.getElementById("pasteRestoreText");
+  if(!ta||!ta.value.trim()){ toast("テキストを貼り付けてください"); return; }
+  try{
+    const d=JSON.parse(ta.value);
+    applyBackupData(d);
+    state.modal=null; state.err="✅ テキストから復元しました";
+    render(); setTimeout(()=>{ state.err=""; render(); },2500);
+  }catch(err){ toast("⚠ 復元できません。テキストが正しいJSONか確認してください"); }
+}
+
+function exportDecisions(){
+  const lines=["生徒名,学年,先生コード,先生名,科目,総合満足度,判断,メモ"];
+  reviewCandidates().forEach(t=>{
+    t.reasons.forEach(reason=>{
+      const r=reason.r, dec=state.decisions[r.id];
+      const decLabel={continue:"継続",watch:"要観察",change:"交代"}[dec]||"";
+      const note=(state.notes[r.id]||"").replace(/"/g,'""');
+      lines.push(`"${r.studentName}","${r.grade}",${r.teacherCode},"${tName(r.teacherCode)}","${r.subject}","${r.q5}","${decLabel}","${note}"`);
+    });
+  });
+  const blob=new Blob(["\uFEFF"+lines.join("\n")],{type:"text/csv;charset=utf-8"});
+  const url=URL.createObjectURL(blob), a=document.createElement("a");
+  a.href=url; a.download=`担当判断_${state.campus}.csv`; a.click(); URL.revokeObjectURL(url);
+}
+
+function toggleFlag(id){ state.flags[id]=!state.flags[id]; saveWork(); render(); }
+// 回答を削除（重複の解消用）
+function deleteRecord(id){
+  const r=state.allRecords.find(x=>x.id===id);
+  askConfirm(`${r?r.studentName:""}さんの回答（先生${r?r.teacherCode:""}・${r?r.subject:""}）を削除しますか？`, ()=>{
+    state.allRecords=state.allRecords.filter(x=>x.id!==id);
+    LS.set("survey_allRecords",state.allRecords);
+    delete state.flags[id]; delete state.decisions[id]; delete state.notes[id]; saveWork();
+    toast("✅ 回答を削除しました"); render();
+  });
+}
+// 回答の先生番号・科目を修正
+function openEditRecord(id){
+  const r=activeRecords().find(x=>x.id===id); if(!r) return;
+  state.modal={type:"edit", id, teacherCode:r.teacherCode, subject:r.subject};
+  render();
+}
+function applyEditRecord(){
+  const m=state.modal; if(!m) return;
+  const r=state.allRecords.find(x=>x.id===m.id); if(!r){ state.modal=null; render(); return; }
+  r.teacherCode=normCode(m.teacherCode); r.subject=String(m.subject||"").trim();
+  LS.set("survey_allRecords",state.allRecords);
+  state.modal=null; toast("✅ 修正しました"); render();
+}
+function setDecision(id,val){ state.decisions[id]=state.decisions[id]===val?undefined:val; saveWork(); render(); }
+function setNote(id,val){ state.notes[id]=val; clearTimeout(saveTimer); saveTimer=setTimeout(saveWork,600); }
+function setTab(t){ state.tab=t; render(); }
+function toggleDay(d){
+  if(!state.expandedDays) state.expandedDays=new Set([todayYobi()]);
+  if(state.expandedDays.has(d)) state.expandedDays.delete(d); else state.expandedDays.add(d);
+  render();
+}
+function todayYobi(){ return ["日","月","火","水","木","金","土"][new Date().getDay()]; }
+function toggleTeacher(code){ state.expandedTeachers[code]=!state.expandedTeachers[code]; render(); }
+function setRankMetric(m){ state.rankMetric=m; render(); }
+function setFilter(k,v){ state.filter[k]=v; render(); }
+let searchDebTimer=null;
+function debouncedSearch(v){
+  state.filter.query=v; // 状態は即更新（再描画はしない）
+  clearTimeout(searchDebTimer);
+  searchDebTimer=setTimeout(()=>{
+    // フィルタ結果だけ更新。検索窓は再生成せず値を保持
+    const rows=filtered();
+    const tbody=document.querySelector('#listTable tbody');
+    if(!tbody){ render(); return; }
+    tbody.innerHTML=rows.map((r,i)=>listRowHTML(r,i)).join("") || `<tr><td colspan="9" style="text-align:center;padding:28px;color:#94a3b8">該当なし</td></tr>`;
+    const cnt=document.getElementById("listCount"); if(cnt) cnt.textContent=`${rows.length} 件 / 全 ${responses().length} 件 · 行をタップで詳細`;
+  }, 300);
+}
+function clearFilter(){ state.filter={teacher:"",subject:"",q5:"",flagOnly:false,query:""}; render(); }
+function setCampus(v){ state.campus=v; LS.set("survey_campus",v); loadWork(); render(); }
+function setThreshold(v){ state.threshold=Number(v); LS.set("survey_threshold",state.threshold); render(); }
+function showComment(id){ const r=activeRecords().find(x=>x.id===id); if(r) state.modal={type:"comment",r}; render(); }
+function showDetail(id){
+  const r=activeRecords().find(x=>x.id===id); if(!r) return;
+  // この生徒の全先生回答
+  const allForStudent=responses().filter(x=>x.studentName===r.studentName);
+  state.modal={type:"detail", r, allForStudent};
+  render();
+}
+function closeModal(){ state.modal=null; render(); }
+function setModalVal(v){ if(state.modal) state.modal.value=v; }
+
+// 自前の確認ダイアログ（ネイティブconfirmが効かない環境向け）
+let pendingConfirm=null;
+function askConfirm(message, onYes){
+  pendingConfirm=onYes;
+  state.modal={type:"confirm",message};
+  render();
+}
+function confirmYes(){ const fn=pendingConfirm; pendingConfirm=null; state.modal=null; render(); if(fn) fn(); }
+function confirmNo(){ pendingConfirm=null; state.modal=null; render(); }
+function toast(msg){ state.err=msg; render(); setTimeout(()=>{ if(state.err===msg){ state.err=""; render(); } },2800); }
+
+// ════════════════════════════════════════════════════════════
+//  描画
+// ════════════════════════════════════════════════════════════
+function render(){
+  const rs=responses(),tch=teachers(),dp=dups(),rev=reviewCandidates();
+  const arc=state.viewingArchive;
+  document.getElementById("app").innerHTML=`
+    <div class="header">
+      <div class="header-row">
+        <div class="title">📋 アンケート確認ツール</div>
+        <span id="saveStatus" class="save-status" style="margin-left:auto">${esc(state.saveStatus)}</span>
+        <button class="btn" style="background:#475569;padding:5px 10px" onclick="exportBackup()" title="バックアップ書き出し">💾 保存</button>
+      </div>
+      <div class="selrow">
+        <label class="lbl">校舎</label>
+        <select onchange="setCampus(this.value)">
+          <option value="">全校舎</option>
+          ${campuses().map(c=>`<option ${c===state.campus?"selected":""}>${esc(c)}</option>`).join("")}
+        </select>
+        ${arc?`<span style="margin-left:auto;font-size:11px;background:#fbbf24;color:#78350f;padding:3px 9px;border-radius:5px;font-weight:600">📂 ${esc(arc)} を閲覧中</span>
+          <button class="btn" style="background:#475569" onclick="exitArchive()">現役に戻る</button>`:""}
+      </div>
+    </div>
+    <div class="summary">
+      <span>回答 <b>${rs.length}</b></span>
+      <span>先生 <b>${tch.length}</b></span>
+      <span>生徒 <b>${new Set(rs.map(r=>r.studentName)).size}</b></span>
+      ${dp.length?`<span style="color:#f59e0b;font-weight:600">⚠ 重複 ${dp.length}</span>`:""}
+      ${rev.length?`<span style="color:#ef4444;font-weight:600">🔄 要検討 ${rev.length}</span>`:""}
+      ${state.err?`<span class="err" style="color:${state.err[0]==="✅"?"#16a34a":"#f87171"}">${esc(state.err)}</span>`:""}
+    </div>
+    <div class="tabs">
+      ${[["list",`一覧 (${filtered().length}/${rs.length})`],["anomaly",`⚠ 重複 (${dp.length})`],["review",`🔄 担当要検討 (${rev.length})`],["comments",`💬 コメント`],["match",`🔍 照合`],["absent",`📵 未回答`],["chart","📊 集計"],["teacher","👨‍🏫 先生別"],["settings","⚙️ 設定"]]
+        .map(([k,l])=>`<button class="tab ${state.tab===k?"active":""}" onclick="setTab('${k}')">${l}</button>`).join("")}
+    </div>
+    <div class="content">${renderTab()}</div>`;
+  renderModal();
+}
+
+function renderTab(){
+  switch(state.tab){
+    case "list": return renderList();
+    case "anomaly": return renderAnomaly();
+    case "review": return renderReview();
+    case "comments": return renderComments();
+    case "match": return renderMatch();
+    case "absent": return renderAbsent();
+    case "chart": return renderChart();
+    case "teacher": return renderTeacher();
+    case "settings": return renderSettings();
+  }
+  return "";
+}
+
+function listRowHTML(r,i){
+  const bg=i%2?"#fafafa":"#fff";
+  return `<tr style="background:${bg};cursor:pointer;border-bottom:1px solid #f1f5f9" onclick="showDetail(${r.id})">
+    <td style="padding:4px 3px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.studentName)}<br><span style="color:#94a3b8;font-weight:400;font-size:8px">${esc(r.grade)}</span></td>
+    <td style="padding:4px 3px;overflow:hidden"><span style="background:#dbeafe;color:#1d4ed8;border-radius:3px;padding:1px 3px;font-size:8px">${esc(r.teacherCode)}</span><br><span style="color:#475569;font-size:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block">${esc(tName(r.teacherCode))}</span></td>
+    <td style="padding:4px 2px;color:#15803d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.subject)}</td>
+    <td style="padding:4px 1px;text-align:center;color:${scoreColor(r.q1)};font-weight:600">${esc(r.q1)}</td>
+    <td style="padding:4px 1px;text-align:center;color:${scoreColor(r.q2)};font-weight:600">${esc(r.q2)}</td>
+    <td style="padding:4px 1px;text-align:center;color:${scoreColor(r.q3)};font-weight:600">${esc(r.q3)}</td>
+    <td style="padding:4px 1px;text-align:center;color:${scoreColor(r.q4)};font-weight:600">${esc(r.q4)}</td>
+    <td style="padding:4px 1px;text-align:center;font-weight:700;color:${Q5_COLOR[r.q5]||"#64748b"}">${esc(r.q5)}</td>
+    <td style="padding:4px 1px;text-align:center" onclick="event.stopPropagation()">${r.comment?`<span class="comment-dot" onclick="showComment(${r.id})">💬</span>`:`<span style="color:#e2e8f0">·</span>`}</td>
+  </tr>`;
+}
+function renderList(){
+  const f=state.filter, rows=filtered();
+  return `
+    <div class="filterbar">
+      <input id="listSearch" placeholder="🔍 名前・先生・科目・コメント" value="${esc(f.query)}" oninput="debouncedSearch(this.value)" style="flex:1;min-width:150px">
+      <select onchange="setFilter('teacher',this.value)"><option value="">全先生</option>${teachers().map(t=>`<option value="${t}" ${f.teacher===t?"selected":""}>${esc(tLabel(t))}</option>`).join("")}</select>
+      <select onchange="setFilter('subject',this.value)"><option value="">全科目</option>${subjects().map(s=>`<option ${f.subject===s?"selected":""}>${esc(s)}</option>`).join("")}</select>
+      <select onchange="setFilter('q5',this.value)"><option value="">総合 全て</option>${Q5_ORDER.map(v=>`<option ${f.q5===v?"selected":""}>${v}</option>`).join("")}</select>
+      <button class="decbtn" style="border:1px solid #e2e8f0;color:#64748b" onclick="clearFilter()">クリア</button>
+    </div>
+    <div style="border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.07)"><table id="listTable" style="width:100%;border-collapse:collapse;background:#fff;font-size:9px;table-layout:fixed">
+      <colgroup>
+        <col style="width:21%"><col style="width:20%"><col style="width:11%">
+        <col style="width:8.6%"><col style="width:8.6%"><col style="width:8.6%"><col style="width:8.6%"><col style="width:8.6%"><col style="width:5%">
+      </colgroup>
+      <thead><tr style="background:#f8fafc;color:#64748b;font-size:9px">
+        <th style="padding:5px 3px;text-align:left;border-bottom:1px solid #e2e8f0">生徒名</th>
+        <th style="padding:5px 3px;text-align:left;border-bottom:1px solid #e2e8f0">先生</th>
+        <th style="padding:5px 2px;text-align:left;border-bottom:1px solid #e2e8f0">科目</th>
+        <th style="padding:5px 1px;text-align:center;border-bottom:1px solid #e2e8f0">①<br>わかる</th>
+        <th style="padding:5px 1px;text-align:center;border-bottom:1px solid #e2e8f0">②<br>楽しい</th>
+        <th style="padding:5px 1px;text-align:center;border-bottom:1px solid #e2e8f0">③<br>褒める</th>
+        <th style="padding:5px 1px;text-align:center;border-bottom:1px solid #e2e8f0">④<br>納得</th>
+        <th style="padding:5px 1px;text-align:center;border-bottom:1px solid #e2e8f0">⑤<br>総合</th>
+        <th style="padding:5px 1px;text-align:center;border-bottom:1px solid #e2e8f0">💬</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map((r,i)=>listRowHTML(r,i)).join("") || `<tr><td colspan="9" style="text-align:center;padding:28px;color:#94a3b8">該当なし</td></tr>`}
+      </tbody>
+    </table></div>
+    <div id="listCount" style="margin-top:6px;font-size:11px;color:#94a3b8">${rows.length} 件 / 全 ${responses().length} 件 · 行をタップで詳細</div>`;
+}
+
+function renderAnomaly(){
+  const dp=dups();
+  return `<div class="card" style="padding:16px">
+    <h3 class="sec-title">🔁 同一生徒×同一先生の重複回答</h3>
+    <div style="font-size:11px;color:#94a3b8;margin-bottom:10px">重複している回答はどちらか一方を削除できます。</div>
+    ${dp.length===0?`<div style="color:#22c55e;font-weight:600">✅ 重複なし</div>`:`
+      <button class="btn" style="background:#dc2626;width:100%;padding:11px;margin-bottom:12px" onclick="dedupeKeepLatest()">🧹 重複を一括削除（最新だけ残す）</button>
+      ${dp.map(d=>`<div style="padding:11px 12px;background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;margin-bottom:10px;font-size:12px">
+        <b>${esc(d.cur.studentName)}（${esc(d.cur.grade)}）</b> → 先生 <b>${esc(tLabel(d.cur.teacherCode))}</b>（${esc(d.cur.subject)}）に複数回回答
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+          <button class="decbtn" style="border:1px solid #fca5a5;color:#dc2626;font-size:11px" onclick="deleteRecord(${d.prev.id})">🗑 1つ目を削除（⑤${esc(d.prev.q5)}）</button>
+          <button class="decbtn" style="border:1px solid #fca5a5;color:#dc2626;font-size:11px" onclick="deleteRecord(${d.cur.id})">🗑 2つ目を削除（⑤${esc(d.cur.q5)}）</button>
+        </div>
+      </div>`).join("")}`}
+  </div>`;
+}
+
+function renderReview(){
+  const rev=reviewCandidates();
+  return `
+    <div class="card" style="padding:11px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      <div style="font-size:11px;color:#475569"><b>判定：</b>不満系1件以上 または 同生徒の他先生平均より⑤総合が
+        <select onchange="setThreshold(this.value)">${[0.5,1,1.5,2].map(v=>`<option value="${v}" ${state.threshold===v?"selected":""}>${v}</option>`).join("")}</select>pt以上低い</div>
+      <button class="btn" style="background:#6366f1;margin-left:auto" onclick="exportDecisions()">📤 判断を書き出し</button>
+    </div>
+    ${rev.length===0?`<div class="card" style="padding:28px;text-align:center;color:#22c55e;font-weight:600">✅ 検討すべき先生はいません</div>`:
+      rev.map(t=>`<div class="card" style="overflow:hidden;margin-bottom:14px">
+        <div style="background:#fef2f2;border-bottom:1px solid #fecaca;padding:11px 16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span class="chip" style="background:#fee2e2;color:#dc2626;font-size:12px;padding:3px 9px;font-weight:700">${esc(t.code)}</span>
+          <b style="font-size:13px">${esc(tName(t.code)||"（名簿未登録）")}</b>
+          ${state.roster[t.code]?.nick?`<span style="font-size:11px;color:#94a3b8">${esc(state.roster[t.code].nick)}</span>`:""}
+        </div>
+        <div style="padding:6px 16px 14px">
+          ${t.reasons.map(reason=>{
+            const r=reason.r, dec=state.decisions[r.id];
+            const badge = reason.type==="direct"
+              ? `<span style="color:#dc2626;font-weight:700">⛔ 直接不満</span> ⑤${esc(r.q5)}`
+              : `<span style="color:#b45309;font-weight:700">📉 相対低評価</span> この先生 平均${reason.myScore}点 vs 他先生平均 ${reason.othersAvg}点`;
+            return `<div style="border:1px solid #f1f5f9;border-radius:8px;padding:11px;margin-top:10px">
+              <div style="font-size:12px;margin-bottom:8px;display:flex;align-items:flex-start;gap:6px;flex-wrap:wrap">
+                <span style="flex:1;min-width:120px"><b>${esc(r.studentName)}</b>（${esc(r.grade)}・${esc(r.subject)}）— ${badge}
+                ${r.comment?`<br><span style="color:#94a3b8">「${esc(r.comment)}」</span>`:""}</span>
+                <button class="decbtn" style="border:1px solid #93c5fd;color:#1d4ed8;font-size:11px;padding:3px 9px" onclick="showDetail(${r.id})">📊 詳細</button>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+                ${[["continue","継続","#16a34a"],["watch","要観察","#ca8a04"],["change","交代","#dc2626"]].map(([v,lbl,c])=>{
+                  const on=dec===v;
+                  return `<button class="decbtn" style="border:1.5px solid ${c};background:${on?c:"#fff"};color:${on?"#fff":c}" onclick="setDecision(${r.id},'${v}')">${lbl}</button>`;
+                }).join("")}
+                <input placeholder="メモ" value="${esc(state.notes[r.id]||"")}" oninput="setNote(${r.id},this.value)" style="flex:1;min-width:120px;font-size:12px">
+              </div>
+            </div>`;
+          }).join("")}
+        </div>
+      </div>`).join("")}`;
+}
+
+function renderComments(){
+  const rs=responses();
+  // 生徒ごとに集約：一言(studentMsg)と担当先生全員
+  const byStudent={};
+  rs.forEach(r=>{
+    const k=r.studentName;
+    if(!byStudent[k]) byStudent[k]={ name:r.studentName, grade:r.grade, msg:"", teachers:[] };
+    if(r.studentMsg && !byStudent[k].msg) byStudent[k].msg=r.studentMsg;
+    if(!byStudent[k].teachers.some(t=>t.code===r.teacherCode))
+      byStudent[k].teachers.push({ code:r.teacherCode, subject:r.subject, q5:r.q5 });
+  });
+  // 一言が書かれている生徒だけ表示
+  const withMsg=Object.values(byStudent).filter(s=>s.msg);
+  if(!withMsg.length){
+    return `<div class="card" style="padding:28px;text-align:center;color:#94a3b8">生徒の一言コメントはありません。<br><span style="font-size:11px">（アンケート末尾の自由記述欄）</span></div>`;
+  }
+  return `
+    <div style="font-size:12px;color:#64748b;margin-bottom:12px">生徒からの一言（${withMsg.length}名）。担当の先生たちに伝えてあげましょう。</div>
+    ${withMsg.map(s=>`<div class="card" style="padding:14px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <b style="font-size:14px">${esc(s.name)}</b>
+        <span style="font-size:11px;color:#94a3b8">${esc(s.grade)}</span>
+      </div>
+      <div style="background:#f0fdf4;border-left:3px solid #22c55e;border-radius:0 8px 8px 0;padding:11px 13px;font-size:13px;line-height:1.7;color:#334155;white-space:pre-wrap">${esc(s.msg)}</div>
+      <div style="margin-top:10px">
+        <div style="font-size:10px;color:#94a3b8;margin-bottom:5px">担当の先生</div>
+        <div style="display:flex;flex-wrap:wrap;gap:5px">
+          ${s.teachers.sort((a,b)=>a.code.localeCompare(b.code)).map(t=>`<span style="background:#eff6ff;border:1px solid #dbeafe;border-radius:6px;padding:3px 8px;font-size:11px">
+            <span style="color:#1d4ed8;font-weight:600">${esc(t.code)}</span> ${esc(tName(t.code))}<span style="color:#94a3b8"> · ${esc(t.subject)}</span>
+          </span>`).join("")}
+        </div>
+      </div>
+    </div>`).join("")}`;
+}
+
+function renderMatch(){
+  if(!state.assignments.length){
+    return `<div class="card" style="padding:24px;text-align:center;color:#94a3b8">
+      担当ペア名簿が未取り込みです。<br>⚙️設定タブの「担当ペア名簿」から時間割を取り込んでください。</div>`;
+  }
+  const er=matchResults();
+  const total=er.teacher.length+er.subject.length;
+  const sec=(title,color,border,items,body)=>`
+    <div class="card" style="padding:14px;margin-bottom:12px;border-left:4px solid ${border}">
+      <h3 class="sec-title" style="margin-bottom:8px">${title}（${items.length}件）</h3>
+      ${items.length===0?`<div style="color:#22c55e;font-size:12px;font-weight:600">✅ 問題なし</div>`:items.map(body).join("")}
+    </div>`;
+  const unmatched=unmatchedStudents();
+  const aliasEntries=Object.entries(state.nameAliases);
+  const nameSection=`
+    <div class="card" style="padding:14px;margin-bottom:12px;border-left:4px solid #8b5cf6">
+      <h3 class="sec-title" style="margin-bottom:6px">🔗 名寄せ（名簿と一致しない回答）（${unmatched.length}件）</h3>
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:8px">漢字やカタカナで入力された等の理由で名簿と結びつかない回答です。正しい生徒に手動で紐付けられます。</div>
+      ${unmatched.length===0?`<div style="color:#22c55e;font-size:12px;font-weight:600">✅ すべて名簿と一致しています</div>`:
+        unmatched.map(s=>`<div style="padding:8px 11px;background:#f5f3ff;border-radius:8px;margin-bottom:6px;font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="flex:1"><b>${esc(s.name)}</b> <span style="color:#94a3b8">${esc(s.grade)}</span></span>
+          <button class="decbtn" style="border:1px solid #c4b5fd;color:#7c3aed;font-size:11px" onclick="openAliasModal('${esc(s.norm)}','${esc(s.name)}')">🔗 名簿の生徒に紐付け</button>
+        </div>`).join("")}
+      ${aliasEntries.length?`<div style="margin-top:10px;border-top:1px solid #ede9fe;padding-top:8px">
+        <div style="font-size:10px;color:#94a3b8;margin-bottom:5px">登録済みの名寄せ</div>
+        ${aliasEntries.map(([k,v])=>`<div style="font-size:11px;color:#64748b;display:flex;align-items:center;gap:6px;margin-bottom:3px">
+          <span>${esc(k)} → ${esc(v)}</span>
+          <button class="decbtn" style="border:1px solid #e2e8f0;color:#94a3b8;font-size:10px;padding:1px 6px" onclick="removeAlias('${esc(k)}')">解除</button>
+        </div>`).join("")}
+      </div>`:""}
+    </div>`;
+  return `
+    <div style="font-size:12px;color:#64748b;margin-bottom:12px">アンケート回答と担当ペア名簿を照合。通常授業のみ・小学生除外。</div>
+    ${nameSection}
+    ${sec("⛔ 先生番号ミス（担当にない先生に回答）","#fef2f2","#ef4444",er.teacher,e=>`
+      <div style="padding:9px 11px;background:#fef2f2;border-radius:8px;margin-bottom:6px;font-size:12px">
+        <b>${esc(e.r.studentName)}</b>（${esc(e.r.grade)}）が回答した先生 <b>${esc(tLabel(e.r.teacherCode))}</b>（${esc(e.r.subject)}）は、この生徒の担当に見つかりません。
+        <br><span style="color:#94a3b8">担当: ${esc(e.assigns.map(a=>a.teacher+"("+a.subject+")").join("、"))}</span>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <button class="decbtn" style="border:1px solid #93c5fd;color:#1d4ed8;font-size:11px" onclick="openEditRecord(${e.r.id})">✏️ 修正</button>
+          <button class="decbtn" style="border:1px solid #fca5a5;color:#dc2626;font-size:11px" onclick="deleteRecord(${e.r.id})">🗑 削除</button>
+        </div>
+      </div>`)}
+    ${sec("📚 科目ちがい（先生は合うが科目が不一致）","#fffbeb","#f59e0b",er.subject,e=>`
+      <div style="padding:9px 11px;background:#fffbeb;border-radius:8px;margin-bottom:6px;font-size:12px">
+        <b>${esc(e.r.studentName)}</b>（${esc(e.r.grade)}）：先生 <b>${esc(tLabel(e.r.teacherCode))}</b> は「${esc(e.expect.join("・"))}」担当ですが、回答は「${esc(e.r.subject)}」になっています。
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <button class="decbtn" style="border:1px solid #93c5fd;color:#1d4ed8;font-size:11px" onclick="openEditRecord(${e.r.id})">✏️ 修正</button>
+        </div>
+      </div>`)}
+    ${total===0?`<div class="card" style="padding:24px;text-align:center;color:#22c55e;font-weight:600">✅ 誤入力は見つかりませんでした</div>`:""}`;
+}
+
+function renderAbsent(){
+  if(!state.assignments.length){
+    return `<div class="card" style="padding:24px;text-align:center;color:#94a3b8">
+      担当ペア名簿が未取り込みです。<br>⚙️設定タブの「担当ペア名簿」から時間割を取り込んでください。</div>`;
+  }
+  const week=weekdayAbsentees();
+  let today=todayYobi();
+  const allDays=["月","火","水","木","金","土"];
+  if(today==="日") today="月"; // 日曜は休講なので月を先頭に
+  // 今日を先頭に、残りを後ろに
+  const days=[today,...allDays.filter(d=>d!==today)];
+  // 展開状態：初期は今日だけ展開
+  const expanded = state.expandedDays || new Set([today]);
+  // 回答率
+  const rates=responseRates();
+  const pct=(o)=>o.t?Math.round(o.a/o.t*100):0;
+  const rateColor=(p)=>p>=80?"#16a34a":p>=50?"#ca8a04":"#dc2626";
+  const totalPct=pct(rates.total);
+  return `
+    <div class="card" style="padding:16px;margin-bottom:12px">
+      <h3 class="sec-title">📈 回答率</h3>
+      <div style="text-align:center;margin-bottom:12px">
+        <div style="font-size:11px;color:#94a3b8">全体</div>
+        <div style="font-size:30px;font-weight:800;color:${rateColor(totalPct)}">${totalPct}<span style="font-size:16px">%</span></div>
+        <div style="font-size:11px;color:#94a3b8">${rates.total.a} / ${rates.total.t} 件 回答済み</div>
+      </div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        ${allDays.map(d=>{ const p=pct(rates.week[d]); return `<div style="flex:1;min-width:48px;text-align:center;background:#f8fafc;border-radius:8px;padding:8px 4px">
+          <div style="font-size:11px;color:#64748b;font-weight:600">${d}</div>
+          <div style="font-size:16px;font-weight:700;color:${rateColor(p)}">${p}%</div>
+          <div style="font-size:9px;color:#cbd5e1">${rates.week[d].a}/${rates.week[d].t}</div>
+        </div>`; }).join("")}
+      </div>
+    </div>
+    <div style="font-size:12px;color:#64748b;margin-bottom:12px">通常授業の曜日ごとの未回答生徒です。今日（${today}曜）が先頭に表示されます。</div>
+    ${days.map(d=>{
+      const list=week[d]||[];
+      const isToday=d===today;
+      const isOpen=expanded.has(d);
+      const hasAbsent=list.length>0;
+      return `<div class="card" style="overflow:hidden;margin-bottom:8px;border-left:3px solid ${isToday?"#6366f1":hasAbsent?"#fca5a5":"#d1fae5"}">
+        <div onclick="toggleDay('${d}')" style="padding:12px 16px;display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none">
+          <span style="font-size:14px;font-weight:700;background:${isToday?"#6366f1":hasAbsent?"#fee2e2":"#dcfce7"};color:${isToday?"#fff":hasAbsent?"#dc2626":"#16a34a"};width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0">${d}</span>
+          <div style="flex:1">
+            ${isToday?`<span style="font-size:10px;background:#6366f1;color:#fff;border-radius:3px;padding:1px 5px;margin-right:5px">今日</span>`:""}
+            <span style="font-size:12px;font-weight:600;color:${hasAbsent?"#dc2626":"#16a34a"}">${hasAbsent?`未回答 ${list.length}名`:"全員回答済み ✅"}</span>
+          </div>
+          <span style="color:#94a3b8;font-size:14px">${isOpen?"▾":"▸"}</span>
+        </div>
+        ${isOpen&&list.length?`<div style="padding:0 14px 12px">
+          ${(()=>{
+            // 先生コードでグループ化し、コード順に並べる
+            const byTeacher={};
+            list.forEach(s=>{ const k=s.code||"___"; (byTeacher[k]=byTeacher[k]||[]).push(s); });
+            const codes=Object.keys(byTeacher).sort((a,b)=>a.localeCompare(b));
+            return codes.map(code=>{
+              const studs=byTeacher[code];
+              const tn=tName(code);
+              return `<div style="margin-top:10px">
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+                  <span style="background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:700">${code==="___"?"担当不明":esc(code)}</span>
+                  <b style="font-size:12px">${esc(tn||studs[0].teacher||"")}</b>
+                  <span style="font-size:11px;color:#94a3b8">${studs.length}名</span>
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;padding-left:4px">
+                  ${studs.map(s=>`<div style="padding:6px 10px;background:#fef2f2;border:1px solid #fca5a5;border-radius:7px;font-size:12px">
+                    <b>${esc(s.sei)}</b> <span style="color:#94a3b8;font-size:10px">${esc(s.grade)}</span>
+                    <span style="color:#64748b"> · ${esc(s.subject)}</span>
+                  </div>`).join("")}
+                </div>
+              </div>`;
+            }).join("");
+          })()}
+        </div>`:""}
+      </div>`;
+    }).join("")}`;
+}
+
+// 分布グラフ生成
+function distBars(rs, key, order, colorMap){
+  const dist=order.map(v=>({label:v,count:rs.filter(r=>r[key]===v).length,fill:colorMap[v]||"#94a3b8"}));
+  const maxC=Math.max(1,...dist.map(d=>d.count));
+  return `<div class="barwrap">${dist.map(d=>`<div class="bar-col"><div style="font-size:11px;color:#64748b">${d.count}</div><div class="bar" style="height:${d.count/maxC*120}px;background:${d.fill}"></div><div style="font-size:9px;color:#94a3b8;text-align:center">${d.label}</div></div>`).join("")}</div>`;
+}
+function renderChart(){
+  const rs=responses(), ts=teacherStats();
+  // ①〜④用の選択肢順（不満→満足）、色は満足度ベース
+  const Q14_ORDER=["満足","まあ満足","ふつう","やや不満","不満"];
+  const Q14_COLOR={"満足":"#22c55e","まあ満足":"#86efac","ふつう":"#94a3b8","やや不満":"#fb923c","不満":"#ef4444"};
+  // ⑤は「まあ満足」を除外（回答に存在しない）
+  const Q5_DIST_ORDER=["大満足","満足","ふつう","やや不満","かえて欲しい"];
+  // ランキング
+  const metric=state.rankMetric;
+  const METRIC_LABEL={q1:"①わかりやすさ",q2:"②楽しさ",q3:"③ほめてくれる",q4:"④納得まで",q5:"⑤総合満足"};
+  const ranked=ts.map(t=>({code:t.code,name:tName(t.code),count:t.count,
+    val:({q1:t.avgQ1,q2:t.avgQ2,q3:t.avgQ3,q4:t.avgQ4,q5:t.avgQ5})[metric]}))
+    .sort((a,b)=>b.val-a.val);
+  const top=ranked.filter(r=>r.count>=7);    // 表彰対象
+  const ref=ranked.filter(r=>r.count<7);     // 参考（7件未満）
+  const rankRow=(r,i,medal)=>`<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid #f1f5f9;font-size:12px">
+    <span style="width:28px;text-align:center;font-weight:700;color:${i===0?"#f59e0b":i===1?"#94a3b8":i===2?"#d97706":"#cbd5e1"}">${medal||(i+1)}</span>
+    <span style="flex:1"><span style="color:#1d4ed8;font-weight:600">${esc(r.code)}</span> ${esc(r.name)} <span style="color:#cbd5e1;font-size:10px">${r.count}件</span></span>
+    <span style="font-weight:700;color:${r.val>=4?"#16a34a":r.val>=3?"#ca8a04":"#dc2626"}">${r.val}</span>
+  </div>`;
+  return `
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+      <div class="statcard"><div style="font-size:11px;color:#94a3b8">総回答数</div><div style="font-size:22px;font-weight:700">${rs.length}</div></div>
+      <div class="statcard"><div style="font-size:11px;color:#94a3b8">先生数</div><div style="font-size:22px;font-weight:700">${teachers().length}</div></div>
+      <div class="statcard"><div style="font-size:11px;color:#94a3b8">回答生徒数</div><div style="font-size:22px;font-weight:700">${new Set(rs.map(r=>r.studentName)).size}</div></div>
+    </div>
+
+    <div class="card" style="padding:16px;margin-bottom:14px">
+      <h3 class="sec-title">📊 全体平均（5点満点）</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${[["①わかる","q1"],["②楽しい","q2"],["③褒める","q3"],["④納得","q4"],["⑤総合","q5"]].map(([lbl,k])=>{
+          const v=avgSc(rs,k);
+          return `<div style="flex:1;min-width:64px;text-align:center;background:#f8fafc;border-radius:8px;padding:10px 6px">
+            <div style="font-size:10px;color:#94a3b8;margin-bottom:3px">${lbl}</div>
+            <div style="font-size:20px;font-weight:700;color:${v>=4?"#16a34a":v>=3?"#ca8a04":"#dc2626"}">${v}</div>
+          </div>`;
+        }).join("")}
+      </div>
+    </div>
+
+    <div class="card" style="padding:16px;margin-bottom:14px">
+      <h3 class="sec-title">🏆 ランキング</h3>
+      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px">
+        ${Object.entries(METRIC_LABEL).map(([k,l])=>`<button class="decbtn" style="font-size:11px;padding:5px 9px;border:1.5px solid ${metric===k?"#6366f1":"#e2e8f0"};background:${metric===k?"#6366f1":"#fff"};color:${metric===k?"#fff":"#64748b"}" onclick="setRankMetric('${k}')">${l}</button>`).join("")}
+      </div>
+      <div style="font-size:11px;font-weight:700;color:#16a34a;margin-bottom:4px">表彰対象（7件以上） ${top.length}名</div>
+      <div style="border:1px solid #dcfce7;border-radius:8px;overflow:hidden;margin-bottom:12px">
+        ${top.length?top.map((r,i)=>rankRow(r,i,i===0?"🥇":i===1?"🥈":i===2?"🥉":"")).join(""):`<div style="padding:14px;text-align:center;color:#94a3b8;font-size:12px">7件以上の先生がいません</div>`}
+      </div>
+      <div style="font-size:11px;font-weight:700;color:#94a3b8;margin-bottom:4px">参考（7件未満） ${ref.length}名</div>
+      <div style="border:1px solid #f1f5f9;border-radius:8px;overflow:hidden">
+        ${ref.length?ref.map((r,i)=>rankRow(r,i,"")).join(""):`<div style="padding:14px;text-align:center;color:#94a3b8;font-size:12px">該当なし</div>`}
+      </div>
+    </div>
+
+    <div class="card" style="padding:16px;margin-bottom:14px">
+      <h3 class="sec-title">⑤総合満足度 分布 <span style="color:#6366f1">平均 ${avgSc(rs,"q5")}</span></h3>
+      ${distBars(rs,"q5",Q5_DIST_ORDER,Q5_COLOR)}
+    </div>
+    <div class="card" style="padding:16px;margin-bottom:14px">
+      <h3 class="sec-title">①わかりやすさ 分布 <span style="color:#6366f1">平均 ${avgSc(rs,"q1")}</span></h3>${distBars(rs,"q1",Q14_ORDER,Q14_COLOR)}
+    </div>
+    <div class="card" style="padding:16px;margin-bottom:14px">
+      <h3 class="sec-title">②楽しさ 分布 <span style="color:#6366f1">平均 ${avgSc(rs,"q2")}</span></h3>${distBars(rs,"q2",Q14_ORDER,Q14_COLOR)}
+    </div>
+    <div class="card" style="padding:16px;margin-bottom:14px">
+      <h3 class="sec-title">③ほめてくれる 分布 <span style="color:#6366f1">平均 ${avgSc(rs,"q3")}</span></h3>${distBars(rs,"q3",Q14_ORDER,Q14_COLOR)}
+    </div>
+    <div class="card" style="padding:16px;margin-bottom:14px">
+      <h3 class="sec-title">④納得まで 分布 <span style="color:#6366f1">平均 ${avgSc(rs,"q4")}</span></h3>${distBars(rs,"q4",Q14_ORDER,Q14_COLOR)}
+    </div>
+
+    <div class="card" style="padding:16px">
+      <h3 class="sec-title">先生別 平均スコア（5点満点）</h3>
+      <table>
+        <thead><tr><th>先生</th><th>科目</th><th>件数</th><th>①</th><th>②</th><th>③</th><th>④</th><th>⑤</th></tr></thead>
+        <tbody>${ts.map(t=>`<tr>
+          <td style="white-space:nowrap"><span class="chip" style="background:#dbeafe;color:#1d4ed8">${esc(t.code)}</span> ${esc(tName(t.code))}</td>
+          <td>${esc(t.subjects)}</td><td>${t.count}</td>
+          ${[t.avgQ1,t.avgQ2,t.avgQ3,t.avgQ4,t.avgQ5].map(v=>`<td style="font-weight:600;color:${v>=4?"#16a34a":v>=3?"#ca8a04":"#dc2626"}">${v}</td>`).join("")}
+        </tr>`).join("")}</tbody>
+      </table>
+    </div>`;
+}
+
+// 過去アーカイブ（同じ校舎）を保存日時の新しい順に取得
+function pastArchivesForCampus(){
+  return Object.entries(state.archives)
+    .filter(([_,a])=>!a.campus || a.campus===state.campus)
+    .sort((x,y)=>new Date(y[1].savedAt)-new Date(x[1].savedAt));
+}
+// 指定先生コードの①〜⑤平均を、与えられたレコード配列から算出
+function radarFromRecords(records, code){
+  const tr=records.filter(r=>normCode(r.teacherCode)===code);
+  if(!tr.length) return null;
+  return [avgSc(tr,"q5"),avgSc(tr,"q1"),avgSc(tr,"q2"),avgSc(tr,"q3"),avgSc(tr,"q4")];
+}
+function renderTeacher(){
+  const past=pastArchivesForCampus().slice(0,2); // 直近2学期分
+  const PAST_STYLE=[{color:"#f59e0b",dash:"5,3"},{color:"#64748b",dash:"1.5,2.5"}]; // 破線・点線で区別
+  const trates=teacherResponseRates();
+  return teacherStats().map(t=>{
+    const tr=responses().filter(r=>r.teacherCode===t.code);
+    const radar=[["⑤総合",t.avgQ5],["①わかりやすさ",t.avgQ1],["②楽しさ",t.avgQ2],["③ほめる",t.avgQ3],["④納得まで",t.avgQ4]];
+    // 回答率
+    const rr=trates[t.code]; const rp=rr&&rr.t?Math.round(rr.a/rr.t*100):null;
+    const rpColor=rp===null?"#94a3b8":rp>=80?"#16a34a":rp>=50?"#ca8a04":"#dc2626";
+    // 過去学期の重ね描画データ
+    const series=[];
+    past.forEach((arc,i)=>{
+      const [name,a]=arc;
+      const vals=radarFromRecords(a.records||[], t.code);
+      if(vals) series.push({ name:name.split("／")[0], data:vals, color:PAST_STYLE[i].color, dash:PAST_STYLE[i].dash });
+    });
+    return `<div class="card" style="padding:16px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <span class="chip" style="background:#dbeafe;color:#1d4ed8;font-size:13px;padding:4px 9px">${esc(t.code)}</span>
+        <b style="font-size:13px">${esc(tName(t.code)||"（名簿未登録）")}</b>
+        ${state.roster[t.code]?.nick?`<span style="font-size:11px;color:#94a3b8">${esc(state.roster[t.code].nick)}</span>`:""}
+        <span style="color:#64748b;font-size:11px">${esc(t.subjects)} · ${t.count}件</span>
+        ${rp!==null?`<span style="margin-left:auto;font-size:11px;background:${rpColor}1a;color:${rpColor};border-radius:6px;padding:3px 9px;font-weight:700">回答率 ${rp}%<span style="font-weight:400"> (${rr.a}/${rr.t})</span></span>`:""}
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div class="radar-wrap">${radarSVG(radar, series)}</div>
+        <div style="flex:1;min-width:190px">
+          <div onclick="toggleTeacher('${t.code}')" style="cursor:pointer;display:flex;align-items:center;gap:6px;font-size:12px;color:#475569;padding:6px 0;user-select:none">
+            <span style="color:#94a3b8">${state.expandedTeachers[t.code]?"▾":"▸"}</span>
+            <span>生徒ごとの回答（${tr.length}件）</span>
+          </div>
+          ${state.expandedTeachers[t.code]?`<table><thead><tr style="color:#94a3b8;font-size:10px">
+            <th style="padding:3px 5px;text-align:left">生徒</th><th>科目</th><th>①</th><th>②</th><th>③</th><th>④</th><th>⑤総合</th>
+          </tr></thead><tbody>
+          ${tr.map(r=>`<tr>
+            <td style="color:#475569;white-space:nowrap;font-size:11px">${esc(r.studentName)}</td>
+            <td style="font-size:11px">${esc(r.subject)}</td>
+            ${["q1","q2","q3","q4"].map(q=>`<td style="font-size:10px;color:${scoreColor(r[q])};white-space:nowrap">${esc(r[q])}</td>`).join("")}
+            <td style="font-weight:600;color:${Q5_COLOR[r.q5]||"#64748b"};white-space:nowrap;font-size:11px">${esc(r.q5)}</td>
+          </tr>`).join("")}
+          </tbody></table>`:""}
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function renderSettings(){
+  const arcNames=Object.keys(state.archives).sort().reverse();
+  return `
+    <div class="card" style="padding:16px;margin-bottom:14px">
+      <h3 class="sec-title">📥 データ取り込み</h3>
+      <div class="setrow">
+        <div style="flex:1;min-width:160px"><b style="font-size:12px">アンケート回答（中高生）</b><div style="font-size:11px;color:#94a3b8">Excel/CSV対応。校舎で自動振り分け。取り込むと置き換わります。</div></div>
+        <label class="btn" style="background:#334155">ファイル選択<input type="file" accept=".xlsx,.xls,.csv" onchange="onSurveyFile(this)" style="display:none"></label>
+      </div>
+      <div class="setrow">
+        <div style="flex:1;min-width:160px"><b style="font-size:12px">アンケート回答（小学生）</b><div style="font-size:11px;color:#94a3b8">学期末の小学生用Excel。今の校舎（${esc(state.campus||"未選択")}）のシートを読み、中高生に合流します。</div></div>
+        <label class="btn" style="background:#7c3aed">合流<input type="file" accept=".xlsx,.xls" onchange="onElemSurveyFile(this)" style="display:none"></label>
+      </div>
+      <div class="setrow">
+        <div style="flex:1;min-width:160px"><b style="font-size:12px">先生名簿</b><div style="font-size:11px;color:#94a3b8">CSV取り込み。下3桁で照合。文字コード自動判別。</div></div>
+        <label class="btn" style="background:#334155">ファイル選択<input type="file" accept=".csv,.html,.txt" onchange="onTeacherFile(this)" style="display:none"></label>
+      </div>
+      <div class="setrow">
+        <div style="flex:1;min-width:160px"><b style="font-size:12px">担当ペア名簿（時間割）</b><div style="font-size:11px;color:#94a3b8">Excel/CSV対応。照合・曜日別未回答に使用。${state.assignments.length?`<span style="color:#16a34a">✅ ${state.assignments.length}件</span>`:""}</div></div>
+        <label class="btn" style="background:#334155">ファイル選択<input type="file" accept=".xlsx,.xls,.csv" onchange="onAssignFile(this)" style="display:none"></label>
+      </div>
+    </div>
+
+    <div class="card" style="padding:16px;margin-bottom:14px;border:1px solid #bbf7d0">
+      <h3 class="sec-title">☁️ スプレッドシート同期</h3>
+      <div style="font-size:11px;color:#64748b;margin-bottom:10px">複数端末で同じデータを共有します。取り込み後に「スプシに保存」、別端末では「スプシから読込」。</div>
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">接続先URL（Apps Scriptのウェブアプリ URL）</div>
+      <input type="text" id="syncUrlInput" value="${esc(LS.get('survey_syncUrl',''))}" placeholder="https://script.google.com/macros/s/.../exec" style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;margin-bottom:8px" onchange="LS.set('survey_syncUrl',this.value)">
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">合言葉</div>
+      <input type="text" id="syncKeyInput" value="${esc(LS.get('survey_syncKey',''))}" placeholder="合言葉" style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;margin-bottom:10px" onchange="LS.set('survey_syncKey',this.value)">
+      <div style="display:flex;gap:8px">
+        <button class="btn" style="background:#0891b2;flex:1" onclick="syncLoad()">⬇️ スプシから読込</button>
+        <button class="btn" style="background:#059669;flex:1" onclick="syncSave()">⬆️ スプシに保存</button>
+      </div>
+      <div id="syncMsg2" style="font-size:12px;margin-top:8px;color:#94a3b8"></div>
+    </div>
+
+    <div class="card" style="padding:16px;margin-bottom:14px">
+      <h3 class="sec-title">🔄 学期の保存とリセット</h3>
+      <div style="font-size:11px;color:#64748b;margin-bottom:10px">学期が終わったら、今のデータをアーカイブに保存してからリセットします。アーカイブは後でいつでも参照できます。</div>
+      <button class="btn" style="background:#0ea5e9;width:100%;padding:11px" onclick="openArchiveModal()">📸 今の学期を保存してリセット</button>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <button class="decbtn" style="border:1px solid #fca5a5;color:#dc2626;flex:1" onclick="resetResponsesOnly()">回答だけ消去</button>
+        <button class="decbtn" style="border:1px solid #cbd5e1;color:#64748b;flex:1" onclick="resetRoster()">先生名簿を初期化</button>
+        <button class="decbtn" style="border:1px solid #cbd5e1;color:#64748b;flex:1" onclick="resetAssignments()">担当ペア名簿を消去</button>
+      </div>
+    </div>
+
+    <div class="card" style="padding:16px;margin-bottom:14px;border:1px solid #fed7aa">
+      <h3 class="sec-title">🔄 校舎異動</h3>
+      <div style="font-size:12px;color:#64748b;line-height:1.7;margin-bottom:10px">
+        別の校舎へ異動するときの引き継ぎ。今の校舎のデータを全消去して、新しい校舎を空から始めます。
+        <br><b style="color:#dc2626">必ず先に下の「💾 バックアップ書き出し」で今の校舎を保存してください。</b>異動後に戻りたくなったら、そのファイルから復元できます。
+      </div>
+      <button class="btn" style="background:#ea580c;width:100%;padding:11px" onclick="startNewCampus()">🔄 異動して新しい校舎を始める</button>
+    </div>
+
+    <div class="card" style="padding:16px;margin-bottom:14px">
+      <h3 class="sec-title">📂 保存済み学期（アーカイブ）</h3>
+      ${arcNames.length===0?`<div style="font-size:12px;color:#94a3b8">まだありません。</div>`:
+        arcNames.map(name=>{
+          const a=state.archives[name], cnt=(a.records||[]).length;
+          const d=new Date(a.savedAt); const ds=`${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`;
+          return `<div class="setrow">
+            <div style="flex:1;min-width:140px"><b style="font-size:13px">${esc(name)}</b> <span style="font-size:11px;color:#94a3b8">${cnt}件 · ${ds}保存</span></div>
+            <button class="decbtn" style="border:1px solid #93c5fd;color:#1d4ed8" onclick="viewArchive('${esc(name)}')">参照</button>
+            <button class="decbtn" style="border:1px solid #fca5a5;color:#dc2626" onclick="deleteArchive('${esc(name)}')">削除</button>
+          </div>`;
+        }).join("")}
+    </div>
+
+    <div class="card" style="padding:16px">
+      <h3 class="sec-title">💾 バックアップ</h3>
+      <div style="font-size:11px;color:#64748b;margin-bottom:10px">全データを書き出し／復元します。ダウンロードが効かない環境では、書き出し時に出るテキストをコピーして保存し、「テキストから復元」で戻せます。</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <button class="btn" style="background:#6366f1;flex:1" onclick="exportBackup()">📤 書き出し</button>
+        <label class="btn" style="background:#475569;flex:1;text-align:center">📥 ファイルから復元<input type="file" accept=".json" onchange="importBackup(this)" style="display:none"></label>
+      </div>
+      <button class="decbtn" style="border:1px solid #cbd5e1;color:#64748b;width:100%;padding:9px" onclick="openPasteRestore()">📋 テキストから復元</button>
+    </div>`;
+}
+
+function renderModal(){
+  const m=state.modal, el=document.getElementById("modal");
+  if(!m){ el.innerHTML=""; return; }
+  if(m.type==="pasteRestore"){
+    el.innerHTML=`<div class="modal-bg" onclick="closeModal()"><div class="modal" style="max-width:380px" onclick="event.stopPropagation()">
+      <div class="sec-title">📋 テキストから復元</div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:10px;line-height:1.6">バックアップ時にコピーしたテキストを下に貼り付けて、復元を押してください。</div>
+      <textarea id="pasteRestoreText" placeholder="ここにJSONテキストを貼り付け" style="width:100%;height:120px;font-size:10px;font-family:monospace;border:1px solid #e2e8f0;border-radius:8px;padding:8px"></textarea>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="decbtn" style="border:1px solid #cbd5e1;color:#64748b;flex:1;padding:10px" onclick="closeModal()">やめる</button>
+        <button class="btn" style="background:#6366f1;flex:1;padding:10px" onclick="applyPasteRestore()">復元</button>
+      </div>
+    </div></div>`;
+    return;
+  }
+  if(m.type==="alias"){
+    const opts=rosterStudents();
+    el.innerHTML=`<div class="modal-bg" onclick="closeModal()"><div class="modal" style="max-width:380px" onclick="event.stopPropagation()">
+      <div class="sec-title">🔗 名寄せ</div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:10px">回答の生徒「<b>${esc(m.respName)}</b>」を、名簿のどの生徒と同じ人物として扱うか選んでください。</div>
+      <select onchange="state.modal.target=this.value" style="width:100%;font-size:14px;padding:9px;margin-bottom:14px">
+        <option value="">— 名簿の生徒を選ぶ —</option>
+        ${opts.map(o=>`<option value="${esc(o.fullKanji||o.fullHira)}">${esc(o.label)}（${esc(o.grade)}）</option>`).join("")}
+      </select>
+      <div style="display:flex;gap:8px">
+        <button class="decbtn" style="border:1px solid #cbd5e1;color:#64748b;flex:1;padding:10px" onclick="closeModal()">やめる</button>
+        <button class="btn" style="background:#7c3aed;flex:1;padding:10px" onclick="applyAlias()">紐付け</button>
+      </div>
+    </div></div>`;
+    return;
+  }
+  if(m.type==="backup"){
+    el.innerHTML=`<div class="modal-bg" onclick="closeModal()"><div class="modal" style="max-width:380px" onclick="event.stopPropagation()">
+      <div class="sec-title">💾 バックアップ</div>
+      <div style="font-size:12px;color:${m.downloaded?"#16a34a":"#dc2626"};margin-bottom:10px;line-height:1.6">
+        ${m.downloaded
+          ? "✅ ダウンロードを実行しました。ファイルアプリやダウンロードフォルダを確認してください。<br><span style='color:#94a3b8'>もし見当たらない場合は、下のテキストをコピーして保存してください。</span>"
+          : "⚠ ダウンロードできない環境のようです。下のテキストを全てコピーして、メモアプリなどに貼り付けて保存してください。"}
+      </div>
+      <textarea id="backupText" readonly onclick="this.select()" style="width:100%;height:120px;font-size:10px;font-family:monospace;border:1px solid #e2e8f0;border-radius:8px;padding:8px;white-space:pre;overflow:auto">${esc(m.json)}</textarea>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn" style="background:#6366f1;flex:1;padding:10px" onclick="copyBackupText()">📋 コピー</button>
+        <button class="decbtn" style="border:1px solid #cbd5e1;color:#64748b;flex:1;padding:10px" onclick="closeModal()">閉じる</button>
+      </div>
+    </div></div>`;
+    return;
+  }
+  if(m.type==="edit"){
+    el.innerHTML=`<div class="modal-bg" onclick="closeModal()"><div class="modal" onclick="event.stopPropagation()">
+      <div class="sec-title">回答を修正</div>
+      <label style="font-size:11px;color:#94a3b8">先生番号（下3桁）</label>
+      <input value="${esc(m.teacherCode)}" oninput="state.modal.teacherCode=this.value" style="width:100%;font-size:15px;padding:9px;margin:4px 0 12px">
+      <label style="font-size:11px;color:#94a3b8">科目</label>
+      <input value="${esc(m.subject)}" oninput="state.modal.subject=this.value" style="width:100%;font-size:15px;padding:9px;margin:4px 0 14px">
+      <div style="display:flex;gap:8px">
+        <button class="decbtn" style="border:1px solid #cbd5e1;color:#64748b;flex:1;padding:10px" onclick="closeModal()">やめる</button>
+        <button class="btn" style="background:#6366f1;flex:1;padding:10px" onclick="applyEditRecord()">保存</button>
+      </div>
+    </div></div>`;
+    return;
+  }
+  if(m.type==="confirm"){
+    el.innerHTML=`<div class="modal-bg" onclick="confirmNo()"><div class="modal" onclick="event.stopPropagation()">
+      <div style="font-size:14px;line-height:1.7;color:#334155;margin-bottom:16px">${esc(m.message)}</div>
+      <div style="display:flex;gap:8px">
+        <button class="decbtn" style="border:1px solid #cbd5e1;color:#64748b;flex:1;padding:11px" onclick="confirmNo()">やめる</button>
+        <button class="btn" style="background:#dc2626;flex:1;padding:11px" onclick="confirmYes()">実行する</button>
+      </div>
+    </div></div>`;
+    return;
+  }
+  if(m.type==="detail"){
+    const r=m.r; const all=m.allForStudent||[];
+    const Q_LABELS=[["q1","①わかりやすさ"],["q2","②楽しさ"],["q3","③ほめる"],["q4","④納得まで"],["q5","⑤総合"]];
+    el.innerHTML=`<div class="modal-bg" onclick="closeModal()"><div class="modal" style="max-width:380px;max-height:85vh;overflow-y:auto" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+        <div style="font-size:15px;font-weight:700">${esc(r.studentName)}</div>
+        <span style="font-size:11px;color:#94a3b8">${esc(r.grade)}</span>
+      </div>
+      ${all.map(x=>`
+        <div style="border:1px solid ${x.id===r.id?"#6366f1":"#e2e8f0"};border-radius:8px;padding:10px;margin-bottom:10px;${x.id===r.id?"background:#f5f3ff":""}">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+            <span class="chip" style="background:#dbeafe;color:#1d4ed8">${esc(x.teacherCode)}</span>
+            <b style="font-size:12px">${esc(tName(x.teacherCode)||"（未登録）")}</b>
+            <span class="chip" style="background:#f0fdf4;color:#15803d;font-size:10px">${esc(x.subject)}</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${Q_LABELS.map(([k,lbl])=>`<div style="font-size:11px;color:#475569"><span style="color:#94a3b8">${lbl}</span><br><b style="color:${k==="q5"?(Q5_COLOR[x[k]]||"#64748b"):scoreColor(x[k])}">${esc(x[k])}</b></div>`).join("")}
+          </div>
+          ${x.comment?`<div style="margin-top:8px;font-size:11px;color:#64748b;background:#f8fafc;border-radius:5px;padding:6px">${esc(x.comment)}</div>`:""}
+        </div>`).join("")}
+      <button class="btn" style="background:#334155;width:100%;padding:10px;margin-top:4px" onclick="closeModal()">閉じる</button>
+    </div></div>`;
+    return;
+  }
+  if(m.type==="comment"){
+    const r=m.r;
+    el.innerHTML=`<div class="modal-bg" onclick="closeModal()"><div class="modal" onclick="event.stopPropagation()">
+      <div style="font-size:13px;font-weight:700;margin-bottom:6px">${esc(r.studentName)}（${esc(r.grade)}）</div>
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:10px">先生 ${esc(tLabel(r.teacherCode))} · ${esc(r.subject)} · 総合「${esc(r.q5)}」</div>
+      <div style="font-size:13px;line-height:1.7;color:#334155;background:#f8fafc;border-radius:8px;padding:12px">${esc(r.comment)}</div>
+      <button class="btn" style="background:#334155;width:100%;margin-top:14px;padding:10px" onclick="closeModal()">閉じる</button>
+    </div></div>`;
+    return;
+  }
+  if(m.type==="archive"){
+    el.innerHTML=`<div class="modal-bg" onclick="closeModal()"><div class="modal" onclick="event.stopPropagation()">
+      <div class="sec-title">学期名をつけて保存</div>
+      <div style="font-size:11px;color:#94a3b8;margin-bottom:10px">この学期のデータを保存してから、回答をリセットします。</div>
+      <input id="archiveName" value="${esc(m.value||"")}" oninput="setModalVal(this.value)" placeholder="例: 2025冬" style="width:100%;font-size:15px;padding:10px;margin-bottom:14px">
+      <div style="display:flex;gap:8px">
+        <button class="decbtn" style="border:1px solid #cbd5e1;color:#64748b;flex:1;padding:10px" onclick="closeModal()">やめる</button>
+        <button class="btn" style="background:#0ea5e9;flex:1;padding:10px" onclick="doArchiveAndReset()">保存してリセット</button>
+      </div>
+    </div></div>`;
+    setTimeout(()=>{ const inp=document.getElementById("archiveName"); if(inp){ inp.focus(); } },50);
+  }
+}
+
+// data: 現在の[[label,val],...]。series: 過去学期の重ね描画 [{name,data:[val,...],style}]
+function radarSVG(data, series){
+  const cx=100,cy=100,R=58,n=data.length;
+  const MIN=2.5, MAX=5, SPAN=MAX-MIN;
+  // 値→半径（2.5未満は中心に張り付く）
+  const rOf=v=>{ const cl=Math.max(MIN,Math.min(MAX,v)); return R*(cl-MIN)/SPAN; };
+  // グリッド（2.5,3,3.5,4,4.5,5 の6本）
+  const levels=[2.5,3,3.5,4,4.5,5];
+  const grid=levels.map(lv=>{
+    const pts=data.map((_,i)=>{ const a=-Math.PI/2+i*2*Math.PI/n,r=rOf(lv); return `${cx+r*Math.cos(a)},${cy+r*Math.sin(a)}`; }).join(" ");
+    return `<polygon points="${pts}" fill="none" stroke="#e2e8f0" stroke-width="${lv===5?1.2:0.8}"/>`;
+  }).join("");
+  // 目盛り数値（縦軸方向に2.5刻みラベル）
+  const scaleLabels=levels.map(lv=>{ const r=rOf(lv); return `<text x="${cx+3}" y="${cy-r}" font-size="6" fill="#cbd5e1">${lv}</text>`; }).join("");
+  // 軸線
+  const axes=data.map((_,i)=>{ const a=-Math.PI/2+i*2*Math.PI/n; return `<line x1="${cx}" y1="${cy}" x2="${cx+R*Math.cos(a)}" y2="${cy+R*Math.sin(a)}" stroke="#f1f5f9" stroke-width="0.8"/>`; }).join("");
+  // 過去学期（点線で重ねる）
+  const pastPolys=(series||[]).map(s=>{
+    const pts=s.data.map((v,i)=>{ const a=-Math.PI/2+i*2*Math.PI/n,r=rOf(v); return `${cx+r*Math.cos(a)},${cy+r*Math.sin(a)}`; }).join(" ");
+    return `<polygon points="${pts}" fill="none" stroke="${s.color}" stroke-width="1.5" stroke-dasharray="${s.dash}"/>`;
+  }).join("");
+  // 今学期（実線・塗りつぶし）
+  const poly=data.map((d,i)=>{ const a=-Math.PI/2+i*2*Math.PI/n,r=rOf(d[1]); return `${cx+r*Math.cos(a)},${cy+r*Math.sin(a)}`; }).join(" ");
+  const labels=data.map((d,i)=>{ const a=-Math.PI/2+i*2*Math.PI/n,r=R+15; return `<text x="${cx+r*Math.cos(a)}" y="${cy+r*Math.sin(a)}" font-size="8" fill="#64748b" text-anchor="middle" dominant-baseline="middle">${d[0]}</text>`; }).join("");
+  const vals=data.map((d,i)=>{ const a=-Math.PI/2+i*2*Math.PI/n,r=rOf(d[1]); return `<text x="${cx+r*Math.cos(a)}" y="${cy+r*Math.sin(a)-3}" font-size="8" font-weight="700" fill="#4f46e5" text-anchor="middle">${d[1]}</text>`; }).join("");
+  // 凡例
+  let legend="";
+  if(series&&series.length){
+    const items=[`<tspan fill="#6366f1">━ 今学期</tspan>`].concat(series.map(s=>`<tspan fill="${s.color}">┄ ${esc(s.name)}</tspan>`));
+    legend=`<text x="4" y="232" font-size="7">${items.map((it,i)=>`<tspan x="4" dy="${i===0?0:9}">${it}</tspan>`).join("")}</text>`;
+  }
+  const h = series&&series.length ? 232+series.length*9+4 : 200;
+  return `<svg width="200" height="${h}" viewBox="0 0 200 ${h}">${axes}${grid}${scaleLabels}${pastPolys}<polygon points="${poly}" fill="#6366f1" fill-opacity="0.25" stroke="#6366f1" stroke-width="1.5"/>${vals}${labels}${legend}</svg>`;
+}
+
+// 既存データの先生コードを正規化（"291.0"→"291"の修復）
+(function migrateCodes(){
+  let changed=false;
+  state.allRecords.forEach(r=>{ const c=normCode(r.teacherCode); if(c!==r.teacherCode){ r.teacherCode=c; changed=true; } });
+  Object.values(state.archives).forEach(a=>{ (a.records||[]).forEach(r=>{ const c=normCode(r.teacherCode); if(c!==r.teacherCode){ r.teacherCode=c; changed=true; } }); });
+  if(changed){ LS.set("survey_allRecords",state.allRecords); LS.set("survey_archives",state.archives); }
+})();
+
+// localStorageが使えるか起動時に検査（Documentsアプリの一時モード対策）
+(function checkStorage(){
+  try{
+    const k="__survey_storage_test__";
+    localStorage.setItem(k,"1");
+    if(localStorage.getItem(k)!=="1") throw new Error("read-fail");
+    localStorage.removeItem(k);
+  }catch(e){
+    setTimeout(()=>{
+      state.err="⚠ この環境では自動保存できません。作業後に上部の💾保存でバックアップを取り、次回は設定→復元で読み込んでください。";
+      render();
+    }, 400);
+  }
+})();
+
+render();
+</script>
+</body>
+</html>

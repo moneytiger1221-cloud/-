@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>コマ割ツール 診断とリセット</title>
+<style>
+body{font-family:"Segoe UI","Meiryo",sans-serif;background:#f4f6f9;margin:0;padding:20px;color:#22303f;font-size:14px;}
+.box{max-width:820px;margin:0 auto;background:#fff;border:1px solid #c9d4e0;border-radius:10px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.06);}
+h1{font-size:18px;margin:0 0 4px;color:#c0470f;}
+.sub{color:#6a7889;font-size:12.5px;margin-bottom:16px;}
+h2{font-size:14px;margin:20px 0 8px;padding-bottom:5px;border-bottom:2px solid #e3e8ef;}
+table{border-collapse:collapse;width:100%;font-size:12.5px;}
+th,td{border-bottom:1px solid #eef1f5;padding:6px 8px;text-align:left;}
+th{background:#f7f9fc;color:#4a5b6d;font-size:11.5px;}
+.ok{color:#1e7a4f;font-weight:800;} .ng{color:#b8433a;font-weight:800;}
+.warn{background:#fdf6e3;border:1px solid #f0d99a;color:#8a6a06;padding:10px 12px;border-radius:8px;margin:10px 0;font-size:12.5px;line-height:1.8;}
+button{font-family:inherit;font-size:13px;font-weight:700;padding:9px 16px;border-radius:7px;cursor:pointer;margin:4px 6px 4px 0;}
+.b1{background:#fff;border:1px solid #b9d0f5;color:#2350a8;}
+.b2{background:#fff;border:1px solid #f2b7b2;color:#b83b34;}
+.b1:hover{background:#e6f0ff;} .b2:hover{background:#fdeceb;}
+pre{background:#f7f9fc;border:1px solid #e3e8ef;border-radius:6px;padding:9px;font-size:11px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;margin:6px 0;}
+.done{background:#e9f7f0;border:1px solid #b6e2cd;color:#1e7a4f;padding:10px 12px;border-radius:8px;margin-top:12px;font-weight:700;display:none;}
+</style></head><body>
+<div class="box">
+<h1>コマ割ツール 診断とリセット</h1>
+<div class="sub">ツールが真っ白／動かないときに、原因の切り分けと初期化ができます。</div>
+<div id="out"></div>
+<h2>復旧</h2>
+<div class="warn">下の操作は<b>コマの配置や設定だけ</b>を消します。ツール本体のファイルや、取り込み元のCSVファイルは消えません。<br>
+成績・アンケート・YSボードのデータには<b>一切触れません</b>。</div>
+<button class="b1" id="b1">① 取り込んだCSVだけ消す（埋め込みの初期データに戻る）</button><br>
+<button class="b2" id="b2">② コマ割ツールの保存を全部消す（完全に初期状態へ）</button>
+<div class="done" id="done"></div>
+</div>
+<script>
+var KEYS=[
+ ['komawari_studentcsv_v1','取り込んだ生徒CSV'],
+ ['komawari_teachercsv_v1','取り込んだ先生CSV'],
+ ['komawari2026_v1','コマ配置（講習）'],
+ ['komawari2026_v1_tsu','コマ配置（通常）'],
+ ['komawari2026_grp_v1','集団授業の割当'],
+ ['komawari2026_grey_v1','不可セル指定'],
+ ['komawari_skills_v1','先生スキル表'],
+ ['komawari_teachermeta_v1','先生の追加情報'],
+ ['komawari_taiken_v1','体験生設定'],
+ ['komawari_fempref_v1','女性希望'],
+ ['komawari2026_newbie_v1','新人ランク・メンター'],
+ ['komawari_mode_v1','講習/通常モード'],
+ ['komawari_trayh_v1','待機スペース高さ'],
+ ['komawari_nopanel_v1','パネル畳み'],
+ ['komawari_diffdone_v1','転記の消し込み'],
+ ['komawari_ct_v1','しきい値']
+];
+function esc(s){return String(s).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+function render(){
+  var h='',lsOK=true,err='';
+  try{localStorage.setItem('__t','1');localStorage.removeItem('__t');}catch(e){lsOK=false;err=e.message;}
+  h+='<h2>1. ブラウザ保存が使えるか</h2>';
+  h+=lsOK?'<p class="ok">✓ 使えます（通常どおり保存されます）</p>'
+        :'<p class="ng">✗ 使えません — '+esc(err)+'</p><div class="warn">この状態だと保存も読み込みもできません。統合版（塾ツール.html）のタブ内で開いている場合はこうなります。<b>コマ割ツール.html を直接ダブルクリック</b>して開いてください。</div>';
+  h+='<h2>2. 保存されている内容</h2><table><tr><th>内容</th><th>サイズ</th><th>状態</th></tr>';
+  var total=0,csvHead='';
+  KEYS.forEach(function(k){
+    var v=null;try{v=localStorage.getItem(k[0]);}catch(e){}
+    var size=v?v.length:0;total+=size;
+    var st=v?'あり':'—';
+    if(k[0]==='komawari_studentcsv_v1'&&v){csvHead=v.split('\n').slice(0,2).join('\n').slice(0,300);
+      var lines=v.split('\n').filter(function(x){return x.trim();}).length;
+      st='あり（'+lines+'行）'+(lines<5?' <span class="ng">★少なすぎます</span>':'');}
+    h+='<tr><td>'+k[1]+'</td><td>'+(size?(size>1024?(size/1024).toFixed(1)+' KB':size+' B'):'')+'</td><td>'+st+'</td></tr>';
+  });
+  h+='</table><p style="font-size:12px;color:#6a7889">合計 '+(total/1024).toFixed(1)+' KB</p>';
+  if(csvHead){h+='<h2>3. 取り込み済み生徒CSVの先頭</h2><pre>'+esc(csvHead)+'</pre>'+
+    '<div class="warn">ここが空だったり、見慣れない内容なら、<b>①</b>を押して埋め込みの初期データに戻してください。</div>';}
+  document.getElementById('out').innerHTML=h;
+}
+function wipe(keys,msg){
+  var n=0;keys.forEach(function(k){try{if(localStorage.getItem(k)!==null){localStorage.removeItem(k);n++;}}catch(e){}});
+  var d=document.getElementById('done');
+  d.style.display='block';
+  d.textContent='✓ '+msg+'（'+n+'件消しました）　コマ割ツール.html を開き直してください。';
+  render();
+}
+document.getElementById('b1').onclick=function(){
+  if(!confirm('取り込んだCSVを消して、ツールに埋め込まれた初期データに戻します。よろしいですか？'))return;
+  wipe(['komawari_studentcsv_v1','komawari_teachercsv_v1'],'取り込みCSVを消しました');
+};
+document.getElementById('b2').onclick=function(){
+  if(!confirm('コマ割ツールの保存を全部消して初期状態に戻します。コマの配置・体験生設定・スキル編集などが失われます。よろしいですか？'))return;
+  wipe(KEYS.map(function(k){return k[0];}),'コマ割ツールの保存を全部消しました');
+};
+render();
+</script></body></html>

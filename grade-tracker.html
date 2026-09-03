@@ -1,0 +1,2268 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="format-detection" content="telephone=no">
+<title>成績推移トラッカー</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+    background: #f4f5f7; color: #1a1a2e; font-size: 15px; line-height: 1.5;
+  }
+  .header {
+    background: #1a1a2e; color: #fff; padding: 14px 16px;
+    position: sticky; top: 0; z-index: 10;
+  }
+  .header h1 { margin: 0; font-size: 17px; font-weight: 600; }
+  .header .sub { font-size: 12px; opacity: .65; margin-top: 2px; }
+  .import-bar {
+    background: #fff; padding: 12px 16px; border-bottom: 1px solid #e2e4e8;
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .btn {
+    border: none; border-radius: 8px; padding: 9px 14px; font-size: 13px;
+    font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn-primary { background: #4f46e5; color: #fff; }
+  .btn-ghost { background: #eef0f4; color: #444; }
+  .btn-primary:active, .btn-ghost:active { opacity: .8; }
+  input[type=file] { display: none; }
+  .stats {
+    display: flex; gap: 8px; padding: 12px 16px; overflow-x: auto;
+  }
+  .stat-card {
+    flex: 1; min-width: 90px; background: #fff; border-radius: 10px;
+    padding: 12px; text-align: center; border: 1px solid #e2e4e8;
+  }
+  .stat-num { font-size: 24px; font-weight: 700; }
+  .stat-label { font-size: 11px; color: #666; margin-top: 2px; }
+  .s-down { color: #dc2626; }
+  .s-up { color: #16a34a; }
+  .s-flat { color: #888; }
+  .tabs {
+    display: flex; gap: 4px; padding: 0 12px; background: #f4f5f7;
+    position: sticky; top: 52px; z-index: 9; padding-top: 6px;
+  }
+  .tab {
+    flex: 1; padding: 10px 4px; text-align: center; font-size: 13px; font-weight: 600;
+    color: #888; border-bottom: 2px solid transparent; cursor: pointer;
+  }
+  .tab.active { color: #1a1a2e; border-bottom-color: #4f46e5; }
+  .list { padding: 12px; }
+  .card {
+    background: #fff; border-radius: 12px; padding: 14px; margin-bottom: 10px;
+    border: 1px solid #e2e4e8;
+  }
+  .card.down { border-left: 4px solid #dc2626; }
+  .card.up { border-left: 4px solid #16a34a; }
+  .card-top { display: flex; justify-content: space-between; align-items: flex-start; }
+  .card-name { font-weight: 700; font-size: 15px; }
+  .card-meta { font-size: 12px; color: #777; margin-top: 1px; }
+  .delta-badge {
+    font-size: 18px; font-weight: 700; padding: 2px 8px; border-radius: 8px;
+  }
+  .delta-down { background: #fee2e2; color: #dc2626; }
+  .delta-up { background: #dcfce7; color: #16a34a; }
+  .delta-flat { background: #f1f1f1; color: #888; }
+  .subjects { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .subj {
+    font-size: 12px; padding: 4px 7px; border-radius: 6px; background: #f4f5f7;
+    display: flex; gap: 4px; align-items: baseline;
+  }
+  .subj.juku { background: #eef2ff; }
+  .subj-name { font-weight: 600; color: #555; }
+  .subj-d-down { color: #dc2626; font-weight: 700; }
+  .subj-d-up { color: #16a34a; font-weight: 700; }
+  .subj-d-flat { color: #aaa; }
+  .empty { text-align: center; color: #999; padding: 40px 20px; font-size: 14px; }
+  .transition { font-size: 11px; color: #999; margin-top: 8px; }
+  .round-chip {
+    padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600;
+    background: #eef0f4; color: #555; cursor: pointer; border: 1px solid transparent;
+  }
+  .round-chip.active { background: #4f46e5; color: #fff; }
+  .na-note { font-size: 11px; color: #c0392b; margin-top: 4px; }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .act-btn {
+    font-size: 12px; padding: 6px 10px; border-radius: 16px; border: 1px solid #d5d8df;
+    background: #fff; color: #555; cursor: pointer; font-weight: 600;
+  }
+  .act-btn.done { background: #16a34a; color: #fff; border-color: #16a34a; }
+  .act-btn.done::before { content: "✓ "; }
+  .note-area {
+    width: 100%; margin-top: 8px; border: 1px solid #e2e4e8; border-radius: 8px;
+    padding: 7px; font-size: 13px; font-family: inherit; resize: vertical; min-height: 36px;
+  }
+  .no-id { font-size: 11px; color: #aaa; margin-left: 6px; }
+  .maintabs { display:flex; background:#1a1a2e; position:sticky; top:52px; z-index:9; }
+  .mtab { flex:1; text-align:center; padding:12px 4px; font-size:14px; font-weight:600; color:#8b8ba0; cursor:pointer; border-bottom:2px solid transparent; }
+  .mtab.active { color:#fff; border-bottom-color:#6366f1; }
+  .fsel { font-size:13px; padding:7px 8px; border-radius:8px; border:1px solid #d5d8df; background:#fff; color:#333; }
+  .modes { display:flex; gap:6px; }
+  .mode { flex:1; text-align:center; padding:10px 4px; border-radius:10px; font-size:13px; font-weight:700; background:#f1f2f5; color:#888; cursor:pointer; }
+  .mode.active { background:#1a1a2e; color:#fff; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .chip { padding:7px 12px; border-radius:20px; font-size:13px; font-weight:600; background:#eef0f4; color:#555; cursor:pointer; }
+  .chip.active { background:#4f46e5; color:#fff; }
+  .sum-card { background:#fff; border-radius:12px; padding:14px; margin-bottom:10px; border:1px solid #e2e4e8; }
+  .sum-title { font-weight:700; font-size:14px; }
+  .sum-row { display:flex; justify-content:space-between; align-items:center; margin-top:8px; font-size:14px; }
+  .sum-delta { font-size:18px; font-weight:700; padding:2px 10px; border-radius:8px; }
+  .reasons { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .reason { font-size:13px; font-weight:700; padding:4px 9px; border-radius:7px; }
+  .reason-hi { background:#fee2e2; color:#b91c1c; }
+  .reason-mid { background:#fef3c7; color:#b45309; }
+  .reason-lo { background:#f1f5f9; color:#64748b; }
+  .teacher-alert { background:#fff; border-radius:12px; padding:14px; margin-bottom:10px; border:1px solid #e2e4e8; border-left:4px solid #dc2626; }
+  .cr-head { font-size:12px; font-weight:700; color:#888; margin-bottom:6px; }
+  .cr-row { display:flex; justify-content:space-between; align-items:center; padding:7px 8px; border-radius:8px; font-size:14px; cursor:pointer; }
+  .cr-row:active { background:#eef0f4; }
+  .cr-row + .cr-row { border-top:1px solid #f4f5f7; }
+  .tantou-badges { display:flex; gap:6px; flex-wrap:wrap; margin-top:5px; }
+  .tantou-badge { background:#f1f2f5; color:#333; font-size:12px; padding:3px 8px; border-radius:6px; font-weight:600; }
+  .tantou-badge .tb-subj { color:#888; font-weight:500; margin-right:2px; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>成績推移トラッカー</h1>
+  <div class="sub">戸塚西口校 — 校長専用</div>
+</div>
+
+<div class="maintabs" id="maintabs">
+  <div class="mtab active" data-main="action">アクション</div>
+  <div class="mtab" data-main="collection">回収</div>
+  <div class="mtab" data-main="summary">集計</div>
+  <div class="mtab" data-main="settings">設定</div>
+</div>
+
+<!-- ===== アクション画面 ===== -->
+<div id="view-action">
+<div id="dashboard" style="display:none;background:linear-gradient(135deg,#1a1a2e,#2d2d54);color:#fff;padding:14px 16px;">
+  <div style="font-size:13px;opacity:.7;margin-bottom:8px;">📋 今日やること</div>
+  <div style="display:flex;gap:10px;">
+    <div id="dashUrgentBox" style="flex:1;background:rgba(255,255,255,.1);border-radius:10px;padding:10px;text-align:center;cursor:pointer;">
+      <div id="dashUrgent" style="font-size:26px;font-weight:800;">0</div>
+      <div style="font-size:11px;opacity:.8;">面談推奨 ★4+</div>
+    </div>
+    <div style="flex:1;background:rgba(255,255,255,.1);border-radius:10px;padding:10px;text-align:center;">
+      <div id="dashCall" style="font-size:26px;font-weight:800;">0</div>
+      <div style="font-size:11px;opacity:.8;">保護者電話推奨</div>
+    </div>
+    <div style="flex:1;background:rgba(255,255,255,.1);border-radius:10px;padding:10px;text-align:center;">
+      <div id="dashTodo" style="font-size:26px;font-weight:800;">0</div>
+      <div style="font-size:11px;opacity:.8;">未対応</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 教室リスクカード：どこに問題があるかを30秒で把握 ===== -->
+<div id="classRisk" style="display:none;background:#fff;margin:12px;border-radius:12px;border:1px solid #e2e4e8;overflow:hidden;">
+  <div style="padding:12px 14px;background:#f8f9fb;border-bottom:1px solid #e2e4e8;display:flex;justify-content:space-between;align-items:center;">
+    <span style="font-weight:700;font-size:14px;">🏫 教室リスク</span>
+    <span id="crSummary" style="font-size:12px;color:#666;"></span>
+  </div>
+  <div id="crBody" style="padding:12px 14px;"></div>
+</div>
+<div id="roundBar" style="display:none;background:#fff;padding:10px 16px;border-bottom:1px solid #e2e4e8;">
+  <div style="font-size:12px;color:#666;margin-bottom:6px;">今回のテスト回を選択（直前の回と比較します）</div>
+  <div id="roundChips" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+</div>
+
+<div id="filterBar" style="display:none;background:#fff;padding:10px 16px;border-bottom:1px solid #e2e4e8;">
+  <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+    <select id="fSchool" class="fsel"><option value="">全学校</option></select>
+    <select id="fGrade" class="fsel"><option value="">全学年</option></select>
+    <select id="fSubject" class="fsel"><option value="">全科目</option></select>
+    <select id="fTeacher" class="fsel"><option value="">全担任</option></select>
+    <select id="fSort" class="fsel">
+      <option value="deltaAsc">危険度が高い順</option>
+      <option value="deltaDesc">上昇が大きい順</option>
+      <option value="currDesc">今回点数が高い順</option>
+      <option value="currAsc">今回点数が低い順</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:5px;font-size:13px;color:#dc2626;font-weight:600;cursor:pointer;background:#fef2f2;padding:6px 10px;border-radius:8px;border:1px solid #fecaca;">
+      <input type="checkbox" id="fUrgent"> 面談推奨だけ
+    </label>
+    <span id="tantouChip" style="display:none;font-size:13px;font-weight:600;color:#4f46e5;background:#eef2ff;padding:6px 10px;border-radius:8px;cursor:pointer;"></span>
+  </div>
+</div>
+
+<div id="threshBar" style="display:none;background:#fff;padding:10px 16px;border-bottom:1px solid #e2e4e8;">
+  <div style="display:flex;justify-content:space-between;font-size:12px;color:#666;margin-bottom:2px;">
+    <span>受講科目の下落で要対応</span><span id="thSubjVal" style="font-weight:700;color:#dc2626;">−10点</span>
+  </div>
+  <input type="range" id="thSubj" min="-30" max="-1" value="-10" style="width:100%;">
+  <div style="display:flex;justify-content:space-between;font-size:12px;color:#666;margin:6px 0 2px;">
+    <span>5科目合計の下落で要対応</span><span id="thTotalVal" style="font-weight:700;color:#dc2626;">−30点</span>
+  </div>
+  <input type="range" id="thTotal" min="-80" max="-5" value="-30" style="width:100%;">
+  <label id="rosterToggleWrap" style="display:none;align-items:center;gap:6px;font-size:12px;color:#666;margin-top:10px;cursor:pointer;">
+    <input type="checkbox" id="rosterToggle" checked>
+    名簿にいない生徒（退塾者）を非表示にする
+  </label>
+</div>
+
+<div class="stats" id="stats" style="display:none">
+  <div class="stat-card"><div class="stat-num s-down" id="cntDown">0</div><div class="stat-label">要対応（下落）</div></div>
+  <div class="stat-card"><div class="stat-num s-up" id="cntUp">0</div><div class="stat-label">好調（上昇）</div></div>
+  <div class="stat-card"><div class="stat-num s-flat" id="cntFlat">0</div><div class="stat-label">変化なし</div></div>
+</div>
+
+<div class="tabs" id="tabs" style="display:none">
+  <div class="tab active" data-tab="down">要対応</div>
+  <div class="tab" data-tab="up">好調</div>
+  <div class="tab" data-tab="flat">変化なし</div>
+</div>
+
+<div class="list" id="list">
+  <div class="empty">
+    設定タブから成績CSVを取り込んでください。
+  </div>
+</div>
+</div>
+
+<!-- ===== テスト回収画面 ===== -->
+<div id="view-collection" style="display:none;">
+  <div style="background:#fff;padding:10px 16px;border-bottom:1px solid #e2e4e8;">
+    <div style="font-size:12px;color:#666;margin-bottom:6px;">対象テスト回</div>
+    <select id="colRound" class="fsel" style="width:100%;margin-bottom:10px;"></select>
+    <div style="font-size:12px;color:#666;margin-bottom:6px;">今日の曜日で絞り込み</div>
+    <div id="colWeekdays" style="display:flex;gap:5px;flex-wrap:wrap;"></div>
+  </div>
+  <div style="display:flex;gap:8px;padding:10px 16px 0;">
+    <div style="flex:1;background:#fff;border-radius:10px;padding:10px;text-align:center;border:1px solid #e2e4e8;">
+      <div id="colTodayCount" style="font-size:22px;font-weight:800;color:#dc2626;">0</div>
+      <div style="font-size:11px;color:#888;">本日声かけ対象</div>
+    </div>
+    <div style="flex:1;background:#fff;border-radius:10px;padding:10px;text-align:center;border:1px solid #e2e4e8;">
+      <div id="colTotalCount" style="font-size:22px;font-weight:800;color:#888;">0</div>
+      <div style="font-size:11px;color:#888;">未回収 全体</div>
+    </div>
+  </div>
+  <div id="collectionList" class="list"></div>
+</div>
+
+<!-- ===== 集計画面 ===== -->
+<div id="view-summary" style="display:none;">
+  <div style="background:#fff;padding:10px 16px;border-bottom:1px solid #e2e4e8;">
+    <!-- 大分類：まずここで「何を見たいか」を選ぶ -->
+    <div class="modes" id="sModes">
+      <div class="mode active" data-mode="avg">📊 平均点</div>
+      <div class="mode" data-mode="trend">📈 推移</div>
+      <div class="mode" data-mode="alert">⚠️ アラート</div>
+    </div>
+    <!-- 小分類：大分類に応じて内容が切り替わる -->
+    <div class="chips" id="sSubChips" style="margin-top:10px;"></div>
+    <!-- 既存の集計ロジックが参照する値を裏で保持（画面には出さない） -->
+    <input type="hidden" id="sGroupBy" value="avg-school">
+    <!-- テスト回セレクタ：モードにより必要な分だけ表示 -->
+    <select id="sRoundTo" class="fsel" style="display:none;margin-top:10px;"></select>
+    <select id="sRoundSingle" class="fsel" style="display:none;margin-top:10px;"></select>
+    <!-- 絞り込み（ピンポイント平均点）専用のセレクタ群 -->
+    <div id="pinFilterBar" style="display:none;gap:6px;flex-wrap:wrap;margin-top:10px;">
+      <select id="pinSchool" class="fsel"><option value="">全学校</option></select>
+      <select id="pinGrade" class="fsel"><option value="">全学年</option></select>
+      <select id="pinSubject" class="fsel"><option value="">5科目合計</option></select>
+    </div>
+    <div id="sHint" style="font-size:11px;color:#999;margin-top:6px;display:none;">※前回・今回の両方に点数がある生徒だけで平均を算出</div>
+  </div>
+  <div id="summaryList" class="list"></div>
+</div>
+
+<!-- ===== 設定画面 ===== -->
+<div id="view-settings" style="display:none;">
+  <div style="padding:16px;">
+    <div style="font-weight:700;margin-bottom:8px;">データ取り込み</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+      <label class="btn btn-primary">
+        成績CSV取込
+        <input type="file" id="gradeFile" accept=".csv,text/csv,text/plain" multiple>
+      </label>
+      <label class="btn btn-ghost">
+        名簿CSV取込
+        <input type="file" id="nameFile" accept=".csv,text/csv,text/plain">
+      </label>
+      <button class="btn btn-ghost" id="pasteBtn">貼り付け取込</button>
+    </div>
+    <div style="font-weight:700;margin-bottom:8px;">データ管理</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+      <button class="btn btn-ghost" id="clearBtn">全データ消去</button>
+    </div>
+    <div id="dataSummary" style="font-size:13px;color:#666;line-height:1.8;"></div>
+
+    <div style="font-weight:700;margin:20px 0 8px;">🔄 スプレッドシート同期</div>
+    <div style="font-size:12px;color:#888;margin-bottom:8px;">複数端末でデータを共有します。CSV取込後に「スプシに保存」、別端末では「スプシから読込」。</div>
+    <div style="background:#fff;border-radius:10px;padding:12px;border:1px solid #e2e4e8;margin-bottom:10px;">
+      <div style="font-size:11px;color:#888;margin-bottom:4px;">接続先URL（Apps Scriptのウェブアプリ URL）</div>
+      <input type="text" id="syncUrl" placeholder="https://script.google.com/macros/s/.../exec" style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;margin-bottom:8px;">
+      <div style="font-size:11px;color:#888;margin-bottom:4px;">合言葉</div>
+      <input type="text" id="syncKey" placeholder="合言葉" style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;margin-bottom:10px;">
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost" id="syncLoadBtn" style="flex:1">⬇️ スプシから読込</button>
+        <button class="btn btn-primary" id="syncSaveBtn" style="flex:1">⬆️ スプシに保存</button>
+      </div>
+      <div id="syncMsg" style="font-size:12px;margin-top:8px;color:#888;"></div>
+    </div>
+
+    <div style="font-weight:700;margin:20px 0 8px;">未実施テストの設定</div>
+    <div style="font-size:12px;color:#888;margin-bottom:8px;">テストが実施されなかった「学校×学年×科目」を回収対象から除外します。日々のCSV取込では消えません。</div>
+    <div style="background:#fff;border-radius:10px;padding:12px;border:1px solid #e2e4e8;margin-bottom:10px;">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <select id="niRound" class="fsel"></select>
+        <select id="niSchool" class="fsel"><option value="">学校を選択</option></select>
+        <select id="niGrade" class="fsel"><option value="">学年を選択</option></select>
+        <select id="niSubject" class="fsel"><option value="">科目を選択</option></select>
+        <button class="btn btn-primary" id="niAddBtn" style="font-size:13px;">未実施に追加</button>
+      </div>
+    </div>
+    <div id="niList" style="font-size:13px;"></div>
+
+    <details style="margin-top:16px;">
+      <summary style="font-size:13px;color:#888;cursor:pointer;">診断ログ</summary>
+      <div id="debug" style="background:#fffbe6;padding:8px;font-size:12px;color:#665c00;font-family:monospace;white-space:pre-wrap;max-height:200px;overflow:auto;margin-top:8px;border-radius:8px;">ここに取り込み状況が表示されます。</div>
+    </details>
+  </div>
+</div>
+
+<div id="detailModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:50;padding:16px;overflow:auto;">
+  <div style="background:#fff;border-radius:14px;max-width:640px;margin:20px auto;padding:18px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div id="detailName" style="font-size:18px;font-weight:700;"></div>
+      <button class="btn btn-ghost" id="detailClose">閉じる</button>
+    </div>
+    <div id="detailMeta" style="font-size:13px;color:#777;margin-top:2px;"></div>
+    <div id="detailChart" style="margin-top:14px;"></div>
+    <div id="detailTable" style="margin-top:14px;"></div>
+  </div>
+</div>
+
+<script>
+// ===== データモデル =====
+// students[no] = { no, name, school, grade, teacher, juku:[], scores: { "2025-5": {kokugo,...,total}, "2026-2": {...} } }
+const SUBJECTS = ['国語','数学','英語','理科','社会'];
+const SUBJ_KEY = {国語:'国語',数学:'数学',英語:'英語',理科:'理科',社会:'社会'};
+// 生徒番号の表示用短縮：下5桁のみ表示（iOSの電話番号自動認識を回避）
+// 照合・保存には常にフルの生徒番号(no)を使う。表示だけこの関数を通す。
+function shortNo(no){ return String(no).slice(-5); }
+
+// ===== 生徒番号から「その年度時点の学年」を逆算 =====
+// 生徒番号の5-6桁目が生年(西暦下2桁)を表す（例: 901711033 → 11 → 2011年度生まれ）。
+// これにより、生徒に紐づく「今の学年」1つだけを保持するのではなく、
+// 任意のテスト回（年度）時点で何年生だったかを常に正確に算出できる。
+// 過去の集計（例:「2025年度⑤の中2」）が、進級後の「今の学年」で誤って
+// 上書き判定されてしまう問題を避けるため、集計・回収系の機能は必ずこの関数を使うこと。
+// 学年の対応：年度時点の満年齢 6〜11→小1〜6、13〜15→中1〜3、16〜18→高1〜3
+// 学年表記の正規化：全角数字↔半角数字のどちらで書かれていても同じ学年として比較できるようにする。
+// 実データでは中学が全角（中２）、小学が半角（小6）など表記が混在しうるため、
+// 学年を比較する箇所は必ず生の文字列同士ではなく、この正規化を通してから比較すること。
+function normGrade(g) {
+  if (!g) return '';
+  return String(g).replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+}
+// 表示用：gradeAtYear()の半角出力を、実データと同じ全角表記に変換する（画面表示の統一のため）
+function displayGrade(g) {
+  if (!g) return g;
+  return String(g).replace(/[0-9]/g, c => '０１２３４５６７８９'[c]);
+}
+function gradeAtYear(no, year) {
+  const s = String(no);
+  if (s.length < 6) return null;
+  const birthCode = parseInt(s.slice(4,6), 10);
+  if (isNaN(birthCode)) return null;
+  const birthYear = 2000 + birthCode;
+  const age = year - birthYear;
+  // 半角数字で返す（比較箇所は必ずnormGrade()を通すため、実データが全角でも一致する）
+  if (age >= 6 && age <= 11) return '小' + (age-5);
+  if (age >= 13 && age <= 15) return '中' + (age-12);
+  if (age >= 16 && age <= 18) return '高' + (age-15);
+  return null; // 対象範囲外（誤判定を避けるため無理に返さない）
+}
+// テスト回キー("2025-5")から年度部分だけ取り出し、その回時点の学年を返す
+function gradeAtRound(no, roundKey) {
+  if (!roundKey) return null;
+  const year = parseInt(roundKey.split('-')[0], 10);
+  if (isNaN(year)) return null;
+  return gradeAtYear(no, year);
+}
+let students = {};
+let activeTab = 'down';
+let names = {};      // no -> 氏名
+let rosterGrade = {}; // no -> 学年（名簿CSVから。成績CSVが無い生徒の学年判定に使う）
+let tantou = {};     // no -> { 科目(中学5科目に丸め): 担当講師名 }（既存機能はこちらを使用、互換維持）
+let tantouHigh = {}; // no -> { 科目(名簿の表記そのまま。数Ⅰ・英コミ等): 担当講師名 }（高校生の回収タブ用）
+let schedule = {};   // no -> { 科目(中学5科目): '月'|'火'|... }
+let scheduleHigh = {}; // no -> { 科目(高校表記): '月'|'火'|... }
+// 未実施テスト：テスト回ごとに「学校×学年×科目」が実施なしとして除外される設定。
+// キー形式: "roundKey|school|grade|subject" 例: "2026-2|戸塚|中１|英語"
+// CSV取り込みでは一切変更されない（校長の手動設定のみで増減する）
+let notImplemented = {};
+// 高校生の手動回収チェック：成績CSVに高校生データが来ないため、
+// 名簿CSVの受講科目(tantouHigh)をチェックリストとして表示し、手動でチェックする。
+// キー形式: "roundKey|no|科目" 例: "2026-2|901700001|数Ⅰ"
+let manualCollected = {};
+let actions = {};    // no -> { roundKey: { mendan, denwa, jugyo, hogosha } }
+let notes = {};      // no -> メモ文字列
+
+// 閾値（スライダーで調整）
+let TH_SUBJECT = -10;  // 受講科目下落の閾値
+let TH_TOTAL = -30;    // 5科目合計下落の閾値
+let hideNonRoster = true;  // 名簿にいない生徒を非表示
+let mainView = 'action';   // action / summary / settings
+let filters = { school:'', grade:'', subject:'', teacher:'', tantouTeacher:'', sort:'deltaAsc', urgentOnly:false };
+
+const STORAGE_KEY = 'gradeTracker_v1';
+const NAMES_KEY = 'gradeTracker_names_v1';
+const ROSTER_GRADE_KEY = 'gradeTracker_rosterGrade_v1';
+const TANTOU_KEY = 'gradeTracker_tantou_v1';
+const TANTOU_HIGH_KEY = 'gradeTracker_tantouHigh_v1';
+const SCHEDULE_KEY = 'gradeTracker_schedule_v1';
+const SCHEDULE_HIGH_KEY = 'gradeTracker_scheduleHigh_v1';
+const NOTIMPL_KEY = 'gradeTracker_notimpl_v1';
+const MANUAL_COL_KEY = 'gradeTracker_manualCol_v1';
+const ACTIONS_KEY = 'gradeTracker_actions_v1';
+const NOTES_KEY = 'gradeTracker_notes_v1';
+const SETTINGS_KEY = 'gradeTracker_settings_v1';
+
+function load() {
+  try { const r=localStorage.getItem(STORAGE_KEY); if(r) students=JSON.parse(r); } catch(e){}
+  try { const r=localStorage.getItem(NAMES_KEY); if(r) names=JSON.parse(r); } catch(e){}
+  try { const r=localStorage.getItem(ROSTER_GRADE_KEY); if(r) rosterGrade=JSON.parse(r); } catch(e){}
+  try { const r=localStorage.getItem(TANTOU_KEY); if(r) tantou=JSON.parse(r); } catch(e){}
+  try { const r=localStorage.getItem(TANTOU_HIGH_KEY); if(r) tantouHigh=JSON.parse(r); } catch(e){}
+  try { const r=localStorage.getItem(SCHEDULE_KEY); if(r) schedule=JSON.parse(r); } catch(e){}
+  try { const r=localStorage.getItem(SCHEDULE_HIGH_KEY); if(r) scheduleHigh=JSON.parse(r); } catch(e){}
+  try { const r=localStorage.getItem(NOTIMPL_KEY); if(r) notImplemented=JSON.parse(r); } catch(e){}
+  try { const r=localStorage.getItem(MANUAL_COL_KEY); if(r) manualCollected=JSON.parse(r); } catch(e){}
+  try { const r=localStorage.getItem(ACTIONS_KEY); if(r) actions=JSON.parse(r); } catch(e){}
+  try { const r=localStorage.getItem(NOTES_KEY); if(r) notes=JSON.parse(r); } catch(e){}
+  try { const r=localStorage.getItem(SETTINGS_KEY); if(r){const s=JSON.parse(r); if(s.thSubject!=null)TH_SUBJECT=s.thSubject; if(s.thTotal!=null)TH_TOTAL=s.thTotal;} } catch(e){}
+}
+function save() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(students)); } catch(e) { alert('保存に失敗（容量超過の可能性）'); }
+}
+function saveNames(){ try{localStorage.setItem(NAMES_KEY,JSON.stringify(names));}catch(e){} }
+function saveRosterGrade(){ try{localStorage.setItem(ROSTER_GRADE_KEY,JSON.stringify(rosterGrade));}catch(e){} }
+function saveTantou(){ try{localStorage.setItem(TANTOU_KEY,JSON.stringify(tantou));}catch(e){} }
+function saveTantouHigh(){ try{localStorage.setItem(TANTOU_HIGH_KEY,JSON.stringify(tantouHigh));}catch(e){} }
+function saveSchedule(){ try{localStorage.setItem(SCHEDULE_KEY,JSON.stringify(schedule));}catch(e){} }
+function saveScheduleHigh(){ try{localStorage.setItem(SCHEDULE_HIGH_KEY,JSON.stringify(scheduleHigh));}catch(e){} }
+function saveNotImplemented(){ try{localStorage.setItem(NOTIMPL_KEY,JSON.stringify(notImplemented));}catch(e){} }
+function saveManualCollected(){ try{localStorage.setItem(MANUAL_COL_KEY,JSON.stringify(manualCollected));}catch(e){} }
+function saveActions(){ try{localStorage.setItem(ACTIONS_KEY,JSON.stringify(actions));}catch(e){} }
+function saveNotes(){ try{localStorage.setItem(NOTES_KEY,JSON.stringify(notes));}catch(e){} }
+const SYNC_CFG_KEY = 'gradeTracker_syncConfig_v1';
+function loadSyncCfg(){ try{ return JSON.parse(localStorage.getItem(SYNC_CFG_KEY)||'{}'); }catch(e){ return {}; } }
+function saveSyncCfg(cfg){ try{ localStorage.setItem(SYNC_CFG_KEY, JSON.stringify(cfg)); }catch(e){} }
+function syncPayload(){
+  return { students, names, rosterGrade, tantou, tantouHigh, schedule, scheduleHigh,
+    notImplemented, manualCollected, actions, notes,
+    settings:{ thSubject: TH_SUBJECT, thTotal: TH_TOTAL } };
+}
+function applySyncPayload(d){
+  if(d.students){ students=d.students; localStorage.setItem(STORAGE_KEY, JSON.stringify(students)); }
+  if(d.names){ names=d.names; localStorage.setItem(NAMES_KEY, JSON.stringify(names)); }
+  if(d.rosterGrade){ rosterGrade=d.rosterGrade; localStorage.setItem(ROSTER_GRADE_KEY, JSON.stringify(rosterGrade)); }
+  if(d.tantou){ tantou=d.tantou; localStorage.setItem(TANTOU_KEY, JSON.stringify(tantou)); }
+  if(d.tantouHigh){ tantouHigh=d.tantouHigh; localStorage.setItem(TANTOU_HIGH_KEY, JSON.stringify(tantouHigh)); }
+  if(d.schedule){ schedule=d.schedule; localStorage.setItem(SCHEDULE_KEY, JSON.stringify(schedule)); }
+  if(d.scheduleHigh){ scheduleHigh=d.scheduleHigh; localStorage.setItem(SCHEDULE_HIGH_KEY, JSON.stringify(scheduleHigh)); }
+  if(d.notImplemented){ notImplemented=d.notImplemented; localStorage.setItem(NOTIMPL_KEY, JSON.stringify(notImplemented)); }
+  if(d.manualCollected){ manualCollected=d.manualCollected; localStorage.setItem(MANUAL_COL_KEY, JSON.stringify(manualCollected)); }
+  if(d.actions){ actions=d.actions; localStorage.setItem(ACTIONS_KEY, JSON.stringify(actions)); }
+  if(d.notes){ notes=d.notes; localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); }
+  if(d.settings){ localStorage.setItem(SETTINGS_KEY, JSON.stringify(d.settings)); }
+}
+async function syncSave(){
+  const url=document.getElementById('syncUrl').value.trim(), key=document.getElementById('syncKey').value.trim();
+  const msg=document.getElementById('syncMsg');
+  if(!url||!key){ msg.textContent='接続先URLと合言葉を入力してください'; msg.style.color='#dc2626'; return; }
+  saveSyncCfg({url,key});
+  msg.textContent='スプシに保存中…'; msg.style.color='#888';
+  try{
+    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({key,tool:'grade',data:JSON.stringify(syncPayload())})});
+    const data=await res.json();
+    if(data.ok){ msg.textContent='✅ 保存しました（'+new Date().toLocaleTimeString()+'）'; msg.style.color='#16a34a'; }
+    else{ msg.textContent='エラー: '+(data.error||'不明'); msg.style.color='#dc2626'; }
+  }catch(e){ msg.textContent='通信エラー: ネット接続を確認してください'; msg.style.color='#dc2626'; }
+}
+async function syncLoad(){
+  const url=document.getElementById('syncUrl').value.trim(), key=document.getElementById('syncKey').value.trim();
+  const msg=document.getElementById('syncMsg');
+  if(!url||!key){ msg.textContent='接続先URLと合言葉を入力してください'; msg.style.color='#dc2626'; return; }
+  saveSyncCfg({url,key});
+  if(!confirm('スプシの内容で、この端末のデータを上書きします。よろしいですか？'))return;
+  msg.textContent='スプシから読込中…'; msg.style.color='#888';
+  try{
+    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({key,tool:'grade',action:'load'})});
+    const data=await res.json();
+    if(data.ok){
+      if(!data.data){ msg.textContent='スプシにまだデータがありません（先に「スプシに保存」してください）'; msg.style.color='#dc2626'; return; }
+      applySyncPayload(JSON.parse(data.data));
+      msg.textContent='✅ 読み込みました。再読込します…'; msg.style.color='#16a34a';
+      setTimeout(()=>location.reload(),700);
+    } else { msg.textContent='エラー: '+(data.error||'不明'); msg.style.color='#dc2626'; }
+  }catch(e){ msg.textContent='通信エラー: ネット接続を確認してください'; msg.style.color='#dc2626'; }
+}
+function saveSettings(){ try{localStorage.setItem(SETTINGS_KEY,JSON.stringify({thSubject:TH_SUBJECT,thTotal:TH_TOTAL}));}catch(e){} }
+
+// ===== CSVパース =====
+function parseCSV(text) {
+  // シンプルなCSV分割（フィールド内カンマは想定しない＝塾システム出力前提）
+  const lines = text.split(/\r?\n/);
+  return lines.map(l => l.split(','));
+}
+
+function detectKaiFromName(name) {
+  if (!name) return null;
+  const kaiMap = {'①':1,'②':2,'③':3,'④':4,'⑤':5,'⑥':6};
+  for (const k in kaiMap) if (name.includes(k)) return kaiMap[k];
+  const m = name.match(/テスト\s*(\d)/);
+  if (m) return parseInt(m[1]);
+  // ファイル名の丸数字が化けた場合（A〜E）。「テスト」直後の英字を拾う
+  const g = name.match(/テスト\s*([A-F])/);
+  if (g) return {A:1,B:2,C:3,D:4,E:5,F:6}[g[1]];
+  return null;
+}
+
+function detectYearOnly(rows) {
+  const z2h = s => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+  for (const r of rows.slice(0,8)) {
+    const m = z2h(r.join(',')).match(/(\d{4})\s*年度/);
+    if (m) return parseInt(m[1]);
+  }
+  return null;
+}
+
+function detectYearKai(rows) {
+  const kaiMap = {'①':1,'②':2,'③':3,'④':4,'⑤':5,'⑥':6};
+  const z2h = s => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+  for (const r of rows.slice(0,8)) {
+    const joined = z2h(r.join(','));
+    const ym = joined.match(/(\d{4})\s*年度/);
+    if (!ym) continue;
+    let kai = null;
+    const km = joined.match(/考査\s*([①②③④⑤⑥])/);
+    if (km) kai = kaiMap[km[1]];
+    if (!kai) {
+      const km2 = joined.match(/考査\s*(\d)/);
+      if (km2) kai = parseInt(km2[1]);
+    }
+    if (ym && kai) return { year: parseInt(ym[1]), kai };
+  }
+  return null;
+}
+
+function findHeaderRow(rows) {
+  for (let i=0;i<rows.length;i++) {
+    if (rows[i][0] === 'NO') return i;
+  }
+  return -1;
+}
+
+function pad(arr, n) {
+  const c = arr.slice();
+  while (c.length < n) c.push('');
+  return c;
+}
+
+function num(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (s === '') return null;
+  const n = parseInt(s);
+  return isNaN(n) ? null : n;
+}
+
+function importGradeFile(text, filename) {
+  const rows = parseCSV(text);
+  dbg('  パース行数: ' + rows.length);
+  let yk = detectYearKai(rows);
+  // フォールバック1: タイトル行は年度だけ取れて回が化けた場合、ファイル名から回を補完
+  if (!yk || !yk.kai) {
+    const fnKai = detectKaiFromName(filename);
+    const yr = detectYearOnly(rows);
+    if (fnKai && yr) { yk = { year: yr, kai: fnKai }; dbg('  回をファイル名から補完: ' + fnKai); }
+  }
+  if (!yk) {
+    dbg('  ✕ 年度・テスト回が読めません。3行目の中身↓');
+    dbg('  「' + (rows[2]||[]).join(',').slice(0,60) + '」');
+    return 0;
+  }
+  dbg('  年度=' + yk.year + ' 回=' + yk.kai);
+  const hi = findHeaderRow(rows);
+  if (hi < 0) { dbg('  ✕ ヘッダー行(NO)が見つかりません'); return 0; }
+  dbg('  ヘッダー行: ' + hi + '行目');
+  const header = rows[hi];
+  const kaiIdx = [];
+  header.forEach((c,i)=>{ if (c==='回') kaiIdx.push(i); });
+  if (kaiIdx.length < 2) { dbg('  ✕ 成績ブロック(回)が2つ見つかりません: ' + kaiIdx.length); return 0; }
+  const prevStart = kaiIdx[0], currStart = kaiIdx[1];
+
+  // ○印列の判定用：基準点列(6-10)以外で、各教科名を含む列インデックスを集める
+  // 受講科目 = 基準点列に点数あり ∪ ○印のある教科系列
+  const subjColGroups = { 国語:[], 数学:[], 英語:[], 理科:[], 社会:[] };
+  for (let i=11;i<prevStart;i++){
+    const name = header[i] || '';
+    if (name.includes('国語')||name.includes('現国')||name.includes('言語文化')) subjColGroups.国語.push(i);
+    else if (name.includes('数')||name.includes('論表')) subjColGroups.数学.push(i);
+    else if (name.includes('英')) subjColGroups.英語.push(i);
+    else if (name.includes('理科')||name.includes('物理')||name.includes('化学')||name.includes('生物')||name.includes('地学')) subjColGroups.理科.push(i);
+    else if (name.includes('社会')) subjColGroups.社会.push(i);
+  }
+
+  let count = 0;
+  for (let i=hi+1;i<rows.length;i++){
+    let row = rows[i];
+    if (!row || !row[0]) continue;
+    const no = row[0].trim();
+    if (!/^\d+$/.test(no)) continue; // 平均点・記入率行を除外
+    row = pad(row, Math.max(currStart+7, header.length));
+
+    // 受講科目判定
+    const base = {国語:row[6],数学:row[7],英語:row[8],理科:row[9],社会:row[10]};
+    const juku = [];
+    for (const s of SUBJECTS) {
+      const hasBase = base[s] && base[s].trim() !== '';
+      const hasMaru = subjColGroups[s].some(ci => (row[ci]||'').includes('○'));
+      if (hasBase || hasMaru) juku.push(s);
+    }
+
+    function block(start) {
+      return {
+        label: row[start],
+        kokugo: num(row[start+1]), sugaku: num(row[start+2]),
+        eigo: num(row[start+3]), rika: num(row[start+4]),
+        shakai: num(row[start+5]), total: num(row[start+6])
+      };
+    }
+    const curr = block(currStart);
+    const prev = block(prevStart);
+    const hasVals = (b)=>[b.kokugo,b.sugaku,b.eigo,b.rika,b.shakai,b.total].some(v=>v!=null);
+
+    if (!students[no]) {
+      students[no] = { no, name:'', school:'', grade:'', teacher:'', juku:[], scores:{}, attrOrder:-1 };
+    }
+    const st = students[no];
+    // 今回ファイルの新しさ
+    const fileOrder = yk.year*10 + yk.kai;
+    // 学校・学年・担任は「より新しい回のファイル」のときだけ更新（古い⑤で上書きしない）
+    if (fileOrder >= (st.attrOrder ?? -1)) {
+      if (row[1]) st.school = row[1];
+      if (row[2]) st.grade = row[2];
+      if ((row[3]||'').trim()) st.teacher = (row[3]||'').trim();
+      st.attrOrder = fileOrder;
+    }
+    if (juku.length) st.juku = juku;
+
+    const kaiMap = {'①':1,'②':2,'③':3,'④':4,'⑤':5};
+    // 今回ブロック：ファイルから検出した year/kai
+    if (hasVals(curr)) {
+      const key = yk.year + '-' + yk.kai;
+      st.scores[key] = { ...curr, year: yk.year, kai: yk.kai };
+      count++;
+    }
+    // 前回ブロック：ラベル（④⑤など）から回を判定。年度推定（今回より前）
+    const prevKai = kaiMap[prev.label];
+    if (hasVals(prev) && prevKai) {
+      // 前回回が今回回より大きければ前年度（⑤→②など）
+      const prevYear = prevKai >= yk.kai ? yk.year - 1 : yk.year;
+      const pkey = prevYear + '-' + prevKai;
+      // 既に同じ回が別ファイルで入っていれば、空でない値を優先（上書きしすぎない）
+      if (!st.scores[pkey] || !hasVals(st.scores[pkey])) {
+        st.scores[pkey] = { ...prev, year: prevYear, kai: prevKai };
+        count++;
+      }
+    }
+  }
+  save();
+  return count;
+}
+
+// ===== 推移計算 =====
+// 選択中の今回回（selectedRound: order値）を今回とし、その直前に存在する回を前回とする
+let selectedRound = null; // "year-kai"文字列。nullなら最新回
+
+function roundOrder(sc){ return sc.year*10+sc.kai; }
+
+// 全データに存在するテスト回の一覧（order降順）
+function availableRounds() {
+  const set = {};
+  for (const st of Object.values(students)) {
+    for (const k in st.scores) {
+      const sc = st.scores[k];
+      set[k] = { key:k, year:sc.year, kai:sc.kai, order:roundOrder(sc) };
+    }
+  }
+  return Object.values(set).sort((a,b)=>b.order-a.order);
+}
+
+// 全5科目が揃っているか
+function isFull(sc){
+  return sc && sc.kokugo!=null && sc.sugaku!=null && sc.eigo!=null && sc.rika!=null && sc.shakai!=null;
+}
+
+function getTransition(st) {
+  // 今回 = 選択回（なければその生徒の最新回）
+  const ordered = Object.keys(st.scores).map(k=>({key:k, sc:st.scores[k], order:roundOrder(st.scores[k])}))
+    .sort((a,b)=>a.order-b.order);
+  if (ordered.length === 0) return null;
+
+  let curr;
+  if (selectedRound && st.scores[selectedRound]) {
+    const sc = st.scores[selectedRound];
+    curr = { key:selectedRound, sc, order:roundOrder(sc) };
+  } else if (selectedRound && !st.scores[selectedRound]) {
+    return null; // この生徒は選択回のデータがない
+  } else {
+    curr = ordered[ordered.length-1];
+  }
+  // 前回 = currより前で存在する最も近い回
+  const earlier = ordered.filter(o => o.order < curr.order);
+  if (earlier.length === 0) return null;
+  const prev = earlier[earlier.length-1];
+  return { prev, curr };
+}
+
+function kaiLabel(sc) {
+  return sc.year + '年度' + '①②③④⑤⑥'[sc.kai-1];
+}
+
+// ===== 科目別長期トレンド判定（直近最大6回）=====
+// 「じわじわ下がり続けている」と「一度だけ大きく下がった」を区別する
+function subjectTrend(st, subjKey, currOrder) {
+  const ordered = Object.keys(st.scores)
+    .map(k=>({sc:st.scores[k], order:roundOrder(st.scores[k])}))
+    .filter(o=>o.order<=currOrder)
+    .sort((a,b)=>a.order-b.order);
+  const scores = ordered.map(o=>o.sc[subjKey]).filter(v=>v!=null);
+  if (scores.length < 2) return { sym:'→', label:'', consec:0, slope:0 };
+  // 連続下降回数（直近から）
+  let consec = 0;
+  for (let i=scores.length-1; i>0; i--){
+    if (scores[i] < scores[i-1]) consec++;
+    else break;
+  }
+  // 傾き：直近最大6回の1回あたり平均変化
+  const recent = scores.slice(-6);
+  const slope = (recent[recent.length-1]-recent[0])/(recent.length-1);
+  const lastDrop = scores[scores.length-1]-scores[scores.length-2];
+  // 判定（連続性を重視し、単発急落は区別）
+  if (consec >= 4) return { sym:'↘↘↘', label:consec+'回連続下降', consec, slope };
+  if (consec === 3) return { sym:'↘↘', label:'3回連続下降', consec, slope };
+  if (consec === 2 && slope <= -5) return { sym:'↘↘', label:'2回連続・急', consec, slope };
+  if (consec === 2 && slope <= -2) return { sym:'↘', label:'下降傾向', consec, slope };
+  if (consec <= 2 && lastDrop <= -12) return { sym:'⚠', label:'急落（単発）', consec, slope };
+  if (slope <= -3) return { sym:'↘', label:'緩やかな下降', consec, slope };
+  if (slope >= 8) return { sym:'↗↗', label:'急上昇', consec, slope };
+  if (slope >= 3) return { sym:'↗', label:'上昇傾向', consec, slope };
+  return { sym:'→', label:'横ばい', consec, slope };
+}
+
+// 連続下降回数：選択回までの時系列で、直近から何回連続で合計が下がっているか
+function consecutiveDown(st, currOrder) {
+  const ordered = Object.keys(st.scores)
+    .map(k=>({sc:st.scores[k], order:roundOrder(st.scores[k])}))
+    .filter(o=>o.order<=currOrder)
+    .sort((a,b)=>a.order-b.order);
+  // 5科目揃いの合計だけを対象にする（欠損回はスキップ）
+  const totals = ordered.filter(o=>isFull(o.sc)).map(o=>o.sc.total);
+  if (totals.length < 2) return 0;
+  let cnt = 0;
+  for (let i=totals.length-1; i>0; i--) {
+    if (totals[i] < totals[i-1]) cnt++;
+    else break;
+  }
+  return cnt;
+}
+
+// 要対応判定＋危険度スコア算出
+function classify(st) {
+  const t = getTransition(st);
+  if (!t) return { cat:'flat', t:null, totalDelta:null, risk:0, stars:0, reasons:[] };
+  const map = {国語:'kokugo',数学:'sugaku',英語:'eigo',理科:'rika',社会:'shakai'};
+  let worstSubjDelta = 0, bestSubjDelta = 0, hasSubjCompare = false;
+  let numDown = 0;            // 下落した受講科目数
+  let currMinSubj = null;     // 今回の受講科目最低点
+  const subjDeltas = [];      // {subj, prev, curr, delta} 受講科目ごと
+  for (const s of st.juku) {
+    const pv = t.prev.sc[map[s]], cv = t.curr.sc[map[s]];
+    if (cv!=null) currMinSubj = (currMinSubj==null)?cv:Math.min(currMinSubj, cv);
+    if (pv!=null && cv!=null) {
+      const d = cv-pv; hasSubjCompare = true;
+      subjDeltas.push({ subj:s, prev:pv, curr:cv, delta:d });
+      if (d < worstSubjDelta) worstSubjDelta = d;
+      if (d > bestSubjDelta) bestSubjDelta = d;
+      if (d < 0) numDown++;
+    }
+  }
+  // 合計は両回とも5科目揃っているときだけ比較
+  let totalDelta = null;
+  const totalComparable = isFull(t.prev.sc) && isFull(t.curr.sc);
+  if (totalComparable) totalDelta = t.curr.sc.total - t.prev.sc.total;
+
+  // 連続下降（合計ベース）
+  const consecDown = consecutiveDown(st, t.curr.order);
+
+  // 科目別長期トレンド（受講科目）
+  const trends = {};
+  let maxSubjConsec = 0;  // 受講科目の最大連続下降回数
+  for (const s of st.juku) {
+    const tr = subjectTrend(st, map[s], t.curr.order);
+    trends[s] = tr;
+    if (tr.consec > maxSubjConsec) maxSubjConsec = tr.consec;
+  }
+
+  // カテゴリ判定
+  let cat = 'flat';
+  if (worstSubjDelta <= TH_SUBJECT || (totalDelta!=null && totalDelta <= TH_TOTAL)) cat = 'down';
+  else if ((totalDelta!=null && totalDelta >= 20) || bestSubjDelta >= 10) cat = 'up';
+  // 3回以上の科目連続下降は、直近下落が小さくても要対応に引き上げる
+  if (cat === 'flat' && maxSubjConsec >= 3) cat = 'down';
+
+  // ===== 危険度スコア（0-100、高いほど危険）=====
+  let risk = 0;
+  if (totalDelta!=null && totalDelta < 0) risk += Math.min(32, Math.abs(totalDelta)*0.72);   // 合計下落
+  if (worstSubjDelta < 0)                 risk += Math.min(32, Math.abs(worstSubjDelta)*1.0);  // 受講科目下落
+  if (numDown >= 2)                       risk += Math.min(16, (numDown-1)*8);                 // 複数教科同時下落
+  if (consecDown >= 2)                    risk += Math.min(15, (consecDown-1)*7.5);            // 合計の連続下降
+  if (maxSubjConsec >= 3)                 risk += Math.min(12, (maxSubjConsec-2)*6);           // 科目の連続下降（じわ下げ）
+  if (currMinSubj!=null && currMinSubj<40) risk += Math.min(5, (40-currMinSubj)*0.15);         // 今回低得点
+  risk = Math.round(Math.min(100, risk));
+  const stars = risk>=70?5 : risk>=50?4 : risk>=30?3 : risk>=15?2 : 1;
+
+  // ===== 要対応の理由（危険度の高い順に文言化）=====
+  const reasons = [];
+  subjDeltas.filter(x=>x.delta<0).sort((a,b)=>a.delta-b.delta).forEach(x=>{
+    reasons.push({ text:`${x.subj} ${x.delta}点`, level: x.delta<=-15?'hi':(x.delta<=-8?'mid':'lo') });
+  });
+  if (totalDelta!=null && totalDelta<0) reasons.unshift({ text:`5科目合計 ${totalDelta}点`, level: totalDelta<=-30?'hi':'mid' });
+  if (consecDown >= 2) reasons.push({ text:`合計${consecDown}回連続下降`, level:'hi' });
+  // 科目のじわ下げ（3回以上）を理由に追加
+  for (const s of st.juku) {
+    if (trends[s] && trends[s].consec >= 3) reasons.push({ text:`${s} ${trends[s].consec}回連続下降`, level:'hi' });
+  }
+  if (numDown >= 3) reasons.push({ text:`${numDown}科目同時下落`, level:'mid' });
+
+  return { cat, t, totalDelta, totalComparable, worstSubjDelta, bestSubjDelta, hasSubjCompare,
+           risk, stars, reasons, consecDown, numDown, subjDeltas, trends, maxSubjConsec };
+}
+
+// ===== 教室リスク：教室全体の状況を集計（ユーザーの絞り込みに依存しない）=====
+let classRiskCache = null;  // renderごとに1回だけ計算（重複classify回避）
+
+// 担当講師ランキング（共通関数）：科目の下落原因をその科目の担当講師に紐づける
+// downs = classify結果がcat==='down'の {st,c} 配列
+// （名簿に担当情報がない生徒は担任にフォールバック）
+function computeTantouRanking(downs) {
+  const byTeacher = {};
+  const hasTantouData = Object.keys(tantou).length > 0;
+  function addT(tn, drop){
+    if(!byTeacher[tn]) byTeacher[tn]={key:tn,n:0,dropSum:0,dropN:0};
+    byTeacher[tn].n++;
+    if (drop!=null && drop<0){ byTeacher[tn].dropSum+=drop; byTeacher[tn].dropN++; }
+  }
+  for (const x of downs){
+    const tm = tantou[x.st.no];
+    if (hasTantouData && tm){
+      const counted = new Set();
+      for (const sd of x.c.subjDeltas){
+        const trendConsec = x.c.trends[sd.subj] ? x.c.trends[sd.subj].consec : 0;
+        if ((sd.delta <= TH_SUBJECT || trendConsec >= 3) && tm[sd.subj] && !counted.has(tm[sd.subj])){
+          counted.add(tm[sd.subj]);
+          addT(tm[sd.subj], sd.delta);
+        }
+      }
+      if (counted.size === 0) addT(x.st.teacher||'（未設定）', x.c.totalDelta!=null?x.c.totalDelta:x.c.worstSubjDelta);
+    } else {
+      addT(x.st.teacher||'（未設定）', x.c.totalDelta!=null?x.c.totalDelta:x.c.worstSubjDelta);
+    }
+  }
+  return Object.values(byTeacher)
+    .map(x=>({key:x.key, n:x.n, avgDrop:x.dropN?x.dropSum/x.dropN:0}))
+    .sort((a,b)=>b.n-a.n);
+}
+
+function computeClassRisk() {
+  let sts = Object.values(students);
+  if (Object.keys(names).length>0 && hideNonRoster) sts = sts.filter(st=>names[st.no]);
+  const results = sts.map(st=>({st, c:classify(st)})).filter(x=>x.c.t);
+  const downs = results.filter(x=>x.c.cat==='down');
+
+  // 危険教科ランキング：その科目の下落が要対応の一因になっている人数
+  const bySubj = {};
+  for (const x of downs){
+    for (const sd of x.c.subjDeltas){
+      // 閾値超えの下落、または3回以上連続下降ならその科目が「原因」
+      const trendConsec = x.c.trends[sd.subj] ? x.c.trends[sd.subj].consec : 0;
+      if (sd.delta <= TH_SUBJECT || trendConsec >= 3){
+        bySubj[sd.subj] = (bySubj[sd.subj]||0)+1;
+      }
+    }
+  }
+  const subjRank = Object.keys(bySubj).map(k=>({key:k,n:bySubj[k]})).sort((a,b)=>b.n-a.n);
+
+  // 危険学年ランキング（そのテスト回時点の学年で集計。進級後の「今の学年」ではない）
+  const byGrade = {};
+  for (const x of downs){
+    const g = displayGrade(gradeAtYear(x.st.no, x.c.t.curr.sc.year)) || x.st.grade || '不明';
+    byGrade[g]=(byGrade[g]||0)+1;
+  }
+  const gradeRank = Object.keys(byGrade).map(k=>({key:k,n:byGrade[k]})).sort((a,b)=>b.n-a.n);
+
+  // 担当講師ランキング（共通関数を使用）
+  const teacherRank = computeTantouRanking(downs);
+
+  // 全体傾向の一言サマリー
+  const total = results.length;
+  const downRate = total? Math.round(downs.length/total*100) : 0;
+  const parts = [`要対応率 ${downRate}%`];
+  if (subjRank.length && subjRank[0].n >= 3) parts.push(`${subjRank[0].key}が悪化`);
+  if (gradeRank.length && gradeRank[0].n >= 3) parts.push(`${gradeRank[0].key}が特に危険`);
+
+  return { subjRank, gradeRank, teacherRank, downRate, total, downCount:downs.length, summary:parts.join('・') };
+}
+
+function renderClassRisk() {
+  const cr = computeClassRisk();
+  const card = document.getElementById('classRisk');
+  card.style.display = 'block';
+  // 要対応率で色分け（30%以上は赤、15%以上は黄）
+  const rateColor = cr.downRate>=30?'#dc2626':(cr.downRate>=15?'#d97706':'#16a34a');
+  document.getElementById('crSummary').innerHTML = `<span style="color:${rateColor};font-weight:700;">${cr.summary}</span>`;
+
+  // ランキング行を生成（タップでドリルダウン）
+  function rankRows(items, type, fmt){
+    if (!items.length) return '<div style="font-size:12px;color:#bbb;">なし</div>';
+    return items.slice(0,3).map((r,i)=>{
+      const medal = ['①','②','③'][i];
+      return `<div class="cr-row" data-drill="${type}" data-val="${r.key}">
+        <span>${medal} ${r.key}</span><span style="font-weight:700;color:#dc2626;">${fmt(r)}</span>
+      </div>`;
+    }).join('');
+  }
+  document.getElementById('crBody').innerHTML = `
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:150px;">
+        <div class="cr-head">📕 危険教科</div>
+        ${rankRows(cr.subjRank,'subject',r=>r.n+'人')}
+      </div>
+      <div style="flex:1;min-width:150px;">
+        <div class="cr-head">🎒 危険学年</div>
+        ${rankRows(cr.gradeRank,'grade',r=>r.n+'人')}
+      </div>
+    </div>
+    <div style="margin-top:10px;">
+      <div class="cr-head">👨‍🏫 担当講師（授業を持つ先生）</div>
+      ${cr.teacherRank.slice(0,3).map((r,i)=>`
+        <div class="cr-row" data-drill="teacher" data-val="${r.key}">
+          <span>${['①','②','③'][i]} ${r.key}</span>
+          <span style="font-size:12px;color:#666;">要対応<b style="color:#dc2626;"> ${r.n}人</b>　平均下落<b style="color:#dc2626;"> ${r.avgDrop.toFixed(0)}点</b></span>
+        </div>`).join('') || '<div style="font-size:12px;color:#bbb;">なし</div>'}
+    </div>`;
+
+  // ドリルダウン：タップでその教科/学年/講師に絞り込み、要対応タブへ
+  document.getElementById('crBody').querySelectorAll('.cr-row').forEach(row=>{
+    row.addEventListener('click', ()=>{
+      const type=row.dataset.drill, val=row.dataset.val;
+      // いったん絞り込みをリセットして対象だけ設定
+      filters.school=''; filters.grade=''; filters.subject=''; filters.teacher=''; filters.tantouTeacher='';
+      if (type==='subject') filters.subject=val;
+      if (type==='grade') filters.grade=val;
+      // 講師：担当データがあれば担当講師で、なければ担任で絞る
+      if (type==='teacher'){
+        const isTantou = Object.values(tantou).some(tm=>Object.values(tm).includes(val));
+        if (isTantou) filters.tantouTeacher=val; else filters.teacher=val;
+      }
+      activeTab='down';
+      document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x.dataset.tab==='down'));
+      render();
+      // リストまでスクロール
+      document.getElementById('list').scrollIntoView({behavior:'smooth'});
+    });
+  });
+}
+
+// ===== テスト回収タブ =====
+// 受講科目の判定は名簿CSV(tantou)を正とする。成績CSVのjuku（○印判定）とは別基準。
+// 回収済み = 成績CSVの当該科目欄に点数が入っている（写真提出/電話確認の記録自体はツール外）
+// 未実施判定キー生成とチェック
+function niKey(roundKey, school, grade, subject){ return `${roundKey}|${school}|${grade}|${subject}`; }
+function isNotImplemented(roundKey, school, grade, subject){ return !!notImplemented[niKey(roundKey, school, grade, subject)]; }
+// 学年文字列から高校生かどうかを判定（例:「高1」「高２」）
+function isHighSchool(grade){ return !!(grade && grade.includes('高')); }
+// 手動回収チェックのキー
+function mcKey(roundKey, no, subject){ return `${roundKey}|${no}|${subject}`; }
+function isManualCollected(roundKey, no, subject){ return !!manualCollected[mcKey(roundKey, no, subject)]; }
+
+// 中学生：成績CSVの点数で自動判定（既存ロジック）
+function computeCollectionStatus(roundKey) {
+  let sts = Object.values(students).filter(st => !isHighSchool(st.grade));
+  if (Object.keys(names).length>0 && hideNonRoster) sts = sts.filter(st=>names[st.no]);
+  const map = {国語:'kokugo',数学:'sugaku',英語:'eigo',理科:'rika',社会:'shakai'};
+  const rows = [];
+  for (const st of sts){
+    const sc = st.scores[roundKey];
+    const tm = tantou[st.no] || {};
+    const jukuSubjects = Object.keys(tm);           // 受講科目（名簿基準）
+    const otherSubjects = SUBJECTS.filter(s=>!jukuSubjects.includes(s)); // 非受講科目
+
+    // 未実施設定（学校×学年×科目）に該当する科目は集計対象から除外
+    // 学年は「そのテスト回時点」のものを使う（進級後の今の学年ではマッチしなくなるため）
+    const gradeAtThisRound = displayGrade(gradeAtRound(st.no, roundKey)) || st.grade;
+    const notImplFilter = s => !isNotImplemented(roundKey, st.school, gradeAtThisRound, s);
+    const missingJuku = jukuSubjects.filter(s => notImplFilter(s) && (!sc || sc[map[s]]==null));
+    const missingOther = otherSubjects.filter(s => notImplFilter(s) && (!sc || sc[map[s]]==null));
+    if (missingJuku.length===0 && missingOther.length===0) continue; // 全回収済み・全未実施は対象外
+
+    rows.push({ st, jukuSubjects, otherSubjects, missingJuku, missingOther, isHigh:false });
+  }
+  return rows;
+}
+
+// 高校生：成績CSVにデータが来ないため、名簿(tantouHigh)を起点に手動チェックで管理
+// students(成績CSV)に高校生が存在しない場合も、名簿情報だけで一覧に出す
+// 高校生：成績CSVにデータが来ないため、名簿(tantouHigh)を起点に手動チェックで管理
+// 学年判定は「名簿CSVの学年」を優先し、無ければ「成績CSVの学年」を使う。
+// 以前は成績CSVに登場しない生徒を一律「高校生」扱いしていたが、これだと小学生や
+// 単に今回のCSVに載っていない中学生まで巻き込んでしまうバグがあったため、
+// 必ず学年表記に「高」が含まれる場合のみ高校生として扱うよう修正。
+function computeCollectionStatusHigh(roundKey) {
+  const highNos = new Set();
+  for (const no in tantouHigh) {
+    const grade = rosterGrade[no] || (students[no] && students[no].grade) || '';
+    if (isHighSchool(grade)) highNos.add(no);
+  }
+
+  const rows = [];
+  for (const no of highNos){
+    if (Object.keys(names).length>0 && hideNonRoster && !names[no]) continue;
+    const tm = tantouHigh[no] || {};
+    const jukuSubjects = Object.keys(tm);
+    if (jukuSubjects.length===0) continue; // 名簿に受講科目情報がなければ対象外
+    const missingJuku = jukuSubjects.filter(s => !isManualCollected(roundKey, no, s));
+    if (missingJuku.length===0) continue;
+    const grade = rosterGrade[no] || (students[no] && students[no].grade) || '高校生';
+    const st = students[no] || { no, school:'', grade, teacher:'' };
+    rows.push({ st, jukuSubjects, otherSubjects:[], missingJuku, missingOther:[], isHigh:true });
+  }
+  return rows;
+}
+
+// 曜日でフィルター：その曜日に受講科目の授業がある生徒のみ抽出
+// （非受講科目は曜日に関係なく声かけ可能なので、受講の授業がある日は一緒に含める）
+function filterByWeekday(rows, weekday) {
+  if (!weekday) return rows;
+  return rows.filter(r => {
+    const sc = (r.isHigh ? scheduleHigh[r.st.no] : schedule[r.st.no]) || {};
+    return r.missingJuku.some(s => sc[s]===weekday) ||
+           (r.missingOther.length>0 && Object.values(sc).includes(weekday));
+  });
+}
+
+// ===== 描画 =====
+function render() {
+  let all = Object.values(students);
+  // 名簿にいない生徒（退塾者）を除外。名簿未取込のときは全員表示。
+  const hasRoster = Object.keys(names).length > 0;
+  if (hasRoster && hideNonRoster) {
+    all = all.filter(st => names[st.no]);
+  }
+  // フィルター：学校・学年・担任・科目
+  // 学年フィルターは「選択中のテスト回時点」の学年で判定する。
+  // 進級後の「今の学年」で判定すると、過去のテスト回を見ているときに
+  // （例:今中3の子の2025年度⑤を見ているのに）該当学年から漏れてしまうため。
+  if (filters.school) all = all.filter(st => st.school === filters.school);
+  if (filters.grade)  all = all.filter(st => {
+    const g = (selectedRound ? gradeAtRound(st.no, selectedRound) : null) || st.grade;
+    return normGrade(g) === normGrade(filters.grade);
+  });
+  if (filters.teacher) all = all.filter(st => st.teacher === filters.teacher);
+  if (filters.tantouTeacher) all = all.filter(st => {
+    const tm = tantou[st.no];
+    return tm && Object.values(tm).includes(filters.tantouTeacher);
+  });
+  if (filters.subject) all = all.filter(st => st.juku.includes(filters.subject));
+
+  const withTrans = all.map(st => ({ st, c: classify(st) })).filter(x=>x.c.t);
+  const noTrans = all.filter(st => !getTransition(st));
+
+  const buckets = { down:[], up:[], flat:[] };
+  withTrans.forEach(x => buckets[x.c.cat].push(x));
+
+  // ソート（フィルターの科目が選ばれていればその科目の増減で、なければ合計/最悪科目で）
+  const smap = {国語:'kokugo',数学:'sugaku',英語:'eigo',理科:'rika',社会:'shakai'};
+  function subjDelta(c, subj){
+    const k=smap[subj]; const pv=c.t.prev.sc[k], cv=c.t.curr.sc[k];
+    return (pv!=null&&cv!=null)?cv-pv:null;
+  }
+  function currScore(c, subj){
+    if (subj){ return c.t.curr.sc[smap[subj]]; }
+    return c.t.curr.sc.total;
+  }
+  function sortKey(c){
+    if (filters.subject){ const d=subjDelta(c, filters.subject); return {delta:d, curr:currScore(c, filters.subject)}; }
+    return { delta: c.totalDelta!=null?c.totalDelta:c.worstSubjDelta, curr: c.t.curr.sc.total };
+  }
+  function applySort(arr, isDown){
+    arr.sort((a,b)=>{
+      // 要対応タブはデフォルトで危険度順（★の高い順）
+      if (isDown && filters.sort==='deltaAsc') {
+        if (b.c.risk !== a.c.risk) return b.c.risk - a.c.risk;
+      }
+      const ka=sortKey(a.c), kb=sortKey(b.c);
+      const da=ka.delta==null?9999:ka.delta, db=kb.delta==null?9999:kb.delta;
+      const ca=ka.curr==null?-9999:ka.curr, cb=kb.curr==null?-9999:kb.curr;
+      switch(filters.sort){
+        case 'deltaAsc': return da-db;      // 下落大きい順
+        case 'deltaDesc': return db-da;     // 上昇大きい順
+        case 'currDesc': return cb-ca;      // 今回点数高い順
+        case 'currAsc': return ca-cb;       // 今回点数低い順
+        default: return da-db;
+      }
+    });
+  }
+  applySort(buckets.down, true); applySort(buckets.up, false); applySort(buckets.flat, false);
+
+  // 「面談推奨だけ」フィルター：★4以上のみ（要対応タブに適用）
+  if (filters.urgentOnly) {
+    buckets.down = buckets.down.filter(x => x.c.stars >= 4);
+  }
+
+  populateFilters();
+
+  if (Object.keys(students).length === 0) {
+    document.getElementById('list').innerHTML = '<div class="empty">設定タブから成績CSVを取り込んでください。</div>';
+    return;
+  }
+  document.getElementById('stats').style.display='flex';
+  document.getElementById('tabs').style.display='flex';
+  document.getElementById('cntDown').textContent = buckets.down.length;
+  document.getElementById('cntUp').textContent = buckets.up.length;
+  document.getElementById('cntFlat').textContent = buckets.flat.length;
+  if (typeof dbg==='function') dbg('振り分け: 要対応'+buckets.down.length+' 好調'+buckets.up.length+' 変化なし'+buckets.flat.length);
+
+  // 現在のタブが空で他タブにデータがあれば自動で切り替え
+  if (buckets[activeTab].length === 0) {
+    const order = ['down','up','flat'];
+    const nonEmpty = order.find(k => buckets[k].length > 0);
+    if (nonEmpty) {
+      activeTab = nonEmpty;
+      document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active', x.dataset.tab===activeTab));
+    }
+  }
+
+  // テスト回チップ描画
+  const rounds = availableRounds();
+  const roundBar = document.getElementById('roundBar');
+  const chips = document.getElementById('roundChips');
+  if (rounds.length > 0) {
+    roundBar.style.display = 'block';
+    if (!selectedRound) selectedRound = rounds[0].key; // 既定は最新回
+    chips.innerHTML = rounds.map(r =>
+      `<div class="round-chip ${r.key===selectedRound?'active':''}" data-round="${r.key}">${kaiLabel(r)}</div>`
+    ).join('');
+    chips.querySelectorAll('.round-chip').forEach(ch=>{
+      ch.addEventListener('click', ()=>{ selectedRound = ch.dataset.round; render(); });
+    });
+  }
+  document.getElementById('threshBar').style.display = (rounds.length>0) ? 'block' : 'none';
+  document.getElementById('filterBar').style.display = (Object.keys(students).length>0) ? 'block' : 'none';
+  // 担当講師の絞り込みチップ（タップで解除）
+  const tChip = document.getElementById('tantouChip');
+  if (filters.tantouTeacher){
+    tChip.style.display='inline-block';
+    tChip.textContent = '担当:'+filters.tantouTeacher+' ✕';
+    tChip.onclick = ()=>{ filters.tantouTeacher=''; render(); };
+  } else { tChip.style.display='none'; }
+  document.getElementById('rosterToggleWrap').style.display = (Object.keys(names).length>0) ? 'flex' : 'none';
+
+  // ===== ダッシュボード「今日やること」=====
+  // 重要：ダッシュボードは常に「教室全体」の数字を示す。学校・学年・科目・担任・
+  // 面談推奨だけ等のユーザー絞り込み(filters)の影響を受けてはいけない。
+  // そのため、絞り込み前の全生徒(退塾者除外のみ適用)から独立に集計し直す。
+  let dashAll = Object.values(students);
+  if (hasRoster && hideNonRoster) dashAll = dashAll.filter(st => names[st.no]);
+  const dashDown = dashAll.map(st => ({ st, c: classify(st) })).filter(x=>x.c.t && x.c.cat==='down');
+
+  const rk0 = selectedRound || 'latest';
+  const isDone = (no,act)=> actions[no] && actions[no][rk0] && actions[no][rk0][act];
+  // 面談推奨 = ★4以上
+  const urgentList = dashDown.filter(x=>x.c.stars>=4);
+  // 保護者電話推奨 = 合計-30以上 or ★5
+  const callList = dashDown.filter(x=> (x.c.totalDelta!=null && x.c.totalDelta<=-30) || x.c.stars>=5);
+  // 未対応 = 要対応のうち面談・電話・授業確認のどれも未チェック
+  const todoList = dashDown.filter(x=> !isDone(x.st.no,'mendan') && !isDone(x.st.no,'denwa') && !isDone(x.st.no,'jugyo'));
+  if (Object.keys(students).length>0){
+    document.getElementById('dashboard').style.display='block';
+    document.getElementById('dashUrgent').textContent = urgentList.length;
+    document.getElementById('dashCall').textContent = callList.length;
+    document.getElementById('dashTodo').textContent = todoList.length;
+    renderClassRisk();  // 教室リスクカード（フィルター非依存・教室全体）
+  }
+
+  const list = document.getElementById('list');
+  const items = buckets[activeTab];
+  if (items.length === 0) {
+    let msg = '該当する生徒はいません';
+    if (withTrans.length === 0 && noTrans.length > 0) {
+      msg = `取込済み${all.length}名のうち、推移を計算できる生徒がまだいません。<br>別のテスト回（⑤と②など）を両方取り込むと推移が出ます。`;
+    }
+    list.innerHTML = `<div class="empty">${msg}</div>`;
+    return;
+  }
+  const map = {国語:'kokugo',数学:'sugaku',英語:'eigo',理科:'rika',社会:'shakai'};
+  list.innerHTML = items.map(({st,c}) => {
+    const td = c.totalDelta;
+    const dCls = td==null?'flat':(td<0?'down':(td>0?'up':'flat'));
+    const dTxt = td==null?'—':(td>0?'+'+td:''+td);
+    const dispName = names[st.no] || shortNo(st.no);
+    const idTag = names[st.no] ? `<span class="no-id">${shortNo(st.no)}</span>` : '';
+    const subjHtml = st.juku.map(s=>{
+      const pv = c.t.prev.sc[map[s]], cv = c.t.curr.sc[map[s]];
+      let d = '—', dc='subj-d-flat';
+      if (pv!=null && cv!=null){ const dd=cv-pv; d=(dd>0?'+'+dd:''+dd); dc=dd<0?'subj-d-down':(dd>0?'subj-d-up':'subj-d-flat'); }
+      const cvTxt = cv==null?'—':cv;
+      return `<div class="subj juku"><span class="subj-name">${s}</span><span>${cvTxt}</span><span class="${dc}">${d}</span></div>`;
+    }).join('');
+    let totalLine;
+    if (c.totalComparable) {
+      totalLine = `<div class="transition">5科目合計 ${kaiLabel(c.t.prev.sc)}(${c.t.prev.sc.total}) → ${kaiLabel(c.t.curr.sc)}(${c.t.curr.sc.total})</div>`;
+    } else {
+      totalLine = `<div class="transition">${kaiLabel(c.t.prev.sc)} → ${kaiLabel(c.t.curr.sc)}</div><div class="na-note">※5科目が揃っていないため合計比較なし（受講科目の増減で判定）</div>`;
+    }
+    // 対応ボタン（回ごとに状態管理）
+    const rk = selectedRound || 'latest';
+    const a = (actions[st.no] && actions[st.no][rk]) || {};
+    let actBtns = '';
+    if (c.cat === 'down') {
+      actBtns = `
+        <button class="act-btn ${a.mendan?'done':''}" data-no="${st.no}" data-act="mendan">面談</button>
+        <button class="act-btn ${a.denwa?'done':''}" data-no="${st.no}" data-act="denwa">保護者電話</button>
+        <button class="act-btn ${a.jugyo?'done':''}" data-no="${st.no}" data-act="jugyo">授業確認</button>`;
+    } else if (c.cat === 'up') {
+      actBtns = `<button class="act-btn ${a.hogosha?'done':''}" data-no="${st.no}" data-act="hogosha">保護者へ成果連絡</button>`;
+    }
+    const noteVal = notes[st.no] || '';
+    const noteHtml = (c.cat==='down'||c.cat==='up')
+      ? `<textarea class="note-area" data-no="${st.no}" placeholder="メモ（面談内容・電話結果など）">${noteVal.replace(/</g,'&lt;')}</textarea>` : '';
+
+    // 危険度スター（要対応のみ）
+    const starStr = '★'.repeat(c.stars) + '☆'.repeat(5-c.stars);
+    const starColor = c.stars>=5?'#b91c1c':(c.stars>=4?'#dc2626':(c.stars>=3?'#ea580c':'#d97706'));
+    const starsHtml = c.cat==='down'
+      ? `<div style="font-size:16px;letter-spacing:2px;color:${starColor};font-weight:700;">${starStr}</div>` : '';
+    // 理由バッジ（要対応のみ）
+    const reasonHtml = (c.cat==='down' && c.reasons.length)
+      ? `<div class="reasons">${c.reasons.slice(0,4).map(r=>`<span class="reason reason-${r.level}">${r.text}</span>`).join('')}</div>` : '';
+
+    // 担任と担当を分けて表示（担当は名簿CSVから）：バッジ＋【科目】表記
+    const tm = tantou[st.no];
+    const tantouBadges = tm
+      ? `<div class="tantou-badges">${Object.keys(tm).map(s=>`<span class="tantou-badge"><span class="tb-subj">【${s}】</span>${tm[s]}</span>`).join('')}</div>`
+      : '';
+    const metaLine = `${st.school} ${st.grade}・担任:${st.teacher}`;
+
+    return `<div class="card ${c.cat}">
+      <div class="card-top">
+        <div style="flex:1;">
+          ${starsHtml}
+          <div class="card-name" data-detail="${st.no}" style="cursor:pointer;text-decoration:underline;text-decoration-color:#ccc;margin-top:${c.cat==='down'?'2px':'0'};">${dispName}${idTag}</div>
+          <div class="card-meta">${metaLine}</div>
+          ${tantouBadges}
+        </div>
+        <div class="delta-badge delta-${dCls}">${dTxt}</div>
+      </div>
+      ${reasonHtml}
+      <details style="margin-top:8px;"><summary style="font-size:12px;color:#999;cursor:pointer;">科目詳細</summary>
+        <div class="subjects">${subjHtml}</div>
+        ${totalLine}
+      </details>
+      ${actBtns?`<div class="actions">${actBtns}</div>`:''}
+      ${noteHtml}
+    </div>`;
+  }).join('');
+
+  // 氏名タップで個人ページ
+  list.querySelectorAll('[data-detail]').forEach(el=>{
+    el.addEventListener('click', ()=> openDetail(el.dataset.detail));
+  });
+
+  // 対応ボタンのイベント
+  list.querySelectorAll('.act-btn').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const no=b.dataset.no, act=b.dataset.act, rk=selectedRound||'latest';
+      if(!actions[no]) actions[no]={};
+      if(!actions[no][rk]) actions[no][rk]={};
+      actions[no][rk][act]=!actions[no][rk][act];
+      saveActions();
+      b.classList.toggle('done', actions[no][rk][act]);
+    });
+  });
+  // メモのイベント
+  list.querySelectorAll('.note-area').forEach(t=>{
+    t.addEventListener('change', ()=>{ notes[t.dataset.no]=t.value; saveNotes(); });
+  });
+}
+
+function dbg(msg){
+  const d=document.getElementById('debug');
+  if(!d) return;
+  d.textContent += '\n'+msg;
+  d.scrollTop = d.scrollHeight;
+}
+
+async function readFileSmart(f) {
+  const buf = await f.arrayBuffer();
+  // UTF-8とShift_JISの両方でデコードし、化けの少ない方を採用
+  const utf8 = new TextDecoder('utf-8').decode(buf);
+  let sjis = '';
+  try { sjis = new TextDecoder('shift_jis').decode(buf); } catch(e){}
+
+  // 化け文字(U+FFFD=�)の数をカウント。少ない方が正しいデコード
+  const badU = (utf8.match(/\uFFFD/g)||[]).length;
+  const badS = sjis ? (sjis.match(/\uFFFD/g)||[]).length : Infinity;
+  // 日本語文字の数（多い方が正しい傾向）
+  const jpRe = /[\u3040-\u30ff\u4e00-\u9faf]/g;
+  const jpU = (utf8.match(jpRe)||[]).length;
+  const jpS = sjis ? (sjis.match(jpRe)||[]).length : 0;
+
+  let chosen, label;
+  // 化け文字が明確に少ない方を優先。同等なら日本語が多い方
+  if (badU < badS || (badU===badS && jpU>=jpS)) { chosen=utf8; label='UTF-8'; }
+  else { chosen=sjis; label='Shift_JIS'; }
+  dbg('  文字コード: ' + label + '（化けUTF8:'+badU+' SJIS:'+badS+'）');
+  return chosen;
+}
+
+// ===== フィルターの選択肢を生成 =====
+function populateFilters() {
+  const sts = Object.values(students).filter(st => !(Object.keys(names).length>0 && hideNonRoster) || names[st.no]);
+  const schools = [...new Set(sts.map(s=>s.school).filter(Boolean))].sort();
+  // 学年候補は選択中のテスト回時点のもの（進級後の今の学年ではない）
+  const grades = [...new Set(sts.map(s => displayGrade(selectedRound ? gradeAtRound(s.no, selectedRound) : null) || s.grade).filter(Boolean))].sort();
+  const teachers = [...new Set(sts.map(s=>s.teacher).filter(Boolean))].sort();
+  const subjects = ['国語','数学','英語','理科','社会'];
+  fillSelect('fSchool', schools, filters.school, '全学校');
+  fillSelect('fGrade', grades, filters.grade, '全学年');
+  fillSelect('fTeacher', teachers, filters.teacher, '全担任');
+  fillSelect('fSubject', subjects, filters.subject, '全科目');
+  document.getElementById('fSort').value = filters.sort;
+}
+function fillSelect(id, options, current, allLabel) {
+  const sel = document.getElementById(id);
+  if (!sel) return;
+  const cur = current || '';
+  sel.innerHTML = `<option value="">${allLabel}</option>` + options.map(o=>`<option value="${o}">${o}</option>`).join('');
+  sel.value = cur;
+}
+
+// ===== 集計 =====
+// ===== 単純平均点一覧（推移ではなく、選んだ1回分の平均点を切り口ごとに表示）=====
+// ===== ピンポイント平均点検索 =====
+// 学校・学年・科目を自由に組み合わせて絞り込み、該当する平均点を返す。
+// 科目を指定した場合は「その科目の点数」の平均（100点満点）。
+// 科目を指定しない場合は「5科目合計」の平均（両科目とも5科目揃っている生徒のみ対象）。
+// 未指定の条件は絞り込まない（例：学校だけ選べば、その学校全体の平均）。
+function computeSimpleAveragePinpoint(school, grade, subject, roundKey) {
+  let sts = Object.values(students);
+  if (Object.keys(names).length>0 && hideNonRoster) sts = sts.filter(st=>names[st.no]);
+  const smap = {国語:'kokugo',数学:'sugaku',英語:'eigo',理科:'rika',社会:'shakai'};
+
+  if (school) sts = sts.filter(st => st.school === school);
+  // 学年は「そのテスト回(roundKey)の時点」で判定する。
+  // 例えば「2025年度⑤の中2」を見たい時、今は中3に進級している生徒でも
+  // 正しく該当させる（逆に、今中2でも2025年度⑤時点は中1だった生徒は除外する）。
+  if (grade)  sts = sts.filter(st => normGrade(gradeAtRound(st.no, roundKey) || st.grade) === normGrade(grade));
+
+  let sum = 0, n = 0;
+  for (const st of sts){
+    const sc = st.scores[roundKey];
+    if (!sc) continue;
+    if (subject) {
+      const v = sc[smap[subject]];
+      if (v == null) continue;
+      sum += v; n++;
+    } else {
+      if (!isFull(sc)) continue;
+      sum += sc.total; n++;
+    }
+  }
+  return { n, avg: n ? sum/n : 0, hasSubject: !!subject };
+}
+
+function computeSimpleAverage(groupType, roundKey) {
+  let sts = Object.values(students);
+  if (Object.keys(names).length>0 && hideNonRoster) sts = sts.filter(st=>names[st.no]);
+  const smap = {国語:'kokugo',数学:'sugaku',英語:'eigo',理科:'rika',社会:'shakai'};
+
+  const groups = {}; // key -> {sum, n}
+  for (const st of sts){
+    const sc = st.scores[roundKey];
+    if (!sc) continue;
+
+    if (groupType === 'subject') {
+      // 科目別：科目ごとに点数があれば加算（受講/非受講問わず、点数が入っていれば対象）
+      for (const subj of SUBJECTS){
+        const v = sc[smap[subj]];
+        if (v == null) continue;
+        if (!groups[subj]) groups[subj] = {sum:0, n:0};
+        groups[subj].sum += v; groups[subj].n++;
+      }
+    } else {
+      // 学校別・担任別・学年別：5科目揃っているときだけ合計を採用（合計比較の一貫性を保つ）
+      if (!isFull(sc)) continue;
+      let key;
+      if (groupType==='school') key = st.school || '（未設定）';
+      else if (groupType==='teacher') key = st.teacher || '（未設定）';
+      // 学年別は「そのテスト回時点」の学年でグループ化する（進級後の今の学年ではない）
+      else if (groupType==='grade') key = displayGrade(gradeAtRound(st.no, roundKey)) || st.grade || '（未設定）';
+      if (!groups[key]) groups[key] = {sum:0, n:0};
+      groups[key].sum += sc.total; groups[key].n++;
+    }
+  }
+  return Object.keys(groups).map(k=>({
+    key:k, n:groups[k].n, avg: groups[k].n ? groups[k].sum/groups[k].n : 0
+  })).sort((a,b)=> b.avg - a.avg); // 平均点が高い順
+}
+
+function computeSummary() {
+  const groupBy = document.getElementById('sGroupBy').value;
+  const roundKey = document.getElementById('sRoundTo').value; // 今回回
+  const smap = {国語:'kokugo',数学:'sugaku',英語:'eigo',理科:'rika',社会:'shakai'};
+  const subjects = ['国語','数学','英語','理科','社会'];
+
+  let sts = Object.values(students);
+  if (Object.keys(names).length>0 && hideNonRoster) sts = sts.filter(st=>names[st.no]);
+
+  // グループ化のキー生成
+  // 学年は「今回のテスト回(currSc)時点」のものを使う。例えば「学校×学年×科目」で
+  // 中3を選んだ場合、今回時点で中3だった生徒の推移（前回が中2時点でも）を指す。
+  function groupKeys(st, subj, currSc){
+    const g = displayGrade(gradeAtYear(st.no, currSc.year)) || st.grade;
+    if (groupBy==='school-grade-subject') return `${st.school} ${g} ${subj}`;
+    if (groupBy==='teacher-subject') return `${st.teacher} ${subj}`;
+    if (groupBy==='school-grade') return `${st.school} ${g}`;
+    if (groupBy==='teacher') return `${st.teacher}`;
+  }
+  const useSubject = groupBy.includes('subject');
+  const groups = {}; // key -> { prevSum, currSum, n, prevLabel, currLabel }
+
+  for (const st of sts){
+    if (!st.scores[roundKey]) continue;
+    const currSc = st.scores[roundKey];
+    // 直前の回
+    const ordered = Object.keys(st.scores).map(k=>({key:k,sc:st.scores[k],order:roundOrder(st.scores[k])})).sort((a,b)=>a.order-b.order);
+    const currOrder = roundOrder(currSc);
+    const earlier = ordered.filter(o=>o.order<currOrder);
+    if (earlier.length===0) continue;
+    const prevSc = earlier[earlier.length-1].sc;
+
+    if (useSubject){
+      for (const subj of (groupBy==='school-grade-subject'||groupBy==='teacher-subject' ? st.juku : subjects)){
+        const pk=smap[subj]; const pv=prevSc[pk], cv=currSc[pk];
+        if (pv==null||cv==null) continue; // 両回そろいのみ
+        const key=groupKeys(st,subj,currSc);
+        if(!groups[key]) groups[key]={prevSum:0,currSum:0,n:0,prevLabel:kaiLabel(prevSc),currLabel:kaiLabel(currSc)};
+        groups[key].prevSum+=pv; groups[key].currSum+=cv; groups[key].n++;
+      }
+    } else {
+      // 5科目合計（両回とも5科目そろい）
+      if (!isFull(prevSc)||!isFull(currSc)) continue;
+      const key=groupKeys(st,null,currSc);
+      if(!groups[key]) groups[key]={prevSum:0,currSum:0,n:0,prevLabel:kaiLabel(prevSc),currLabel:kaiLabel(currSc)};
+      groups[key].prevSum+=prevSc.total; groups[key].currSum+=currSc.total; groups[key].n++;
+    }
+  }
+  // 平均計算
+  const rows = Object.keys(groups).map(key=>{
+    const g=groups[key];
+    const prevAvg=g.prevSum/g.n, currAvg=g.currSum/g.n;
+    return { key, n:g.n, prevAvg, currAvg, delta:currAvg-prevAvg, prevLabel:g.prevLabel, currLabel:g.currLabel };
+  }).sort((a,b)=>a.delta-b.delta); // 下落大きい順
+  return rows;
+}
+
+// 担任アラート：担任ごとに要対応人数と平均下落点を集計
+function computeTeacherAlert() {
+  let sts = Object.values(students);
+  if (Object.keys(names).length>0 && hideNonRoster) sts = sts.filter(st=>names[st.no]);
+  const g = {}; // teacher -> {down, total, dropSum, dropN}
+  for (const st of sts){
+    const c = classify(st);
+    if (!c.t) continue;
+    const tn = st.teacher || '（担任未設定）';
+    if (!g[tn]) g[tn] = {teacher:tn, down:0, total:0, dropSum:0, dropN:0};
+    g[tn].total++;
+    if (c.cat==='down'){
+      g[tn].down++;
+      // 平均下落は合計下落があればそれ、なければ最悪科目下落
+      const drop = c.totalDelta!=null ? c.totalDelta : c.worstSubjDelta;
+      if (drop!=null && drop<0){ g[tn].dropSum += drop; g[tn].dropN++; }
+    }
+  }
+  return Object.values(g)
+    .map(x=>({ ...x, avgDrop: x.dropN? x.dropSum/x.dropN : 0, rate: x.total? x.down/x.total : 0 }))
+    .sort((a,b)=> b.down - a.down || a.avgDrop - b.avgDrop); // 要対応人数が多い順
+}
+
+// 先生アラート（集計タブ用）：担当講師ごとの要対応人数・平均下落・担当割合
+function computeTantouAlert() {
+  let sts = Object.values(students);
+  if (Object.keys(names).length>0 && hideNonRoster) sts = sts.filter(st=>names[st.no]);
+  const results = sts.map(st=>({st, c:classify(st)})).filter(x=>x.c.t);
+  const downs = results.filter(x=>x.c.cat==='down');
+
+  // 分母：各講師が担当している生徒数（重複科目でも1人1カウント）
+  const totalByTeacher = {};
+  for (const st of results.map(x=>x.st)){
+    const tm = tantou[st.no];
+    if (tm) {
+      const seen = new Set(Object.values(tm));
+      seen.forEach(tn => { totalByTeacher[tn] = (totalByTeacher[tn]||0)+1; });
+    } else {
+      totalByTeacher[st.teacher||'（未設定）'] = (totalByTeacher[st.teacher||'（未設定）']||0)+1;
+    }
+  }
+
+  const rank = computeTantouRanking(downs);
+  return rank.map(r => ({
+    ...r,
+    total: totalByTeacher[r.key] || r.n,
+    rate: totalByTeacher[r.key] ? r.n/totalByTeacher[r.key] : 0
+  }));
+}
+
+// 集計タブの大分類・小分類の定義
+// value は既存の sGroupBy 値をそのまま流用し、計算ロジック側は無改修で動かす
+const SUMMARY_MODES = {
+  avg:   { label:'📊 平均点', subs:[
+            {value:'avg-pinpoint', label:'🔍 絞り込み'},
+            {value:'avg-school', label:'学校別'}, {value:'avg-teacher', label:'担任別'},
+            {value:'avg-grade', label:'学年別'}, {value:'avg-subject', label:'科目別'} ] },
+  trend: { label:'📈 推移', subs:[
+            {value:'school-grade-subject', label:'学校×学年×科目'}, {value:'teacher-subject', label:'担任×科目'},
+            {value:'school-grade', label:'学校×学年'}, {value:'teacher', label:'担任'} ] },
+  alert: { label:'⚠️ アラート', subs:[
+            {value:'tantou-alert', label:'先生アラート'}, {value:'teacher-alert', label:'担任アラート'} ] },
+};
+let sMode = 'avg';  // 現在選択中の大分類
+// 絞り込み（ピンポイント平均点）で使う選択状態
+let pinFilter = { school:'', grade:'', subject:'' };
+
+function renderSummary() {
+  // 大分類チップの選択状態を反映
+  document.querySelectorAll('#sModes .mode').forEach(m=>m.classList.toggle('active', m.dataset.mode===sMode));
+
+  // 小分類チップを大分類に応じて生成（既存選択が新リストにあれば維持、なければ先頭を採用）
+  const subs = SUMMARY_MODES[sMode].subs;
+  const groupByInput = document.getElementById('sGroupBy');
+  const stillValid = subs.some(s=>s.value===groupByInput.value);
+  if (!stillValid) groupByInput.value = subs[0].value;
+  const subChips = document.getElementById('sSubChips');
+  subChips.innerHTML = subs.map(s=>
+    `<span class="chip ${groupByInput.value===s.value?'active':''}" data-sub="${s.value}">${s.label}</span>`
+  ).join('');
+  subChips.querySelectorAll('.chip').forEach(ch=>{
+    ch.addEventListener('click', ()=>{
+      groupByInput.value = ch.dataset.sub;
+      renderSummary();
+    });
+  });
+
+  // 回セレクト生成（推移モード用・単純平均モード用の2種）
+  const rounds = availableRounds();
+  const sel = document.getElementById('sRoundTo');
+  if (rounds.length && sel.options.length===0){
+    sel.innerHTML = rounds.map(r=>`<option value="${r.key}">${kaiLabel(r)}を今回として</option>`).join('');
+  }
+  if (!sel.value && rounds.length) sel.value = rounds[0].key;
+  const selSingle = document.getElementById('sRoundSingle');
+  if (rounds.length && selSingle.options.length===0){
+    selSingle.innerHTML = rounds.map(r=>`<option value="${r.key}">${kaiLabel(r)}</option>`).join('');
+  }
+  if (!selSingle.value && rounds.length) selSingle.value = rounds[0].key;
+
+  const list = document.getElementById('summaryList');
+  const groupBy = document.getElementById('sGroupBy').value;
+  const isPinpoint = (groupBy === 'avg-pinpoint');
+  const isSimpleAvg = groupBy.startsWith('avg-') && !isPinpoint;
+  const isAlert = (sMode === 'alert');
+
+  // セレクタの出し分け：平均点(切り口)は単一回、絞り込みも単一回、推移は今回回、アラートは回不要
+  document.getElementById('sRoundSingle').style.display = (isSimpleAvg || isPinpoint) ? '' : 'none';
+  document.getElementById('sRoundTo').style.display = (sMode==='trend') ? '' : 'none';
+  document.getElementById('sHint').style.display = (sMode==='trend') ? '' : 'none';
+  document.getElementById('pinFilterBar').style.display = isPinpoint ? 'flex' : 'none';
+
+  // 絞り込み（ピンポイント平均点）
+  if (isPinpoint) {
+    document.getElementById('sRoundTo').style.display='none';
+    const rk = selSingle.value || (rounds[0] && rounds[0].key);
+    if (!rk){ list.innerHTML='<div class="empty">データがありません。</div>'; return; }
+
+    // フィルターの選択肢を実データから生成（選択中のテスト回時点の学年を使う）
+    const pinSchoolSel = document.getElementById('pinSchool');
+    const pinGradeSel = document.getElementById('pinGrade');
+    const pinSubjectSel = document.getElementById('pinSubject');
+    const schools = [...new Set(Object.values(students).map(s=>s.school).filter(Boolean))].sort();
+    const grades = [...new Set(Object.values(students).map(s => displayGrade(gradeAtRound(s.no, rk)) || s.grade).filter(Boolean))].sort();
+    if (pinSchoolSel.options.length <= 1 && schools.length) fillSelect('pinSchool', schools, pinFilter.school, '全学校');
+    // テスト回を切り替えたら学年候補も作り直す（回ごとに学年構成が変わるため毎回再生成）
+    fillSelect('pinGrade', grades, pinFilter.grade, '全学年');
+    if (pinSubjectSel.options.length <= 1) fillSelect('pinSubject', SUBJECTS, pinFilter.subject, '5科目合計');
+
+    const res = computeSimpleAveragePinpoint(pinFilter.school, pinFilter.grade, pinFilter.subject, rk);
+    const condParts = [pinFilter.school||'全学校', pinFilter.grade||'全学年', pinFilter.subject||'5科目合計'];
+    if (res.n === 0) {
+      list.innerHTML = `<div class="empty">${condParts.join('・')}に該当する点数データがありません。</div>`;
+      return;
+    }
+    list.innerHTML = `<div style="font-size:11px;color:#999;margin-bottom:8px;">${kaiLabel(rounds.find(r=>r.key===rk))}の平均点</div>
+      <div class="sum-card">
+        <div class="sum-title">${condParts.join('　')}</div>
+        <div class="sum-row">
+          <span style="color:#666;">${res.n}名の平均</span>
+          <span style="font-size:26px;font-weight:800;color:#333;">${res.avg.toFixed(1)}</span>
+        </div>
+      </div>`;
+    return;
+  }
+
+  // 単純平均点一覧
+  if (isSimpleAvg) {
+    document.getElementById('sRoundTo').style.display='none';
+    const groupType = groupBy.replace('avg-','');
+    const rk = selSingle.value || (rounds[0] && rounds[0].key);
+    if (!rk){ list.innerHTML='<div class="empty">データがありません。</div>'; return; }
+    const rows = computeSimpleAverage(groupType, rk);
+    if (rows.length===0){ list.innerHTML='<div class="empty">このテスト回の点数データがありません。</div>'; return; }
+    const unit = groupType==='subject' ? '点（100点満点）' : '点（5科目合計）';
+    list.innerHTML = `<div style="font-size:11px;color:#999;margin-bottom:8px;">${kaiLabel(rounds.find(r=>r.key===rk))}の平均${unit}</div>`
+      + rows.map(r=>`<div class="sum-card">
+        <div class="sum-title">${r.key} <span style="font-size:12px;color:#999;font-weight:400;">(${r.n}名)</span></div>
+        <div class="sum-row"><span style="color:#666;">平均点</span><span style="font-size:20px;font-weight:800;color:#333;">${r.avg.toFixed(1)}</span></div>
+      </div>`).join('');
+    return;
+  }
+
+  // 担任アラート表示
+  if (groupBy === 'teacher-alert') {
+    document.getElementById('sRoundTo').style.display='none';
+    const rows = computeTeacherAlert();
+    if (rows.length===0){ list.innerHTML='<div class="empty">データがありません。</div>'; return; }
+    list.innerHTML = rows.map(r=>{
+      const alert = r.down>=3 || (r.rate>=0.4 && r.total>=3); // 目立つ担任を強調
+      return `<div class="${alert?'teacher-alert':'sum-card'}">
+        <div class="sum-title">${r.teacher} ${alert?'⚠️':''}</div>
+        <div class="sum-row">
+          <span style="color:#666;">要対応 <b style="color:#dc2626;font-size:18px;">${r.down}</b> / ${r.total}名（${Math.round(r.rate*100)}%）</span>
+          <span style="color:#666;">平均下落 <b style="color:#dc2626;">${r.avgDrop.toFixed(1)}点</b></span>
+        </div>
+      </div>`;
+    }).join('');
+    return;
+  }
+
+  // 先生アラート表示（担当講師ベース：授業を持つ先生ごと）
+  if (groupBy === 'tantou-alert') {
+    document.getElementById('sRoundTo').style.display='none';
+    const rows = computeTantouAlert();
+    if (rows.length===0){ list.innerHTML='<div class="empty">データがありません。<br>名簿CSVで担当情報を取り込むと精度が上がります。</div>'; return; }
+    const hasTantouData = Object.keys(tantou).length > 0;
+    list.innerHTML = (hasTantouData?'':'<div style="font-size:12px;color:#d97706;margin-bottom:8px;">※名簿の担当情報が未取込のため、担任ベースで表示しています</div>')
+      + rows.map(r=>{
+      const alert = r.n>=3 || (r.rate>=0.4 && r.total>=3);
+      return `<div class="${alert?'teacher-alert':'sum-card'}">
+        <div class="sum-title">${r.key} ${alert?'⚠️':''}</div>
+        <div class="sum-row">
+          <span style="color:#666;">要対応 <b style="color:#dc2626;font-size:18px;">${r.n}</b> / ${r.total}名（${Math.round(r.rate*100)}%）</span>
+          <span style="color:#666;">平均下落 <b style="color:#dc2626;">${r.avgDrop.toFixed(1)}点</b></span>
+        </div>
+      </div>`;
+    }).join('');
+    return;
+  }
+  document.getElementById('sRoundTo').style.display='';
+
+  const rows = computeSummary();
+  if (rows.length===0){ list.innerHTML='<div class="empty">集計できるデータがありません。<br>2回分の成績が必要です。</div>'; return; }
+  list.innerHTML = rows.map(r=>{
+    const d=r.delta; const dCls=d<0?'down':(d>0?'up':'flat');
+    const dTxt=(d>0?'+':'')+d.toFixed(1);
+    const badge = d<0?'delta-down':(d>0?'delta-up':'delta-flat');
+    return `<div class="sum-card">
+      <div class="sum-title">${r.key} <span style="font-size:12px;color:#999;font-weight:400;">(${r.n}名)</span></div>
+      <div class="sum-row">
+        <span style="color:#666;">${r.prevLabel} ${r.prevAvg.toFixed(1)}点 → ${r.currLabel} ${r.currAvg.toFixed(1)}点</span>
+        <span class="sum-delta ${badge}">${dTxt}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function updateDataSummary() {
+  const el = document.getElementById('dataSummary');
+  if (!el) return;
+  const nStudents = Object.keys(students).length;
+  const nNames = Object.keys(names).length;
+  const rounds = availableRounds().map(r=>kaiLabel(r)).join('、') || 'なし';
+  el.innerHTML = `取込済み生徒: ${nStudents}名<br>名簿照合: ${nNames}名<br>テスト回: ${rounds}`;
+  renderNotImplementedUI();
+}
+
+// ===== 未実施テスト管理（設定タブ）=====
+function renderNotImplementedUI() {
+  const rounds = availableRounds();
+  const roundSel = document.getElementById('niRound');
+  if (roundSel.options.length !== rounds.length){
+    roundSel.innerHTML = rounds.map(r=>`<option value="${r.key}">${kaiLabel(r)}</option>`).join('');
+  }
+  // 学校の選択肢は現在値でよい（校舎は進級で変わらないため）
+  const schools = [...new Set(Object.values(students).map(s=>s.school).filter(Boolean))].sort();
+  fillSelect('niSchool', schools, '', '学校を選択');
+  fillSelect('niSubject', SUBJECTS, '', '科目を選択');
+
+  // 学年の選択肢は「選択中のテスト回の時点」で実在した学年から生成する。
+  // 進級後の「今の学年」で候補を出すと、過去のテスト回に対して正しい学年を選べなくなるため。
+  const selectedRoundKey = roundSel.value || (rounds[0] && rounds[0].key);
+  const gradesAtRound = [...new Set(Object.values(students)
+    .map(s => displayGrade(gradeAtRound(s.no, selectedRoundKey)) || s.grade)
+    .filter(Boolean))].sort();
+  fillSelect('niGrade', gradesAtRound, '', '学年を選択');
+
+  // 現在の未実施設定一覧を表示（新しい順、削除ボタン付き）
+  const list = document.getElementById('niList');
+  const keys = Object.keys(notImplemented).filter(k=>notImplemented[k]);
+  if (keys.length===0){ list.innerHTML = '<div style="color:#999;">未実施設定はありません。</div>'; return; }
+  list.innerHTML = keys.map(k=>{
+    const [rk, school, grade, subject] = k.split('|');
+    const label = rounds.find(r=>r.key===rk) ? kaiLabel(rounds.find(r=>r.key===rk)) : rk;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#fff;border:1px solid #e2e4e8;border-radius:8px;margin-bottom:6px;">
+      <span>${label}・${school} ${grade}・${subject}</span>
+      <button class="btn btn-ghost" data-ni-remove="${k}" style="font-size:12px;padding:5px 10px;">解除</button>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('[data-ni-remove]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      delete notImplemented[btn.dataset.niRemove];
+      saveNotImplemented();
+      renderNotImplementedUI();
+    });
+  });
+}
+
+function switchMainView(v){
+  mainView = v;
+  document.querySelectorAll('.mtab').forEach(t=>t.classList.toggle('active', t.dataset.main===v));
+  document.getElementById('view-action').style.display = v==='action'?'block':'none';
+  document.getElementById('view-collection').style.display = v==='collection'?'block':'none';
+  document.getElementById('view-summary').style.display = v==='summary'?'block':'none';
+  document.getElementById('view-settings').style.display = v==='settings'?'block':'none';
+  if (v==='summary') renderSummary();
+  if (v==='collection') renderCollection();
+  if (v==='settings') updateDataSummary();
+}
+
+// ===== テスト回収画面の描画 =====
+let colWeekday = null;  // 選択中の曜日（'月'〜'日'）。nullは全曜日
+let colRoundKey = null; // 選択中のテスト回
+
+function renderCollection() {
+  const rounds = availableRounds();
+  const sel = document.getElementById('colRound');
+  if (rounds.length){
+    if (sel.options.length===0 || sel.options.length!==rounds.length){
+      sel.innerHTML = rounds.map(r=>`<option value="${r.key}">${kaiLabel(r)}</option>`).join('');
+    }
+    if (!colRoundKey) colRoundKey = rounds[0].key;
+    sel.value = colRoundKey;
+  }
+
+  const wdChips = document.getElementById('colWeekdays');
+  if (wdChips.children.length === 0) {
+    const wds = ['月','火','水','木','金','土','日'];
+    const todayWd = wds[(new Date().getDay()+6)%7];
+    if (colWeekday===null) colWeekday = todayWd;
+    wdChips.innerHTML = ['全て',...wds].map(w=>{
+      const val = w==='全て' ? '' : w;
+      return `<div class="round-chip ${colWeekday===val?'active':''}" data-wd="${val}">${w}</div>`;
+    }).join('');
+    wdChips.querySelectorAll('.round-chip').forEach(ch=>{
+      ch.addEventListener('click', ()=>{
+        colWeekday = ch.dataset.wd || null;
+        wdChips.querySelectorAll('.round-chip').forEach(x=>x.classList.toggle('active', x===ch));
+        renderCollectionList();
+      });
+    });
+  }
+  renderCollectionList();
+}
+
+// チェック操作のたびに並び順が変わると「2科目連続でチェックしたい」時に
+// カードが移動して押しづらくなるため、曜日・テスト回を切り替えた時だけ並び替え、
+// 個々のチェック操作では表示順を固定する。
+let colOrderKey = null;   // 現在の並び順が対応する「回|曜日」
+let colOrderList = null;  // 固定された生徒番号の並び順
+
+function renderCollectionList() {
+  if (!colRoundKey) { document.getElementById('collectionList').innerHTML = '<div class="empty">成績データを取り込んでください。</div>'; return; }
+  const middleRows = computeCollectionStatus(colRoundKey);
+  const highRows = computeCollectionStatusHigh(colRoundKey);
+  const all = [...middleRows, ...highRows];
+  const today = filterByWeekday(all, colWeekday);
+
+  document.getElementById('colTodayCount').textContent = today.length;
+  document.getElementById('colTotalCount').textContent = all.length;
+
+  const list = document.getElementById('collectionList');
+  if (today.length === 0){
+    list.innerHTML = `<div class="empty">${colWeekday?colWeekday+'曜日':'この条件'}で声かけが必要な生徒はいません。</div>`;
+    colOrderKey = null; colOrderList = null; // 空になったら並び順情報もリセット
+    return;
+  }
+
+  // 曜日・テスト回が変わった時だけ、未回収数が多い順に並び替えて順番を固定する
+  const orderKey = colRoundKey + '|' + (colWeekday||'');
+  if (colOrderKey !== orderKey) {
+    today.sort((a,b)=> b.missingJuku.length - a.missingJuku.length);
+    colOrderList = today.map(r=>r.st.no);
+    colOrderKey = orderKey;
+  } else {
+    // 固定済みの順番に沿って並べる。チェックで対象から外れた生徒は自然に消える。
+    // 新しく現れた生徒（通常は発生しないが念のため）は末尾に追加。
+    const rank = new Map(colOrderList.map((no,i)=>[no,i]));
+    today.sort((a,b)=> (rank.has(a.st.no)?rank.get(a.st.no):999) - (rank.has(b.st.no)?rank.get(b.st.no):999));
+  }
+
+  list.innerHTML = today.map(r=>{
+    const dispName = names[r.st.no] || shortNo(r.st.no);
+    const sc = r.isHigh ? (scheduleHigh[r.st.no]||{}) : (schedule[r.st.no]||{});
+    let jukuBadges;
+    if (r.isHigh) {
+      // 高校生：手動チェックボタン（タップで回収済みにできる）
+      jukuBadges = r.missingJuku.map(s=>{
+        const wd = sc[s] || '?';
+        return `<button class="tantou-badge" data-manual-check data-no="${r.st.no}" data-subj="${s}" style="background:#fee2e2;color:#b91c1c;border:none;cursor:pointer;"><span class="tb-subj">【${s}】</span>未回収・${wd}曜（タップで回収済に）</button>`;
+      }).join('');
+    } else {
+      jukuBadges = r.missingJuku.map(s=>{
+        const wd = sc[s] || '?';
+        return `<span class="tantou-badge" style="background:#fee2e2;color:#b91c1c;"><span class="tb-subj">【${s}】</span>写真未提出・${wd}曜</span>`;
+      }).join('');
+    }
+    const otherBadges = r.missingOther.map(s=>
+      `<span class="tantou-badge"><span class="tb-subj">【${s}】</span>点数のみ・電話可</span>`
+    ).join('');
+    const highTag = r.isHigh ? '<span style="font-size:11px;color:#7c3aed;background:#f3e8ff;padding:2px 6px;border-radius:5px;margin-left:6px;">高校生・手動管理</span>' : '';
+    return `<div class="card ${r.missingJuku.length?'down':'flat'}">
+      <div class="card-top">
+        <div style="flex:1;">
+          <div class="card-name" data-detail="${r.st.no}" style="cursor:pointer;text-decoration:underline;text-decoration-color:#ccc;">${dispName}<span class="no-id">${shortNo(r.st.no)}</span>${highTag}</div>
+          <div class="card-meta">${r.st.school} ${r.st.grade}・担任:${r.st.teacher}</div>
+        </div>
+      </div>
+      <div class="tantou-badges" style="margin-top:8px;">${jukuBadges}${otherBadges}</div>
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('[data-detail]').forEach(el=>{
+    el.addEventListener('click', ()=> openDetail(el.dataset.detail));
+  });
+  // 高校生の手動回収チェック：タップで回収済みにする
+  list.querySelectorAll('[data-manual-check]').forEach(btn=>{
+    btn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      const no = btn.dataset.no, subj = btn.dataset.subj;
+      manualCollected[mcKey(colRoundKey, no, subj)] = true;
+      saveManualCollected();
+      renderCollectionList();
+    });
+  });
+}
+
+// ===== 個人ページ =====
+const SUBJ_COLORS = { 国語:'#e0457b', 数学:'#4f46e5', 英語:'#16a34a', 理科:'#f59e0b', 社会:'#0891b2' };
+const SMAP = {国語:'kokugo',数学:'sugaku',英語:'eigo',理科:'rika',社会:'shakai'};
+
+function openDetail(no) {
+  const st = students[no];
+  if (!st) return;
+  document.getElementById('detailName').textContent = (names[no]||shortNo(no));
+  const tmD = tantou[no];
+  const tantouBadgesD = tmD
+    ? `<div class="tantou-badges">${Object.keys(tmD).map(s=>`<span class="tantou-badge"><span class="tb-subj">【${s}】</span>${tmD[s]}</span>`).join('')}</div>`
+    : '';
+  document.getElementById('detailMeta').innerHTML = `${st.school} ${st.grade}・担任:${st.teacher}（${shortNo(no)}）${tantouBadgesD}`;
+
+  const ordered = Object.keys(st.scores).map(k=>({sc:st.scores[k], order:roundOrder(st.scores[k])}))
+    .sort((a,b)=>a.order-b.order).map(x=>x.sc);
+
+  // 科目別トレンド表示（受講科目）
+  const maxOrder = ordered.length ? roundOrder(ordered[ordered.length-1]) : 0;
+  let trendHtml = '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;padding:10px;background:#f8f9fb;border-radius:10px;">';
+  for (const s of st.juku) {
+    const tr = subjectTrend(st, SMAP[s], maxOrder);
+    const col = tr.sym.includes('↘')||tr.sym==='⚠' ? '#dc2626' : (tr.sym.includes('↗') ? '#16a34a' : '#888');
+    trendHtml += `<div style="text-align:center;"><div style="font-size:13px;color:#666;">${s}</div><div style="font-size:20px;font-weight:700;color:${col};">${tr.sym}</div><div style="font-size:10px;color:#999;">${tr.label}</div></div>`;
+  }
+  trendHtml += '</div>';
+
+  document.getElementById('detailChart').innerHTML = trendHtml + buildChart(ordered, st.juku);
+  document.getElementById('detailTable').innerHTML = buildTable(ordered, st.juku);
+  document.getElementById('detailModal').style.display = 'block';
+}
+
+function buildChart(rounds, juku) {
+  if (rounds.length < 1) return '<div style="color:#999;">データなし</div>';
+  const W=600, H=260, pad=36;
+  const xs = rounds.map((_,i)=> pad + (rounds.length===1?0:(W-2*pad)*i/(rounds.length-1)));
+  const y = v => H-pad - (H-2*pad)*(v/100);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;background:#fafbfc;border-radius:10px;">`;
+  // grid
+  for (let g=0; g<=100; g+=20){
+    svg += `<line x1="${pad}" y1="${y(g)}" x2="${W-pad}" y2="${y(g)}" stroke="#eee"/>`;
+    svg += `<text x="${pad-6}" y="${y(g)+4}" font-size="10" fill="#aaa" text-anchor="end">${g}</text>`;
+  }
+  // x labels
+  rounds.forEach((sc,i)=>{
+    svg += `<text x="${xs[i]}" y="${H-pad+16}" font-size="10" fill="#888" text-anchor="middle">${kaiLabel(sc)}</text>`;
+  });
+  // lines per juku subject
+  for (const s of juku){
+    const key = SMAP[s], col = SUBJ_COLORS[s];
+    let pts = [];
+    rounds.forEach((sc,i)=>{ if (sc[key]!=null) pts.push([xs[i], y(sc[key]), sc[key]]); });
+    if (pts.length===0) continue;
+    const d = pts.map((p,i)=> (i===0?'M':'L')+p[0]+' '+p[1]).join(' ');
+    svg += `<path d="${d}" fill="none" stroke="${col}" stroke-width="2.5"/>`;
+    pts.forEach(p=>{ svg += `<circle cx="${p[0]}" cy="${p[1]}" r="3.5" fill="${col}"/>`; });
+  }
+  svg += `</svg>`;
+  // legend
+  let leg = '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:12px;">';
+  for (const s of juku){ leg += `<span style="display:flex;align-items:center;gap:4px;"><span style="width:12px;height:3px;background:${SUBJ_COLORS[s]};display:inline-block;"></span>${s}</span>`; }
+  leg += '</div>';
+  return svg + leg;
+}
+
+function buildTable(rounds, juku) {
+  let h = '<table style="width:100%;border-collapse:collapse;font-size:13px;"><tr style="background:#f4f5f7;"><th style="padding:6px;text-align:left;">回</th>';
+  for (const s of SUBJECTS) h += `<th style="padding:6px;">${s}</th>`;
+  h += '<th style="padding:6px;">合計</th></tr>';
+  rounds.forEach(sc=>{
+    h += `<tr style="border-bottom:1px solid #eee;"><td style="padding:6px;">${kaiLabel(sc)}</td>`;
+    for (const s of SUBJECTS){
+      const v = sc[SMAP[s]];
+      const isJuku = juku.includes(s);
+      h += `<td style="padding:6px;text-align:center;${isJuku?'font-weight:700;':'color:#aaa;'}">${v==null?'—':v}</td>`;
+    }
+    h += `<td style="padding:6px;text-align:center;font-weight:700;">${sc.total==null?'—':sc.total}</td></tr>`;
+  });
+  h += '</table>';
+  return h;
+}
+
+// ===== イベント =====
+const fileInput = document.getElementById('gradeFile');
+dbg('準備完了。「成績CSV取込」を押してください。');
+
+fileInput.addEventListener('change', async (e)=>{
+  dbg('—— changeイベント発火 ——');
+  try {
+    const files = [...e.target.files];
+    dbg('選択ファイル数: ' + files.length);
+    if (files.length === 0) { dbg('ファイルが選ばれていません'); return; }
+    let total = 0;
+    for (const f of files) {
+      dbg('読込中: ' + f.name + ' (' + f.size + 'バイト)');
+      let text = await readFileSmart(f);
+      dbg('読込成功: ' + text.length + '文字');
+      const n = importGradeFile(text, f.name);
+      dbg('→ ' + f.name + ': ' + n + '件記録');
+      total += n;
+    }
+    dbg('合計 ' + total + '件。描画します。');
+    render();
+  } catch(err) {
+    dbg('!! エラー: ' + (err && err.message ? err.message : err));
+  }
+  e.target.value='';
+});
+
+// 貼り付けフォールバック（file inputが動かない環境向け）
+document.getElementById('pasteBtn').addEventListener('click', ()=>{
+  const text = prompt('CSVの中身を貼り付けてください（成績CSVを開いて全選択→コピー）');
+  if (!text) { dbg('貼り付けキャンセル'); return; }
+  dbg('貼り付け取込: ' + text.length + '文字');
+  try {
+    const n = importGradeFile(text);
+    dbg('→ ' + n + '件記録。描画します。');
+    render();
+  } catch(err){ dbg('!! エラー: ' + (err && err.message ? err.message : err)); }
+});
+
+document.getElementById('syncUrl').value = loadSyncCfg().url || '';
+document.getElementById('syncKey').value = loadSyncCfg().key || '';
+document.getElementById('syncSaveBtn').addEventListener('click', syncSave);
+document.getElementById('syncLoadBtn').addEventListener('click', syncLoad);
+document.getElementById('clearBtn').addEventListener('click', ()=>{
+  if (confirm('全データを消去しますか？（成績・名前・担当・対応状況・メモ・未実施設定・高校生回収チェックすべて）')) {
+    students = {}; names={}; rosterGrade={}; tantou={}; tantouHigh={}; schedule={}; scheduleHigh={};
+    actions={}; notes={}; notImplemented={}; manualCollected={};
+    save(); saveNames(); saveRosterGrade(); saveTantou(); saveTantouHigh(); saveSchedule(); saveScheduleHigh();
+    saveActions(); saveNotes(); saveNotImplemented(); saveManualCollected();
+    location.reload();
+  }
+});
+
+// 名前CSV取込：生徒名簿（No, 姓, 名, ｾｲ, ﾒｲ...）。タブ/カンマ両対応
+function importNameCSV(text) {
+  // 区切り文字を自動判定（タブが多ければTSV）
+  const tabCount = (text.match(/\t/g)||[]).length;
+  const commaCount = (text.match(/,/g)||[]).length;
+  const delim = tabCount > commaCount ? '\t' : ',';
+  const lines = text.split(/\r?\n/);
+  const rows = lines.map(l => l.split(delim));
+
+  // ヘッダー行を探す（No/Ｎｏを含む行）
+  let hi = -1, noIdx=-1, seiIdx=-1, meiIdx=-1, gradeIdx=-1;
+  const subjCols = [];  // 通常授業の科目列インデックス（先生列は科目列+2）
+  for (let i=0;i<Math.min(rows.length,5);i++){
+    const r = rows[i];
+    for (let j=0;j<r.length;j++){
+      const c = (r[j]||'').trim();
+      if (/^(No|Ｎｏ|ＮＯ|no|NO)$/.test(c)) { hi=i; noIdx=j; }
+      if (c==='姓') seiIdx=j;
+      if (c==='名') meiIdx=j;
+      if (c==='学年') gradeIdx=j;
+    }
+    if (hi>=0){
+      // 通常授業の科目列を特定：「科目(通常授業)①」以降、「科目(講習授業)」の手前まで
+      let inNormal = false;
+      for (let j=0;j<r.length;j++){
+        const c = (r[j]||'').trim();
+        if (c.includes('科目') && c.includes('通常')) inNormal = true;
+        if (c.includes('科目') && c.includes('講習')) inNormal = false;
+        if (inNormal && c.startsWith('科目')) subjCols.push(j);
+      }
+      break;
+    }
+  }
+
+  // 科目名の正規化：中学は5科目に丸める。高校は名簿の表記をそのまま使う（表記ゆれだけ吸収）。
+  // ここでは判定せず「丸めた名前(中学用)」と「素の名前(高校用)」の両方を返す。
+  // 生徒が中学/高校どちらかは利用側(collectionタブ等)で学年を見て選択する。
+  function normSubjMiddle(v){
+    if (!v) return null;
+    if (v.includes('国')) return '国語';
+    if (v.includes('数')) return '数学';
+    if (v.includes('英')) return '英語';
+    if (v.includes('理')) return '理科';
+    if (v.includes('社')) return '社会';
+    return null;
+  }
+  // 高校科目名の素通し正規化：全角/半角スペース除去のみ。空なら無効。
+  function normSubjRaw(v){
+    if (!v) return null;
+    const t = v.replace(/[\s　]/g,'');
+    return t || null;
+  }
+  // 先生セルのクリーニング：「先生名/21:20」→「先生名」、時間だけなら無効
+  function cleanTeacher(v){
+    if (!v) return null;
+    const first = v.split('/')[0].trim();
+    if (!first || /^\d{1,2}:\d{2}$/.test(first)) return null;
+    return first;
+  }
+  // 時間セルから曜日を抽出：「月19:00」→「月」
+  function extractWeekday(v){
+    if (!v) return null;
+    const m = v.trim().match(/^([月火水木金土日])/);
+    return m ? m[1] : null;
+  }
+
+  // ヘッダーが見つからなければ、数字列を番号とみなすフォールバック
+  let matched = 0;
+  const startRow = hi>=0 ? hi+1 : 0;
+  for (let i=startRow;i<rows.length;i++){
+    const r = rows[i];
+    if (!r) continue;
+    let no, name;
+    if (noIdx>=0) {
+      no = (r[noIdx]||'').trim();
+      const sei = seiIdx>=0 ? (r[seiIdx]||'').trim() : '';
+      const mei = meiIdx>=0 ? (r[meiIdx]||'').trim() : '';
+      name = (sei+' '+mei).trim();
+    } else {
+      // フォールバック：数字列＋日本語列
+      let ni=-1; for(let j=0;j<r.length;j++){ if(/^\d{6,}$/.test((r[j]||'').trim())){ni=j;break;} }
+      if (ni<0) continue;
+      no = r[ni].trim();
+      name = '';
+      for(let j=0;j<r.length;j++){ if(j!==ni){const v=(r[j]||'').trim(); if(v&&/[\u3040-\u30ff\u4e00-\u9faf]/.test(v)&&!/^\d+$/.test(v)){name=v;break;}} }
+    }
+    if (/^\d{6,}$/.test(no) && name) {
+      names[no]=name; matched++;
+      // 名簿の学年列を保存（成績CSVに登場しない生徒でも学年を判定できるように）
+      if (gradeIdx>=0){
+        const g = (r[gradeIdx]||'').trim();
+        if (g) rosterGrade[no] = g;
+      }
+      // 担当講師と曜日の抽出：科目列=科目名、+1列=時間(曜日込み)、+2列=先生名
+      // 中学向け(5科目丸め)と高校向け(表記そのまま)の両方を並行して作る
+      if (subjCols.length){
+        const tmap = {}, smap = {};
+        const tmapH = {}, smapH = {};
+        for (const sc of subjCols){
+          const rawSubj = (r[sc]||'').trim();
+          const teacher = cleanTeacher((r[sc+2]||'').trim());
+          const wd = extractWeekday((r[sc+1]||'').trim());
+
+          const subjM = normSubjMiddle(rawSubj);
+          if (subjM){
+            if (teacher) tmap[subjM] = teacher;
+            if (wd) smap[subjM] = wd;
+          }
+          const subjH = normSubjRaw(rawSubj);
+          if (subjH){
+            if (teacher) tmapH[subjH] = teacher;
+            if (wd) smapH[subjH] = wd;
+          }
+        }
+        if (Object.keys(tmap).length) tantou[no] = tmap;
+        if (Object.keys(smap).length) schedule[no] = smap;
+        if (Object.keys(tmapH).length) tantouHigh[no] = tmapH;
+        if (Object.keys(smapH).length) scheduleHigh[no] = smapH;
+      }
+    }
+  }
+  saveNames();
+  saveRosterGrade();
+  saveTantou();
+  saveTantouHigh();
+  saveSchedule();
+  saveScheduleHigh();
+  return matched;
+}
+
+document.getElementById('nameFile').addEventListener('change', async (e)=>{
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    const text = await readFileSmart(f);
+    const n = importNameCSV(text);
+    dbg('名前CSV: ' + n + '名を照合しました');
+    alert(n + '名の氏名を取り込みました');
+    render();
+  } catch(err){ dbg('名前CSVエラー: ' + err); }
+  e.target.value='';
+});
+
+// 閾値スライダー
+const thSubj = document.getElementById('thSubj');
+const thTotal = document.getElementById('thTotal');
+thSubj.value = TH_SUBJECT; thTotal.value = TH_TOTAL;
+document.getElementById('thSubjVal').textContent = '−'+Math.abs(TH_SUBJECT)+'点';
+document.getElementById('thTotalVal').textContent = '−'+Math.abs(TH_TOTAL)+'点';
+thSubj.addEventListener('input', ()=>{
+  TH_SUBJECT = parseInt(thSubj.value);
+  document.getElementById('thSubjVal').textContent = '−'+Math.abs(TH_SUBJECT)+'点';
+  saveSettings(); render();
+});
+thTotal.addEventListener('input', ()=>{
+  TH_TOTAL = parseInt(thTotal.value);
+  document.getElementById('thTotalVal').textContent = '−'+Math.abs(TH_TOTAL)+'点';
+  saveSettings(); render();
+});
+
+// メインタブ
+document.querySelectorAll('.mtab').forEach(t=>{
+  t.addEventListener('click', ()=> switchMainView(t.dataset.main));
+});
+// フィルター
+['fSchool','fGrade','fSubject','fTeacher','fSort'].forEach(id=>{
+  const el = document.getElementById(id);
+  el.addEventListener('change', ()=>{
+    filters.school = document.getElementById('fSchool').value;
+    filters.grade = document.getElementById('fGrade').value;
+    filters.subject = document.getElementById('fSubject').value;
+    filters.teacher = document.getElementById('fTeacher').value;
+    filters.sort = document.getElementById('fSort').value;
+    render();
+  });
+});
+// 面談推奨だけフィルター
+document.getElementById('fUrgent').addEventListener('change', (e)=>{
+  filters.urgentOnly = e.target.checked;
+  activeTab = 'down';
+  document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active', x.dataset.tab==='down'));
+  render();
+});
+// ダッシュボードの「面談推奨」タップで絞り込み
+document.getElementById('dashUrgentBox').addEventListener('click', ()=>{
+  filters.urgentOnly = true;
+  document.getElementById('fUrgent').checked = true;
+  activeTab = 'down';
+  document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active', x.dataset.tab==='down'));
+  render();
+});
+// 集計コントロール
+document.getElementById('sGroupBy').addEventListener('change', renderSummary);
+document.querySelectorAll('#sModes .mode').forEach(m=>{
+  m.addEventListener('click', ()=>{
+    sMode = m.dataset.mode;
+    renderSummary();
+  });
+});
+document.getElementById('colRound').addEventListener('change', (e)=>{
+  colRoundKey = e.target.value;
+  renderCollectionList();
+});
+document.getElementById('sRoundTo').addEventListener('change', renderSummary);
+document.getElementById('sRoundSingle').addEventListener('change', renderSummary);
+document.getElementById('pinSchool').addEventListener('change', (e)=>{ pinFilter.school = e.target.value; renderSummary(); });
+document.getElementById('pinGrade').addEventListener('change', (e)=>{ pinFilter.grade = e.target.value; renderSummary(); });
+document.getElementById('pinSubject').addEventListener('change', (e)=>{ pinFilter.subject = e.target.value; renderSummary(); });
+document.getElementById('niRound').addEventListener('change', renderNotImplementedUI);
+document.getElementById('niAddBtn').addEventListener('click', ()=>{
+  const rk = document.getElementById('niRound').value;
+  const school = document.getElementById('niSchool').value;
+  const grade = document.getElementById('niGrade').value;
+  const subject = document.getElementById('niSubject').value;
+  if (!rk || !school || !grade || !subject){ alert('テスト回・学校・学年・科目をすべて選択してください'); return; }
+  notImplemented[niKey(rk, school, grade, subject)] = true;
+  saveNotImplemented();
+  renderNotImplementedUI();
+});
+
+document.getElementById('rosterToggle').addEventListener('change', (e)=>{
+  hideNonRoster = e.target.checked;
+  render();
+});
+
+document.querySelectorAll('.tab').forEach(t=>{
+  t.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    activeTab = t.dataset.tab;
+    render();
+  });
+});
+
+document.getElementById('detailClose').addEventListener('click', ()=>{
+  document.getElementById('detailModal').style.display='none';
+});
+document.getElementById('detailModal').addEventListener('click', (e)=>{
+  if (e.target.id==='detailModal') e.target.style.display='none';
+});
+
+load();
+render();
+</script>
+</body>
+</html>
