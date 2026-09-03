@@ -42,10 +42,20 @@
   .sec-title { font-size:13px; font-weight:700; color:#334155; margin:0 0 10px; }
   .setrow { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid #f1f5f9; flex-wrap:wrap; }
   .comment-dot { cursor:pointer; font-size:14px; }
+/* 画面のどこにいても見える通知。
+   設定画面は縦に長く、上部のバーに出しても見えないため、固定表示にする。 */
+#toastbox{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:9999;
+  background:#0f172a;color:#fff;padding:11px 18px;border-radius:10px;
+  font-size:13px;font-weight:600;box-shadow:0 6px 24px rgba(0,0,0,.28);
+  opacity:0;pointer-events:none;transition:opacity .18s;max-width:90vw;text-align:center;}
+#toastbox.on{opacity:1;}
+#toastbox.ok{background:#15803d;}
+#toastbox.ng{background:#b91c1c;}
 </style>
 </head>
 <body>
 <div id="app"></div>
+<div id="toastbox"></div>
 <div id="modal"></div>
 
 <script>
@@ -935,7 +945,11 @@ function applyBackupData(d){
   if(d.nameAliases){ state.nameAliases=d.nameAliases; LS.set("survey_nameAliases",d.nameAliases); }
   if(d.work){ state.flags=d.work.flags||{}; state.decisions=d.work.decisions||{}; state.notes=d.work.notes||{}; saveWork(); }
 }
-function syncMsgSet(text,color){ const el=document.getElementById("syncMsg2"); if(el){ el.textContent=text; el.style.color=color||"#94a3b8"; } }
+function syncMsgSet(text,color){
+  const el=document.getElementById("syncMsg2");
+  if(el){ el.textContent=text; el.style.color=color||"#94a3b8"; }
+  showToast(text,toastKind(text));   // 画面下にも出して見逃さないようにする
+}
 async function syncSave(){
   const url=(LS.get('survey_syncUrl','')||'').trim(), key=(LS.get('survey_syncKey','')||'').trim();
   if(!url||!key){ syncMsgSet("接続先URLと合言葉を入力してください","#f87171"); return; }
@@ -1066,7 +1080,22 @@ function askConfirm(message, onYes){
 }
 function confirmYes(){ const fn=pendingConfirm; pendingConfirm=null; state.modal=null; render(); if(fn) fn(); }
 function confirmNo(){ pendingConfirm=null; state.modal=null; render(); }
-function toast(msg){ state.err=msg; render(); setTimeout(()=>{ if(state.err===msg){ state.err=""; render(); } },2800); }
+let __toastT=null;
+function showToast(msg,kind){
+  const el=document.getElementById("toastbox"); if(!el) return;
+  el.textContent=msg;
+  el.className="on"+(kind?" "+kind:"");
+  clearTimeout(__toastT);
+  if(kind!=="ng") __toastT=setTimeout(()=>{ el.className=""; },3200);   // エラーは残す
+}
+function toastKind(msg){
+  const m=String(msg||"");
+  if(m.indexOf("✅")>=0) return "ok";
+  if(m.indexOf("⚠")>=0||m.indexOf("エラー")>=0||m.indexOf("失敗")>=0) return "ng";
+  return "";
+}
+function toast(msg){ state.err=msg; render(); showToast(msg,toastKind(msg));
+  setTimeout(()=>{ if(state.err===msg){ state.err=""; render(); } },2800); }
 
 // ════════════════════════════════════════════════════════════
 //  描画
