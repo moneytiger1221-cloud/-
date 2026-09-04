@@ -133,6 +133,7 @@
 
 <div class="maintabs" id="maintabs">
   <div class="mtab active" data-main="action">アクション</div>
+  <div class="mtab" data-main="search">生徒検索</div>
   <div class="mtab" data-main="collection">回収</div>
   <div class="mtab" data-main="summary">集計</div>
   <div class="mtab" data-main="settings">設定</div>
@@ -225,6 +226,15 @@
 </div>
 
 <!-- ===== テスト回収画面 ===== -->
+<div id="view-search" style="display:none;">
+  <div style="padding:16px;">
+    <input type="text" id="searchBox" placeholder="生徒名または生徒番号で検索"
+      style="width:100%;box-sizing:border-box;padding:11px 13px;border:1px solid #cbd5e1;border-radius:10px;font-size:15px;">
+    <div id="searchHint" style="font-size:12px;color:#888;margin-top:8px;"></div>
+  </div>
+  <div id="searchList" class="list"></div>
+</div>
+
 <div id="view-collection" style="display:none;">
   <div style="background:#fff;padding:10px 16px;border-bottom:1px solid #e2e4e8;">
     <div style="font-size:12px;color:#666;margin-bottom:6px;">対象テスト回</div>
@@ -391,6 +401,7 @@ let students = {};
 let activeTab = 'down';
 let names = {};      // no -> 氏名
 let rosterGrade = {}; // no -> 学年（名簿CSVから。成績CSVが無い生徒の学年判定に使う）
+let kana = {};        // no -> ふりがな（名簿CSVの ｾｲ/ﾒｲ 列。生徒検索でかな入力に使う）
 let tantou = {};     // no -> { 科目(中学5科目に丸め): 担当講師名 }（既存機能はこちらを使用、互換維持）
 let tantouHigh = {}; // no -> { 科目(名簿の表記そのまま。数Ⅰ・英コミ等): 担当講師名 }（高校生の回収タブ用）
 let schedule = {};   // no -> { 科目(中学5科目): '月'|'火'|... }
@@ -424,11 +435,13 @@ const NOTIMPL_KEY = 'gradeTracker_notimpl_v1';
 const MANUAL_COL_KEY = 'gradeTracker_manualCol_v1';
 const ACTIONS_KEY = 'gradeTracker_actions_v1';
 const NOTES_KEY = 'gradeTracker_notes_v1';
+const KANA_KEY = 'gradeTracker_kana_v1';
 const SETTINGS_KEY = 'gradeTracker_settings_v1';
 
 function load() {
   try { const r=localStorage.getItem(STORAGE_KEY); if(r) students=JSON.parse(r); } catch(e){}
   try { const r=localStorage.getItem(NAMES_KEY); if(r) names=JSON.parse(r); } catch(e){}
+  try { const r=localStorage.getItem(KANA_KEY); if(r) kana=JSON.parse(r); } catch(e){}
   try { const r=localStorage.getItem(ROSTER_GRADE_KEY); if(r) rosterGrade=JSON.parse(r); } catch(e){}
   try { const r=localStorage.getItem(TANTOU_KEY); if(r) tantou=JSON.parse(r); } catch(e){}
   try { const r=localStorage.getItem(TANTOU_HIGH_KEY); if(r) tantouHigh=JSON.parse(r); } catch(e){}
@@ -444,6 +457,7 @@ function save() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(students)); } catch(e) { alert('保存に失敗（容量超過の可能性）'); }
 }
 function saveNames(){ try{localStorage.setItem(NAMES_KEY,JSON.stringify(names));}catch(e){} }
+function saveKana(){ try{localStorage.setItem(KANA_KEY,JSON.stringify(kana));}catch(e){} }
 function saveRosterGrade(){ try{localStorage.setItem(ROSTER_GRADE_KEY,JSON.stringify(rosterGrade));}catch(e){} }
 function saveTantou(){ try{localStorage.setItem(TANTOU_KEY,JSON.stringify(tantou));}catch(e){} }
 function saveTantouHigh(){ try{localStorage.setItem(TANTOU_HIGH_KEY,JSON.stringify(tantouHigh));}catch(e){} }
@@ -457,13 +471,14 @@ const SYNC_CFG_KEY = 'gradeTracker_syncConfig_v1';
 function loadSyncCfg(){ try{ return JSON.parse(localStorage.getItem(SYNC_CFG_KEY)||'{}'); }catch(e){ return {}; } }
 function saveSyncCfg(cfg){ try{ localStorage.setItem(SYNC_CFG_KEY, JSON.stringify(cfg)); }catch(e){} }
 function syncPayload(){
-  return { students, names, rosterGrade, tantou, tantouHigh, schedule, scheduleHigh,
+  return { students, names, kana, rosterGrade, tantou, tantouHigh, schedule, scheduleHigh,
     notImplemented, manualCollected, actions, notes,
     settings:{ thSubject: TH_SUBJECT, thTotal: TH_TOTAL } };
 }
 function applySyncPayload(d){
   if(d.students){ students=d.students; localStorage.setItem(STORAGE_KEY, JSON.stringify(students)); }
   if(d.names){ names=d.names; localStorage.setItem(NAMES_KEY, JSON.stringify(names)); }
+  if(d.kana){ kana=d.kana; localStorage.setItem(KANA_KEY, JSON.stringify(kana)); }
   if(d.rosterGrade){ rosterGrade=d.rosterGrade; localStorage.setItem(ROSTER_GRADE_KEY, JSON.stringify(rosterGrade)); }
   if(d.tantou){ tantou=d.tantou; localStorage.setItem(TANTOU_KEY, JSON.stringify(tantou)); }
   if(d.tantouHigh){ tantouHigh=d.tantouHigh; localStorage.setItem(TANTOU_HIGH_KEY, JSON.stringify(tantouHigh)); }
@@ -1760,9 +1775,11 @@ function switchMainView(v){
   mainView = v;
   document.querySelectorAll('.mtab').forEach(t=>t.classList.toggle('active', t.dataset.main===v));
   document.getElementById('view-action').style.display = v==='action'?'block':'none';
+  document.getElementById('view-search').style.display = v==='search'?'block':'none';
   document.getElementById('view-collection').style.display = v==='collection'?'block':'none';
   document.getElementById('view-summary').style.display = v==='summary'?'block':'none';
   document.getElementById('view-settings').style.display = v==='settings'?'block':'none';
+  if (v==='search') { renderSearch(); const b=document.getElementById('searchBox'); if(b) b.focus(); }
   if (v==='summary') renderSummary();
   if (v==='collection') renderCollection();
   if (v==='settings') updateDataSummary();
@@ -1889,6 +1906,83 @@ function renderCollectionList() {
 const SUBJ_COLORS = { 国語:'#e0457b', 数学:'#4f46e5', 英語:'#16a34a', 理科:'#f59e0b', 社会:'#0891b2' };
 const SMAP = {国語:'kokugo',数学:'sugaku',英語:'eigo',理科:'rika',社会:'shakai'};
 
+// ===== 生徒検索 =====
+// 「この子、今までの成績どうだったんだろう」をすぐ見るための画面。
+// 名前・生徒番号のどちらでも引ける。結果をタップすると既存の詳細モーダル（推移グラフ付き）が開く。
+function normalizeSearch(s){
+  return String(s||'')
+    .normalize('NFKC')
+    .replace(/[\s　]/g,'')
+    .replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0)-0x60));  // カタカナ→ひらがな
+}
+function renderSearch(){
+  const box = document.getElementById('searchBox');
+  const list = document.getElementById('searchList');
+  const hint = document.getElementById('searchHint');
+  const q = normalizeSearch(box.value);
+  // 名簿にいる生徒は、成績がまだ無くても検索できるようにする。
+  // （students＝成績データがある子 だけを対象にすると「まだ結果が返ってきていない子」が引けない）
+  const all = [...new Set([...Object.keys(students), ...Object.keys(names)])];
+
+  if (!all.length){
+    hint.textContent = '';
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:#999;">データがありません。設定タブから成績CSV・名簿CSVを取り込んでください。</div>';
+    return;
+  }
+  if (!q){
+    hint.textContent = all.length + '名。名前・ふりがな・生徒番号のどれでも探せます。';
+    list.innerHTML = '';
+    return;
+  }
+
+  const hits = all.filter(no => {
+    const nm = normalizeSearch(names[no] || '');
+    const kn = normalizeSearch(kana[no] || '');   // ふりがなでも引ける
+    return nm.includes(q) || (kn && kn.includes(q)) || no.includes(box.value.trim());
+  }).sort((a,b) => (names[a]||a).localeCompare(names[b]||b, 'ja'));
+
+  hint.textContent = hits.length ? (hits.length + '名みつかりました') : '該当なし';
+
+  list.innerHTML = hits.map(no => {
+    const st = students[no];
+    const scores = (st && st.scores) ? st.scores : {};
+    const cnt = Object.keys(scores).length;
+    const school = st ? st.school : '';
+    const grade = (st && st.grade) || rosterGrade[no] || '';
+    const teacher = st ? st.teacher : '';
+
+    // 直近の合計点と前回差を出す（開かなくても傾向が分かるように）
+    const ordered = Object.keys(scores).map(k=>({sc:scores[k], o:roundOrder(scores[k])}))
+      .sort((a,b)=>a.o-b.o).map(x=>x.sc);
+    let latest = '', delta = '';
+    if (ordered.length){
+      const t = ordered[ordered.length-1].total;
+      if (t != null) latest = t + '点';
+      if (ordered.length >= 2){
+        const p = ordered[ordered.length-2].total;
+        if (t != null && p != null){
+          const d = t - p;
+          const col = d < 0 ? '#dc2626' : (d > 0 ? '#16a34a' : '#888');
+          delta = '<span style="color:' + col + ';font-weight:700;margin-left:8px;">'
+                + (d > 0 ? '+' : '') + d + '</span>';
+        }
+      }
+    }
+    const meta = [school, grade].filter(Boolean).join(' ')
+               + (teacher ? '・担任:' + teacher : '');
+    return '<div class="row" ' + (cnt ? 'data-detail="' + no + '" style="cursor:pointer;"' : 'style="opacity:.65;"') + '>'
+      + '<div style="font-weight:700;font-size:15px;">' + (names[no] || shortNo(no)) + '</div>'
+      + '<div style="font-size:12px;color:#666;margin-top:3px;">'
+      + (meta || '<span style="color:#aaa;">学年情報なし</span>')
+      + '<span style="color:#999;margin-left:8px;">' + (cnt ? cnt + '回分' : '成績データなし') + '</span></div>'
+      + (latest ? '<div style="font-size:13px;margin-top:4px;">直近 <b>' + latest + '</b>' + delta + '</div>' : '')
+      + '</div>';
+  }).join('');
+
+  list.querySelectorAll('[data-detail]').forEach(el =>
+    el.addEventListener('click', () => openDetail(el.dataset.detail)));
+}
+
 function openDetail(no) {
   const st = students[no];
   if (!st) return;
@@ -2010,9 +2104,10 @@ document.getElementById('syncUrl').value = loadSyncCfg().url || '';
 document.getElementById('syncKey').value = loadSyncCfg().key || '';
 document.getElementById('syncSaveBtn').addEventListener('click', syncSave);
 document.getElementById('syncLoadBtn').addEventListener('click', syncLoad);
+document.getElementById('searchBox').addEventListener('input', renderSearch);
 document.getElementById('clearBtn').addEventListener('click', ()=>{
   if (confirm('全データを消去しますか？（成績・名前・担当・対応状況・メモ・未実施設定・高校生回収チェックすべて）')) {
-    students = {}; names={}; rosterGrade={}; tantou={}; tantouHigh={}; schedule={}; scheduleHigh={};
+    students = {}; names={}; kana={}; rosterGrade={}; tantou={}; tantouHigh={}; schedule={}; scheduleHigh={};
     actions={}; notes={}; notImplemented={}; manualCollected={};
     save(); saveNames(); saveRosterGrade(); saveTantou(); saveTantouHigh(); saveSchedule(); saveScheduleHigh();
     saveActions(); saveNotes(); saveNotImplemented(); saveManualCollected();
@@ -2030,7 +2125,7 @@ function importNameCSV(text) {
   const rows = lines.map(l => l.split(delim));
 
   // ヘッダー行を探す（No/Ｎｏを含む行）
-  let hi = -1, noIdx=-1, seiIdx=-1, meiIdx=-1, gradeIdx=-1;
+  let hi = -1, noIdx=-1, seiIdx=-1, meiIdx=-1, gradeIdx=-1, seiKanaIdx=-1, meiKanaIdx=-1;
   const subjCols = [];  // 通常授業の科目列インデックス（先生列は科目列+2）
   for (let i=0;i<Math.min(rows.length,5);i++){
     const r = rows[i];
@@ -2039,6 +2134,8 @@ function importNameCSV(text) {
       if (/^(No|Ｎｏ|ＮＯ|no|NO)$/.test(c)) { hi=i; noIdx=j; }
       if (c==='姓') seiIdx=j;
       if (c==='名') meiIdx=j;
+      if (c==='ｾｲ'||c==='セイ') seiKanaIdx=j;
+      if (c==='ﾒｲ'||c==='メイ') meiKanaIdx=j;
       if (c==='学年') gradeIdx=j;
     }
     if (hi>=0){
@@ -2108,6 +2205,13 @@ function importNameCSV(text) {
     }
     if (/^\d{6,}$/.test(no) && name) {
       names[no]=name; matched++;
+      // ふりがな（生徒検索でかな入力に対応するため）
+      if (seiKanaIdx>=0 || meiKanaIdx>=0){
+        const sk = seiKanaIdx>=0 ? (r[seiKanaIdx]||'').trim() : '';
+        const mk = meiKanaIdx>=0 ? (r[meiKanaIdx]||'').trim() : '';
+        const kn = (sk+mk).trim();
+        if (kn) kana[no] = kn;
+      }
       // 名簿の学年列を保存（成績CSVに登場しない生徒でも学年を判定できるように）
       if (gradeIdx>=0){
         const g = (r[gradeIdx]||'').trim();
@@ -2142,6 +2246,7 @@ function importNameCSV(text) {
     }
   }
   saveNames();
+  saveKana();
   saveRosterGrade();
   saveTantou();
   saveTantouHigh();
