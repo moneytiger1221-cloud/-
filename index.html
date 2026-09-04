@@ -62,6 +62,7 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;
     <button class="navtab" data-k="grade"><span class="ic">📈</span>成績<span class="ld">成績推移</span></button>
     <button class="navtab" data-k="survey"><span class="ic">📝</span>アンケート<span class="ld">満足度</span></button>
     <button class="navtab" data-k="ys"><span class="ic">🤝</span>YSボード<span class="ld">友人紹介</span></button>
+    <button class="navtab" data-k="ss"><span class="ic">📊</span>SS<span class="ld">成績進捗</span></button>
     <div id="navright">
       <span id="hint">タブを切り替えても各ツールの状態は保持されます</span>
       <button id="btnReload" title="今開いているタブを読み込み直す">再読込</button>
@@ -81,7 +82,8 @@ const TOOLS=[
   {k:'koma',   label:'コマ組',     src:'komawari.html'},
   {k:'grade',  label:'成績',       src:'grade-tracker.html'},
   {k:'survey', label:'アンケート', src:'survey-app.html'},
-  {k:'ys',     label:'YSボード',   src:'ys-board-sync.html'}
+  {k:'ys',     label:'YSボード',   src:'ys-board-sync.html'},
+  {k:'ss',     label:'SS',         src:'ss-tracker.html'}
 ];
 const LSTAB='jukutool_tab_v1';
 const panes=document.getElementById('panes');

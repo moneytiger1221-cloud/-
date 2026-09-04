@@ -1,0 +1,2105 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SS（成績進捗）</title>
+<style>
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;font-family:"Segoe UI","Hiragino Kaku Gothic ProN","Meiryo",sans-serif;
+  background:#eef2f7;color:#22303f;font-size:13.5px;-webkit-text-size-adjust:100%;}
+button{font-family:inherit;}
+.topbar{position:sticky;top:0;z-index:30;background:#22303f;color:#fff;padding:9px 14px;
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;box-shadow:0 2px 6px rgba(0,0,0,.18);}
+.topbar .title{font-weight:800;font-size:15px;letter-spacing:.5px;white-space:nowrap;}
+.topbar .asof{font-size:11.5px;color:#b9cadb;line-height:1.5;}
+.topbar .asof b{color:#fff;}
+.topbar .spacer{margin-left:auto;}
+.chip{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:700;vertical-align:1px;}
+.chip.fix{background:#1f7a4d;color:#eafff3;}
+.chip.mid{background:#8a6d1f;color:#fff6dd;}
+.chip.warn{background:#8a2f28;color:#ffe9e7;}
+.tbtn{border:1px solid #44586c;background:#2c3e50;color:#cfe0ee;border-radius:6px;
+  padding:5px 11px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;}
+.tbtn:hover{background:#3a4f63;}
+select,input[type=text],input[type=password],input[type=date]{font-family:inherit;font-size:12.5px;
+  padding:4px 7px;border:1px solid #cbd5e0;border-radius:5px;background:#fff;color:#22303f;}
+.tabs{display:flex;background:#f4f6f9;border-bottom:1px solid #d7dfe8;position:sticky;top:0;z-index:20;
+  overflow-x:auto;scrollbar-width:none;}
+.tabs::-webkit-scrollbar{display:none;}
+.tab{flex:0 0 auto;border:none;background:transparent;padding:10px 17px;font-size:13px;font-weight:700;
+  color:#5a6b7d;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;}
+.tab:hover{background:#e8eef5;}
+.tab.on{color:#1b62c9;border-bottom-color:#1b62c9;background:#fff;}
+.pane{display:none;padding:14px;max-width:1500px;margin:0 auto;}
+.pane.on{display:block;}
+.card{background:#fff;border:1px solid #dde4ec;border-radius:10px;padding:13px 15px;margin-bottom:12px;
+  box-shadow:0 1px 3px rgba(30,50,80,.05);}
+.card h3{margin:0 0 9px;font-size:13.5px;font-weight:800;color:#33465a;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.card h3 .sub{font-weight:600;font-size:11.5px;color:#7f8fa1;}
+.muted{color:#7f8fa1;font-size:11.5px;line-height:1.7;}
+.empty{padding:40px 16px;text-align:center;color:#8a99a9;font-size:13px;line-height:1.9;}
+.touch{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:11px;}
+.tc{background:#fff;border:1px solid #dde4ec;border-left-width:5px;border-radius:9px;padding:12px 14px;
+  box-shadow:0 1px 3px rgba(30,50,80,.05);}
+.tc.good{border-left-color:#1f9d5b;}
+.tc.bad{border-left-color:#d1453b;}
+.tc.watch{border-left-color:#d99a13;}
+.tc .who{font-size:15px;font-weight:800;margin-bottom:2px;cursor:pointer;}
+.tc .who:hover{color:#1b62c9;text-decoration:underline;}
+.tc .kind{font-size:11px;font-weight:800;letter-spacing:.4px;margin-bottom:7px;}
+.tc.good .kind{color:#1f9d5b;}
+.tc.bad .kind{color:#d1453b;}
+.tc.watch .kind{color:#b8830f;}
+.tc .say{background:#f6f9fc;border:1px solid #e4ebf3;border-radius:7px;padding:9px 11px;
+  font-size:12.5px;line-height:1.85;margin-bottom:8px;}
+.tc .facts{font-size:11.5px;color:#66788a;line-height:1.75;}
+.tc .facts b{color:#33465a;}
+.tblwrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+table{border-collapse:collapse;width:100%;font-size:12.5px;}
+th,td{border:1px solid #e2e8f0;padding:5px 8px;text-align:right;white-space:nowrap;}
+th{background:#f4f7fa;color:#4a5b6d;font-weight:700;font-size:11.5px;}
+td.name,th.name{text-align:left;font-weight:700;}
+td.name{cursor:pointer;}
+td.name:hover{color:#1b62c9;text-decoration:underline;}
+tr.sep td{background:#eef2f7;font-weight:800;color:#4a5b6d;text-align:left;}
+tr.off td{opacity:.45;}
+.v{font-weight:700;}
+.g1{background:#dff3e6;}
+.g2{background:#eef8f1;}
+.g3{background:#fdf6e3;}
+.g4{background:#fbe9e7;}
+.sm{font-size:10.5px;color:#8494a5;font-weight:400;}
+.up{color:#1f9d5b;font-weight:700;}
+.dn{color:#d1453b;font-weight:700;}
+.fl{color:#a8b4c0;}
+.badge{display:inline-block;font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:8px;
+  background:#eceff3;color:#78889a;margin-left:5px;vertical-align:1px;}
+.badge.few{background:#fdf1d8;color:#9a7113;}
+.badge.out{background:#f0e2e0;color:#9c4a42;}
+.yblock{margin-bottom:16px;}
+.yhead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px;}
+.yhead .nm{font-size:14px;font-weight:800;}
+.yhead .av{font-size:11.5px;color:#66788a;}
+.ylist{display:flex;flex-wrap:wrap;gap:6px;}
+.yi{background:#f6f9fc;border:1px solid #dde6ef;border-radius:7px;padding:5px 10px;font-size:12.5px;}
+.yi b{font-weight:800;}
+.yi .r{color:#1f7a4d;font-weight:800;margin-left:6px;}
+.podium{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:12px;}
+.pod{border:2px solid #1f9d5b;background:#f4fbf7;border-radius:10px;padding:12px 14px;}
+.pod .rk{font-size:11px;font-weight:800;color:#1f7a4d;letter-spacing:1px;}
+.pod .nm{font-size:16px;font-weight:800;margin:2px 0 6px;cursor:pointer;}
+.pod .rs{font-size:12px;line-height:1.8;color:#3c5063;}
+.kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:9px;margin-bottom:12px;}
+.kb{border:1px solid #dde4ec;border-radius:9px;padding:10px 12px;background:#fff;}
+.kb .lb{font-size:11px;color:#7f8fa1;font-weight:700;}
+.kb .vl{font-size:22px;font-weight:800;line-height:1.25;}
+.kb .df{font-size:11px;font-weight:700;}
+.kb svg{display:block;margin-top:4px;}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;margin:0 5px 5px 0;}
+.tag.s{background:#dff3e6;color:#166b3e;}
+.tag.w{background:#fbe9e7;color:#9c332b;}
+.memo{width:100%;min-height:64px;font-family:inherit;font-size:12.5px;padding:8px;border:1px solid #cbd5e0;
+  border-radius:6px;resize:vertical;}
+.log{font-size:11.5px;color:#66788a;line-height:1.85;border-left:3px solid #e2e8f0;padding-left:10px;margin-top:8px;}
+.log b{color:#33465a;}
+.drop{border:2px dashed #b7c6d6;border-radius:12px;padding:26px 16px;text-align:center;color:#66788a;
+  background:#f9fbfd;font-size:13px;line-height:1.9;}
+.drop.over{border-color:#1b62c9;background:#eaf2fd;color:#1b62c9;}
+.prog{height:7px;background:#e4ebf3;border-radius:4px;overflow:hidden;margin-top:10px;}
+.prog i{display:block;height:100%;background:#1b62c9;width:0;transition:width .12s;}
+.msg{font-size:12.5px;line-height:1.8;margin-top:9px;white-space:pre-wrap;}
+.msg.ok{color:#1f7a4d;}
+.msg.er{color:#c0392b;}
+.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:7px 0;}
+.row label{font-size:12.5px;font-weight:700;color:#4a5b6d;}
+.btn{border:1px solid #1b62c9;background:#1b62c9;color:#fff;border-radius:6px;padding:6px 14px;
+  font-size:12.5px;font-weight:700;cursor:pointer;}
+.btn:hover{background:#1550a8;}
+.btn.sec{background:#fff;color:#1b62c9;}
+.btn.sec:hover{background:#eaf2fd;}
+.btn.dgr{border-color:#c0392b;background:#fff;color:#c0392b;}
+.btn.dgr:hover{background:#fdeceb;}
+.btn:disabled{opacity:.45;cursor:default;}
+.sld{width:180px;vertical-align:middle;}
+@media print{
+  .topbar,.tabs,.noprint{display:none!important;}
+  .pane{display:none!important;}
+  .pane.on{display:block!important;padding:0;}
+  .card{break-inside:avoid;box-shadow:none;}
+  body{background:#fff;font-size:11.5px;}
+}
+@media (max-width:820px){
+  .pane{padding:9px;}
+  .topbar{padding:7px 10px;gap:8px;}
+  .topbar .title{font-size:13px;}
+  .tab{padding:9px 12px;font-size:12px;}
+  .touch{grid-template-columns:1fr;}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="title">📊 SS（成績進捗）</span>
+  <span class="asof" id="asof">データ未取込</span>
+  <span class="spacer"></span>
+  <select id="selBlock" title="表示するテスト回"></select>
+  <select id="selDate" title="表示する日付"></select>
+  <button class="tbtn" id="btnPrint">印刷</button>
+</div>
+
+<div class="tabs">
+  <button class="tab on" data-p="touch">今日のタッチ</button>
+  <button class="tab" data-p="list">先生一覧</button>
+  <button class="tab" data-p="card">先生カルテ</button>
+  <button class="tab" data-p="yurei">夕礼シート</button>
+  <button class="tab" data-p="school">校舎の推移</button>
+  <button class="tab" data-p="cfg">設定・取込</button>
+</div>
+
+<div class="pane on" id="p-touch"></div>
+<div class="pane" id="p-list"></div>
+<div class="pane" id="p-card"></div>
+<div class="pane" id="p-yurei"></div>
+<div class="pane" id="p-school"></div>
+<div class="pane" id="p-cfg"></div>
+
+<script>
+/* ==========================================================================
+   SS(成績進捗) 解析コア
+   ブラウザとNodeの両方でそのまま動く（DOM APIを使わない・正規表現ベース）。
+   このファイルの中身はそのまま ss-tracker.html に埋め込む。
+   ========================================================================== */
+"use strict";
+
+/* ---------- ZIP（xlsx）展開 ------------------------------------------- */
+/* xlsxはZIP。中央ディレクトリを読んで必要なエントリだけ展開する。
+   deflateの展開はブラウザ標準の DecompressionStream('deflate-raw')。
+   Node 18+ にも同じグローバルがあるので、検証用スクリプトから同じコードを呼べる。 */
+
+function u16(b, p) { return b[p] | (b[p + 1] << 8); }
+function u32(b, p) { return (b[p] | (b[p + 1] << 8) | (b[p + 2] << 16) | (b[p + 3] << 24)) >>> 0; }
+
+function zipEntries(bytes) {
+  // EOCD(終端レコード)を末尾から探す。コメント長は最大65535。
+  var eocd = -1;
+  var min = Math.max(0, bytes.length - 65557);
+  for (var i = bytes.length - 22; i >= min; i--) {
+    if (u32(bytes, i) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('xlsxとして読めません（ZIPの終端が見つからない）');
+  var count = u16(bytes, eocd + 10);
+  var cdOff = u32(bytes, eocd + 16);
+
+  // ZIP64（エントリ数65535超）。xlsxで到達することはまずないが、黙って壊れないよう検知だけする。
+  if (cdOff === 0xffffffff) throw new Error('ZIP64形式には未対応です');
+
+  var out = {}, p = cdOff;
+  for (var k = 0; k < count; k++) {
+    if (u32(bytes, p) !== 0x02014b50) break;
+    var method = u16(bytes, p + 10);
+    var csize = u32(bytes, p + 20);
+    var nlen = u16(bytes, p + 28);
+    var elen = u16(bytes, p + 30);
+    var clen = u16(bytes, p + 32);
+    var lho = u32(bytes, p + 42);
+    var name = utf8(bytes.subarray(p + 46, p + 46 + nlen));
+    out[name] = { method: method, csize: csize, lho: lho };
+    p += 46 + nlen + elen + clen;
+  }
+  return out;
+}
+
+function utf8(u8) {
+  return new TextDecoder('utf-8').decode(u8);
+}
+
+async function zipRead(bytes, entries, name) {
+  var e = entries[name];
+  if (!e) return null;
+  // ローカルヘッダの可変長は中央ディレクトリの値と違うことがあるので必ず現地で読む
+  if (u32(bytes, e.lho) !== 0x04034b50) throw new Error('ZIPの局所ヘッダが壊れています: ' + name);
+  var nlen = u16(bytes, e.lho + 26);
+  var elen = u16(bytes, e.lho + 28);
+  var start = e.lho + 30 + nlen + elen;
+  var raw = bytes.subarray(start, start + e.csize);
+  if (e.method === 0) return utf8(raw);
+  if (e.method !== 8) throw new Error('未対応の圧縮方式です: ' + e.method);
+  var ds = new DecompressionStream('deflate-raw');
+  var stream = new Blob([raw]).stream().pipeThrough(ds);
+  var buf = await new Response(stream).arrayBuffer();
+  return utf8(new Uint8Array(buf));
+}
+
+/* ---------- シートXML → セル表 ---------------------------------------- */
+
+function xmlText(s) {
+  return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+          .replace(/&#(\d+);/g, function (_, d) { return String.fromCharCode(+d); })
+          .replace(/&amp;/g, '&');
+}
+
+function sharedStrings(xml) {
+  var out = [];
+  if (!xml) return out;
+  var re = /<si>([\s\S]*?)<\/si>/g, m;
+  while ((m = re.exec(xml))) {
+    var t = '', r2 = /<t[^>]*>([\s\S]*?)<\/t>/g, m2;
+    while ((m2 = r2.exec(m[1]))) t += m2[1];
+    out.push(xmlText(t));
+  }
+  return out;
+}
+
+// 'A'->1, 'AB'->28
+function colNum(letters) {
+  var n = 0;
+  for (var i = 0; i < letters.length; i++) n = n * 26 + (letters.charCodeAt(i) - 64);
+  return n;
+}
+
+/* セルを {行番号: {列番号: 値}} に展開する。
+   値は 文字列 / 数値 / null(エラー・空)。
+   ★注意: 空セルは <c r="A14" s="6"/> のように自己終了で来る。
+     <c...>(.*?)</c> と書くと次のセルの値まで飲み込んで見出しが数値に化ける（実際に踏んだ）。 */
+function parseSheet(xml) {
+  var rows = {};
+  var rre = /<row[^>]*\br="(\d+)"[^>]*?(\/>|>([\s\S]*?)<\/row>)/g, rm;
+  while ((rm = rre.exec(xml))) {
+    var rn = +rm[1], body = rm[3] || '', cells = {};
+    var cre = /<c\b([^>]*?)(\/>|>([\s\S]*?)<\/c>)/g, cm;
+    while ((cm = cre.exec(body))) {
+      var attrs = cm[1], inner = cm[3] || '';
+      var refm = attrs.match(/\br="([A-Z]+)\d+"/);
+      if (!refm) continue;
+      var col = colNum(refm[1]);
+      var t = (attrs.match(/\bt="([^"]+)"/) || [])[1];
+      if (t === 'e') { cells[col] = null; continue; }   // #DIV/0! は0%ではない
+      var vm = inner.match(/<v>([\s\S]*?)<\/v>/);
+      var v;
+      if (vm) v = vm[1];
+      else {
+        var im = inner.match(/<is>[\s\S]*?<t[^>]*>([\s\S]*?)<\/t>/);
+        if (!im) continue;
+        cells[col] = xmlText(im[1]); continue;
+      }
+      if (t === 's') cells[col] = SS_STR[+v];
+      else if (t === 'str' || t === 'inlineStr') cells[col] = xmlText(v);
+      else cells[col] = (v === '') ? null : +v;
+    }
+    rows[rn] = cells;
+  }
+  return rows;
+}
+var SS_STR = [];   // parseSheet が参照する共有文字列（呼び出し前にセットする）
+
+/* ---------- 補助 ------------------------------------------------------- */
+
+function txt(v) { return (v === null || v === undefined) ? '' : String(v); }
+function num(v) { return (typeof v === 'number' && isFinite(v)) ? v : null; }
+
+/* 全角/半角・空白のゆれを吸収して先生名のキーを作る。
+   実データに 半角カナの姓・全角空白区切り・末尾に空白、の3パターンがある。 */
+function nameKey(s) {
+  s = txt(s);
+  if (s.normalize) s = s.normalize('NFKC');
+  return s.replace(/[\s　・・]/g, '');
+}
+
+/* 見出し行から「この文字を含むセル」の列番号を返す */
+function findCol(row, needle) {
+  for (var c in row) { if (txt(row[c]).indexOf(needle) >= 0) return +c; }
+  return 0;
+}
+function findColRe(row, re) {
+  for (var c in row) { if (re.test(txt(row[c]))) return +c; }
+  return 0;
+}
+
+/* [分母, 分子] を取り出す。両方nullなら null を返す（データ無しと0を区別する）。
+   ★同時に、隣の「率」列が 分子/分母 と一致するかを確かめる。
+     列を1つずれて読んでいたらここで必ず落ちるので、列マッピングの自己検証になる。 */
+function pair(row, c, where) {
+  if (!c) return null;
+  var d = num(row[c]), n = num(row[c + 1]);
+  if (d === null && n === null) return null;
+  d = (d === null) ? 0 : d; n = (n === null) ? 0 : n;
+  var rate = num(row[c + 2]);
+  if (rate !== null && d > 0) {
+    if (Math.abs(rate - n / d) > 1e-6)
+      throw new Error((where || '列' + c) + ' の率が合いません（' + n + '/' + d + '=' +
+        (n / d).toFixed(6) + ' なのに ' + rate + '）。列の対応が想定と違います');
+  }
+  return [d, n];
+}
+
+/* 仕上げブロックは実データに2レイアウトある。見出し(leaf)を見て判定する。
+   A) 対象生徒数(のべ) / 仕上がった生徒数(のべ) / 仕上がった率   ← 通常
+   B) 今日 / 前年同日 / 前年の最終結果（3列とも「率」）          ← 5/22〜5/27の6ファイル
+   Bでは件数が取れないので率だけ返す。0件と混同しないよう明示的に分ける。 */
+function pairOrRate(row, leaf, c, where) {
+  var out = { p: null, rate: null, pyDay: null, pyFin: null };
+  if (!c) return out;
+  if (txt(leaf[c]).indexOf('今日') >= 0) {
+    out.rate = num(row[c]); out.pyDay = num(row[c + 1]); out.pyFin = num(row[c + 2]);
+    return out;
+  }
+  out.p = pair(row, c, where);
+  if (out.p) out.rate = out.p[0] > 0 ? out.p[1] / out.p[0] : null;
+  return out;
+}
+
+/* 見出し文字列から目標値を拾う（「＊85%目標」）。Fコーチは上期80%→下期85%に変わっている。 */
+function goalOf(s) {
+  var m = txt(s).match(/(\d+(?:\.\d+)?)\s*%\s*目標/);
+  return m ? (+m[1]) / 100 : null;
+}
+
+/* 「今週(8/30～9/5)」から週の開始・終了を取る。年はファイルの日付から補う（年跨ぎ対応）。 */
+function weekOf(label, isoDate) {
+  var m = txt(label).match(/今週\s*[（(]\s*(\d+)\/(\d+)\s*[～~〜-]\s*(\d+)\/(\d+)\s*[）)]/);
+  if (!m) return null;
+  var y = +isoDate.slice(0, 4), fileMonth = +isoDate.slice(5, 7);
+  function mk(mo, da) {
+    var yy = y;
+    // 12月始まり→1月終わりのように、ファイル月とずれる場合を補正する
+    if (fileMonth === 1 && mo === 12) yy = y - 1;
+    if (fileMonth === 12 && mo === 1) yy = y + 1;
+    return yy + '-' + String(mo).padStart(2, '0') + '-' + String(da).padStart(2, '0');
+  }
+  return { start: mk(+m[1], +m[2]), end: mk(+m[3], +m[4]), label: m[0] };
+}
+
+/* ブロック先頭列からのオフセット。ブロックが無い(0)ときは0のまま返す。
+   ★これを忘れると「仕上げ列が無いシート」で C.fin+3 が列3になり、
+     R指導率の列を仕上げとして読んでしまう（実際に7/22のファイルで踏んだ）。 */
+function off(c, k) { return c ? c + k : 0; }
+
+function findColBy(row, fn) {
+  for (var c in row) { if (fn(txt(row[c]))) return +c; }
+  return 0;
+}
+
+/* 3列ブロック(分母・分子・率)が 中高合計 / 中学生 / 高校生 の3つ並ぶ構造を検証する。
+   列位置を推測で決め打ちせず、見出しで裏を取る。合わなければ黙って0にせず止める。 */
+function assertTriple(sub, c, what) {
+  if (!c) throw new Error(what + ' の列が見つかりません');
+  var a = txt(sub[c]), b = txt(sub[c + 3]), d = txt(sub[c + 6]);
+  if (a.indexOf('中高') < 0 || b.indexOf('中学') < 0 || d.indexOf('高校') < 0)
+    throw new Error(what + ' の中高/中学/高校の並びが想定と違います: ' + [a, b, d].join('|'));
+}
+
+/* ---------- (先生明細)シート ------------------------------------------ */
+
+function readDetail(rows) {
+  var hr = 0;
+  for (var r = 1; r <= 12; r++) {
+    if (rows[r] && txt(rows[r][2]).indexOf('順位') >= 0 && txt(rows[r][3]).indexOf('先生名') >= 0) { hr = r; break; }
+  }
+  if (!hr) throw new Error('先生明細の見出し行(順位/先生名)が見つかりません');
+  var head = rows[hr], sub = rows[hr + 1] || {}, top = rows[hr - 1] || {};
+
+  var C = {
+    rw:  findCol(head, '【R指導率】今週'),
+    r:   findCol(head, '【R指導率】累計'),
+    ctw: findCol(head, '【CT】今週'),
+    ct:  findCol(head, '【CT】累計'),
+    fw:  findColBy(head, function (s) { return s.indexOf('Fコーチ') >= 0 && s.indexOf('今週') >= 0; }),
+    f:   findColBy(head, function (s) { return s.indexOf('Fコーチ') >= 0 && s.indexOf('累計') >= 0; }),
+    kwt: findColBy(head, function (s) { return s.indexOf('Key Words') >= 0 || s.indexOf('KeyWords') >= 0; }),
+    fin: findCol(head, '【仕上げ】')
+  };
+  // R累計だけは必須。他は「無ければ無いものとして扱う」。
+  // 7/22のファイルは利用者が夕礼用シートを作る過程で今週列やKWT列を消しており、
+  // 1つ欠けただけで丸ごと取り込めないのは不便なため。
+  if (!C.r) throw new Error('先生明細に【R指導率】累計の列がありません');
+  var missing = [];
+  ['rw', 'ctw', 'ct', 'fw', 'f', 'kwt', 'fin'].forEach(function (k) { if (!C[k]) missing.push(k); });
+  if (C.rw) assertTriple(sub, C.rw, 'R指導率(今週)');
+  assertTriple(sub, C.r, 'R指導率(累計)');
+  if (C.fin) assertTriple(sub, C.fin, '仕上げ');
+
+  var goals = {
+    r:   goalOf(head[C.r]),
+    ct:  goalOf(head[C.ct]),
+    f:   goalOf(head[C.f]),
+    kwt: goalOf(head[C.kwt]),
+    fin: goalOf(head[C.fin])
+  };
+
+  // 校舎合計（見出し行の1つ上）。Fコーチ・KWTはここにしか無い。
+  var totals = {
+    fw:  pair(top, C.fw, '校舎合計 F今週'),
+    f:   pair(top, C.f, '校舎合計 F累計'),
+    kwt: pair(top, C.kwt, '校舎合計 KWT'),
+    fin: pair(top, C.fin, '校舎合計 仕上げ')
+  };
+
+  var teachers = [];
+  for (var i = hr + 3; i < hr + 200; i++) {
+    var row = rows[i];
+    if (!row) continue;
+    var nm = txt(row[3]).trim();
+    if (!nm) { if (i > hr + 4 && !rows[i + 1]) break; else continue; }
+    if (nm.indexOf('＊') === 0) break;
+    var rk = txt(row[2]).match(/(\d+)/);
+    teachers.push({
+      name: nm, key: nameKey(nm), rank: rk ? +rk[1] : null,
+      rw: pair(row, C.rw, nm + ' R今週'), rwJ: pair(row, off(C.rw, 3), nm + ' R今週(中)'), rwH: pair(row, off(C.rw, 6), nm + ' R今週(高)'),
+      r:  pair(row, C.r, nm + ' R累計'),  rJ:  pair(row, off(C.r, 3), nm + ' R累計(中)'),  rH:  pair(row, off(C.r, 6), nm + ' R累計(高)'),
+      ctw: pair(row, C.ctw, nm + ' CT今週'), ct: pair(row, C.ct, nm + ' CT累計'),
+      fw:  pair(row, C.fw, nm + ' F今週'),  f:  pair(row, C.f, nm + ' F累計'),
+      kwt: pair(row, C.kwt, nm + ' KWT'),
+      fin: pair(row, C.fin, nm + ' 仕上げ'), finJ: pair(row, off(C.fin, 3), nm + ' 仕上げ(中)'), finH: pair(row, off(C.fin, 6), nm + ' 仕上げ(高)')
+    });
+  }
+  if (!teachers.length) throw new Error('先生明細に先生行が1件もありません');
+
+  return { goals: goals, totals: totals, teachers: teachers, missing: missing,
+           week: txt(head[C.rw] || head[C.ctw] || head[C.fw] || '') };
+}
+
+/* ---------- 校舎/担任シート -------------------------------------------- */
+
+function readSchool(rows) {
+  var hr = 0;
+  for (var r = 1; r <= 20; r++) {
+    if (rows[r] && txt(rows[r][2]) === '担任') { hr = r; break; }
+  }
+  if (!hr) throw new Error('校舎シートの見出し行(担任)が見つかりません');
+  var head = rows[hr], sub = rows[hr + 1] || {};
+
+  var C = {
+    rw:  findCol(head, '【R指導率】今週'),
+    r:   findCol(head, '【R指導率】累計'),
+    ctw: findCol(head, '【CT】今週'),
+    ct:  findCol(head, '【CT】累計'),
+    fin: findCol(head, '【仕上げ】'),
+    score: findCol(head, '学校成績'),
+    target: findCol(head, '対象数'),
+    diff: findCol(head, '目標差')
+  };
+  if (!C.r) throw new Error('校舎シートに【R指導率】累計の列がありません');
+  if (C.rw) assertTriple(sub, C.rw, '校舎 R指導率(今週)');
+  assertTriple(sub, C.r, '校舎 R指導率(累計)');
+  if (C.fin) assertTriple(sub, C.fin, '校舎 仕上げ');
+  var leaf = rows[hr + 2] || {};
+
+  // 前年同日 / 前年の最終結果 は下期シートにのみ存在する
+  var pyDay = findCol(sub, '前年同日');
+  var pyFin = findColBy(sub, function (s) { return s.indexOf('前年') >= 0 && s.indexOf('最終') >= 0; });
+
+  function line(row, nm) {
+    var F  = pairOrRate(row, leaf, C.fin, nm + ' 仕上げ');
+    var FJ = pairOrRate(row, leaf, off(C.fin, 3), nm + ' 仕上げ(中)');
+    var FH = pairOrRate(row, leaf, off(C.fin, 6), nm + ' 仕上げ(高)');
+    return {
+      name: nm,
+      score: num(row[C.score]), target: num(row[C.target]), diff: num(row[C.diff]),
+      rw: pair(row, C.rw, nm + ' R今週'), rwJ: pair(row, off(C.rw, 3), nm + ' R今週(中)'), rwH: pair(row, off(C.rw, 6), nm + ' R今週(高)'),
+      r:  pair(row, C.r, nm + ' R累計'),  rJ:  pair(row, off(C.r, 3), nm + ' R累計(中)'),  rH:  pair(row, off(C.r, 6), nm + ' R累計(高)'),
+      ctw: pair(row, C.ctw, nm + ' CT今週'), ct: pair(row, C.ct, nm + ' CT累計'),
+      fin: F.p, finRate: F.rate, finJ: FJ.p, finJRate: FJ.rate, finH: FH.p, finHRate: FH.rate,
+      pyDay: pyDay ? num(row[pyDay]) : F.pyDay,
+      pyFin: pyFin ? num(row[pyFin]) : F.pyFin
+    };
+  }
+
+  var area = null, school = null, staff = [];
+  for (var i = hr + 3; i < hr + 40; i++) {
+    var row = rows[i];
+    if (!row) continue;
+    var nm = txt(row[2]).trim();
+    if (!nm || nm.indexOf('＊') === 0) break;
+    var L = line(row, nm);
+    if (!area && nm.indexOf('エリア') >= 0) area = L;
+    else if (!school) school = L;
+    else { L.key = nameKey(nm); staff.push(L); }
+  }
+  if (!area || !school) throw new Error('校舎シートでエリア行・校舎行を特定できません');
+  return { area: area, school: school, staff: staff, week: txt(head[C.rw] || head[C.ctw] || '') };
+}
+
+/* ---------- ファイル1つ = スナップショット1件 -------------------------- */
+
+var TESTNO = { '①': 1, '②': 2, '③': 3, '④': 4, '⑤': 5 };
+
+/* シート名 → 内部キー。上期は①②、下期は③～⑤でシート名が変わるので正規表現で判定する。
+   7/22には手作りの「夕礼用」「…のコピー」シートがあるので取りこぼさず除外する。 */
+function sheetKey(name) {
+  if (/コピー/.test(name)) return null;
+  var detail = /[(（]先生明細[)）]\s*$/.test(name);
+  var base = name.replace(/[(（]先生明細[)）]\s*$/, '').trim();
+  // 上期(①②)と下期(③～⑤)の累計は別物。同じキーにすると互いを上書きしてしまう。
+  var term = /[①②]/.test(base.charAt(0)) ? '上' : '下';
+  var key = null;
+  if (/累計$/.test(base) && /[①②③④⑤]/.test(base)) key = (term === '上') ? 'cumA' : 'cumB';
+  else {
+    var m = base.match(/^テスト([①②③④⑤])$/);
+    if (m) { key = 't' + TESTNO[m[1]]; term = TESTNO[m[1]] <= 2 ? '上' : '下'; }
+  }
+  if (!key) return null;
+  return { key: key, detail: detail, term: term };
+}
+
+async function parseSSFile(bytes, opts) {
+  opts = opts || {};
+  var entries = zipEntries(bytes);
+  var wb = await zipRead(bytes, entries, 'xl/workbook.xml');
+  if (!wb) throw new Error('xl/workbook.xml がありません（xlsxではない可能性）');
+  var rels = await zipRead(bytes, entries, 'xl/_rels/workbook.xml.rels') || '';
+
+  var relMap = {};
+  var rre = /<Relationship\b[^>]*>/g, rm;
+  while ((rm = rre.exec(rels))) {
+    var id = (rm[0].match(/\bId="([^"]+)"/) || [])[1];
+    var tg = (rm[0].match(/\bTarget="([^"]+)"/) || [])[1];
+    if (id && tg) relMap[id] = tg.replace(/^\/?xl\//, '').replace(/^\.\//, '');
+  }
+
+  var sheets = [];
+  var sre = /<sheet\b[^>]*>/g, sm;
+  while ((sm = sre.exec(wb))) {
+    var nm = (sm[0].match(/\bname="([^"]*)"/) || [])[1];
+    var rid = (sm[0].match(/r:id="([^"]+)"/) || [])[1];
+    var st = (sm[0].match(/\bstate="([^"]+)"/) || [])[1] || 'visible';
+    if (nm && rid) sheets.push({ name: xmlText(nm), rid: rid, state: st, path: 'xl/' + (relMap[rid] || '') });
+  }
+  if (!sheets.length) throw new Error('シートが見つかりません');
+
+  SS_STR = sharedStrings(await zipRead(bytes, entries, 'xl/sharedStrings.xml'));
+
+  // 取り込むシートを決める。既定は累計のみ（回別まで全部入れるとlocalStorageを圧迫する）。
+  var wantTests = !!opts.tests;
+  var pick = [];
+  sheets.forEach(function (s) {
+    var k = sheetKey(s.name);
+    if (!k) return;
+    if (k.key.indexOf('cum') !== 0 && !wantTests) return;
+    pick.push({ sh: s, k: k });
+  });
+  if (!pick.length) throw new Error('SSのシート（◯累計 / テスト◯）が見つかりません');
+
+  var out = { blocks: {}, term: null, school: null, date: null, dow: null, visible: {} };
+  var b0Term = {};
+
+  for (var i = 0; i < pick.length; i++) {
+    var p = pick[i];
+    var xml = await zipRead(bytes, entries, p.sh.path);
+    if (!xml) continue;
+    var rows = parseSheet(xml);
+
+    // A1 例: 【戸塚西口(テスト③)】SS(成績進捗)_2026_09_04_金
+    var a1 = txt((rows[1] || {})[1]);
+    var dm = a1.match(/_(\d{4})_(\d{2})_(\d{2})_(.)/);
+    if (dm && !out.date) {
+      out.date = dm[1] + '-' + dm[2] + '-' + dm[3];
+      out.dow = dm[4];
+    }
+    if (!out.school) {
+      var cm = a1.match(/【([^(（・】]+)/);
+      if (cm) out.school = cm[1].trim();
+    }
+    b0Term[p.k.key] = p.k.term;
+
+    var b = out.blocks[p.k.key] || (out.blocks[p.k.key] = { key: p.k.key });
+    if (p.sh.state === 'hidden') b.hidden = true;
+    else b.visible = true;
+    try {
+      if (p.k.detail) {
+        var d = readDetail(rows);
+        b.goals = d.goals; b.totals = d.totals; b.teachers = d.teachers; b.weekLabel = d.week;
+      } else {
+        var s2 = readSchool(rows);
+        b.area = s2.area; b.school = s2.school; b.staff = s2.staff;
+        if (!b.weekLabel && s2.week) b.weekLabel = s2.week;
+      }
+    } catch (err) {
+      throw new Error('[' + p.sh.name + ' / ' + p.sh.path + '] ' + err.message);
+    }
+  }
+
+  if (!out.date) throw new Error('A1からファイルの日付を読み取れませんでした');
+
+  /* どちらの期を既定で見せるかを決める。
+     ファイルによって手掛かりが違うので順に試す:
+       ① 累計シートの片方だけが hidden（9月以降のファイルはこれで決まる）
+       ② 今週のR単元数が多いほう（＝いま授業が動いている期）
+       ③ 累計のR単元数が多いほう
+     どれも使えないときは下期にする。UIでは常に切り替えられるようにする。 */
+  (function () {
+    var A = out.blocks.cumA, B = out.blocks.cumB;
+    function pick(k, why) { out.term = b0Term[k] || (k === 'cumA' ? '上' : '下'); out.termKey = k; out.termWhy = why; }
+    if (A && B) {
+      if (A.hidden !== B.hidden) { pick(A.hidden ? 'cumB' : 'cumA', '一方の累計シートが非表示'); return; }
+      var aw = (A.school && A.school.rw) ? A.school.rw[0] : 0;
+      var bw = (B.school && B.school.rw) ? B.school.rw[0] : 0;
+      if (aw !== bw) { pick(aw > bw ? 'cumA' : 'cumB', '今週のR単元が多いほう'); return; }
+      // ここまでで決まらない＝その週にまだ授業が無い（月曜など）。
+      // 単一ファイルでは判断材料が無いので保留にし、履歴側(resolveTerms)で前日の判断を引き継ぐ。
+      out.term = null; out.termKey = null; out.termWhy = '単一ファイルでは判定できず';
+      out.termFallback = ((A.school && A.school.r) ? A.school.r[0] : 0) >=
+                         ((B.school && B.school.r) ? B.school.r[0] : 0) ? 'cumA' : 'cumB';
+      return;
+    }
+    pick(A ? 'cumA' : 'cumB', '片方の累計しか無い');
+  })();
+  var wk = null;
+  for (var k2 in out.blocks) { if (!wk && out.blocks[k2].weekLabel) wk = weekOf(out.blocks[k2].weekLabel, out.date); }
+  out.week = wk;
+  // 配信ファイルの中身は前日まで。日曜配信＝前週(日〜土)の確定値。
+  out.finalized = (out.dow === '日');
+  return out;
+}
+
+/* スナップショット群の「保留」になった期を、日付順に前後から埋める。
+   月曜のように単一ファイルでは決められない日は、直近の判定済みの日と同じ期にする。
+   これをしないと月曜だけ上期・他は下期、のように日替わりで反転してしまう。 */
+function resolveTerms(snaps) {
+  var list = snaps.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+  var last = null;
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].termKey) { last = list[i].termKey; }
+    else if (last) { list[i].termKey = last; list[i].termWhy = '前日の判定を引き継ぎ'; }
+  }
+  // 先頭側にまだ空きがあれば、最初に判定できた日から前へさかのぼって埋める
+  var first = null;
+  for (var j = 0; j < list.length; j++) { if (list[j].termKey) { first = list[j].termKey; break; } }
+  for (var k = 0; k < list.length; k++) {
+    if (!list[k].termKey) { list[k].termKey = first || list[k].termFallback || 'cumB'; list[k].termWhy = '前後から補完'; }
+    list[k].term = (list[k].termKey === 'cumA') ? '上' : '下';
+  }
+  return snaps;
+}
+
+/* ---------- Node からも使えるように ------------------------------------ */
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { parseSSFile: parseSSFile, resolveTerms: resolveTerms, nameKey: nameKey, weekOf: weekOf, zipEntries: zipEntries };
+}
+/* ==========================================================================
+   SS管理ツール — データ層（保存・集計・スコア）
+   ========================================================================== */
+
+var LS_SNAP = 'ss_snap_v1';     // 日付キーのスナップショット
+var LS_CFG  = 'ss_cfg_v1';      // 設定（目標の上書き・スコア重み・同期先）
+var LS_MEMO = 'ss_memo_v1';     // 先生ごとのタッチ履歴
+var LS_OUT  = 'ss_out_v1';      // 手動で「対象外」にした先生
+var LS_UI   = 'ss_ui_v1';       // 開いていたタブ・選択中の日付など
+
+/* 指標の定義。表示名・分母分子の呼び名・平均の取得元をここに集約する。
+   avg='school' … 校舎シートの率（エリア平均も取れる）
+   avg='totals' … 先生明細3行目の校舎合計の率（Fコーチ・KWT。エリア平均は存在しない） */
+var METRICS = [
+  { k:'r',   name:'R指導率',   week:'rw',  cum:'r',   dn:'R単元数',   nn:'指導済',     avg:'school', area:true,  jh:true  },
+  { k:'ct',  name:'CT合格率',  week:'ctw', cum:'ct',  dn:'実施対象数', nn:'合格単元数', avg:'school', area:true,  jh:false },
+  { k:'f',   name:'Fコーチ',   week:'fw',  cum:'f',   dn:'指導単元数', nn:'宿題OK',    avg:'totals', area:false, jh:false },
+  { k:'kwt', name:'KWT実施率', week:null,  cum:'kwt', dn:'対象生徒数', nn:'実施済',     avg:'totals', area:false, jh:false },
+  { k:'fin', name:'仕上げ',    week:null,  cum:'fin', dn:'対象生徒数', nn:'仕上がった', avg:'school', area:true,  jh:true  }
+];
+var MK = {}; METRICS.forEach(function (m) { MK[m.k] = m; });
+
+var DEF_CFG = {
+  goals:   {},                                   // 目標の手動上書き（空ならSSの見出しの値を使う）
+  weights: { avg: 0.40, grow: 0.35, goal: 0.25 },
+  sizeW:   0.60,   // 母数の重み。1に近いほど「少ない母数の満点」を割り引く（Wilson下限に寄せる）
+  minN:    5,      // これ未満の母数は「参考」扱いにして表彰・苦戦の判定から外す
+  lowGap:  0.10,   // 校舎平均をこれ以上下回ったら「大きく下」
+  syncUrl: '', syncKey: '',
+  autoOut: true    // 最新データに載っていない先生を自動で在籍外にする
+};
+
+/* ---------- localStorage の読み書き ------------------------------------ */
+function lsGet(k, dflt) {
+  try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : dflt; }
+  catch (e) { return dflt; }
+}
+function lsSet(k, v) {
+  try { localStorage.setItem(k, JSON.stringify(v)); return true; }
+  catch (e) {
+    alert('保存できませんでした。ブラウザの保存容量が足りない可能性があります。\n' +
+          '設定タブの「テスト回別も取り込む」をオフにするか、古い日付を削除してください。\n\n' + e.message);
+    return false;
+  }
+}
+
+var DB = { snaps: {}, cfg: {}, memo: {}, out: {}, ui: {} };
+
+function dbLoad() {
+  bust();
+  DB.snaps = lsGet(LS_SNAP, {});
+  DB.cfg   = Object.assign({}, DEF_CFG, lsGet(LS_CFG, {}));
+  DB.cfg.weights = Object.assign({}, DEF_CFG.weights, DB.cfg.weights || {});
+  DB.memo  = lsGet(LS_MEMO, {});
+  DB.out   = lsGet(LS_OUT, {});
+  DB.ui    = lsGet(LS_UI, {});
+}
+function saveSnaps() { bust(); return lsSet(LS_SNAP, DB.snaps); }
+function saveCfg()   { bust(); lsSet(LS_CFG, DB.cfg); }
+function saveMemo()  { lsSet(LS_MEMO, DB.memo); }
+function saveOut()   { bust(); lsSet(LS_OUT, DB.out); }
+function saveUi()    { lsSet(LS_UI, DB.ui); }
+
+/* 取り込んだスナップショットを保存用に絞る。null のフィールドは落として容量を節約する。 */
+function trimSnap(s) {
+  function line(L) {
+    if (!L) return null;
+    var o = {};
+    ['name','score','target','diff','rw','rwJ','rwH','r','rJ','rH','ctw','ct',
+     'fin','finRate','finJ','finJRate','finH','finHRate','pyDay','pyFin','rank',
+     'fw','f','kwt'].forEach(function (k) { if (L[k] !== null && L[k] !== undefined) o[k] = L[k]; });
+    return o;
+  }
+  var out = { date: s.date, dow: s.dow, term: s.term, termKey: s.termKey, termWhy: s.termWhy, termFallback: s.termFallback,
+              week: s.week, finalized: s.finalized, school: s.school, blocks: {} };
+  Object.keys(s.blocks).forEach(function (k) {
+    var b = s.blocks[k];
+    if (!b.teachers && !b.school) return;
+    out.blocks[k] = {
+      goals: b.goals || {}, totals: b.totals || {}, missing: b.missing || [],
+      area: line(b.area), school: line(b.school),
+      staff: (b.staff || []).map(line),
+      teachers: (b.teachers || []).map(line)
+    };
+  });
+  return out;
+}
+
+/* ---------- 基本計算 ---------------------------------------------------- */
+function rateOf(p) { return (p && p[0] > 0) ? p[1] / p[0] : null; }
+function pct(x, dg) { return (x === null || x === undefined) ? '—' : (x * 100).toFixed(dg === undefined ? 1 : dg) + '%'; }
+function signPct(x) { return (x === null || x === undefined) ? '—' : (x >= 0 ? '+' : '') + (x * 100).toFixed(1) + 'pt'; }
+
+/* Wilson信頼区間の下限。母数が小さいほど下に引っ張られるので
+   「5単元中5個=100%」より「19単元中18個=94.7%」を上に置ける。 */
+function wilson(p) {
+  if (!p || p[0] <= 0) return null;
+  var d = p[0], n = p[1], z = 1.96, ph = n / d, z2 = z * z;
+  return (ph + z2 / (2 * d) - z * Math.sqrt((ph * (1 - ph) + z2 / (4 * d)) / d)) / (1 + z2 / d);
+}
+function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+/* ---------- スナップショットの並び ------------------------------------- */
+/* 68日 × 28名 × 5指標を毎回なめると重いので、引きやすい形をキャッシュしておく。
+   データを書き換えたら必ず bust() を呼ぶ。 */
+var CACHE = {};
+function bust() { CACHE = {}; }
+
+function allDates() {
+  var n = 0; for (var k in DB.snaps) n++;
+  if (!CACHE.dates || CACHE.n !== n) { CACHE = { dates: Object.keys(DB.snaps).sort(), n: n }; }
+  return CACHE.dates;
+}
+function latestDate() { var a = allDates(); return a.length ? a[a.length - 1] : null; }
+function snapAt(d) { return DB.snaps[d] || null; }
+
+/* (日付, ブロック) ごとの 名前→先生行 の索引 */
+function teacherIndex(d, bk) {
+  var ix = CACHE.tix || (CACHE.tix = {});
+  var k = d + '|' + bk;
+  if (ix[k]) return ix[k];
+  var m = {}, b = getBlock(d, bk);
+  if (b) b.teachers.forEach(function (t) { m[tKey(t.name)] = t; });
+  return (ix[k] = m);
+}
+
+/* 表示中のブロック（テスト回）のキー候補を、日付のスナップショットから並べる */
+function blockKeys(s) {
+  if (!s) return [];
+  var order = ['cumA', 'cumB', 't1', 't2', 't3', 't4', 't5'];
+  return order.filter(function (k) { return s.blocks[k] && s.blocks[k].teachers && s.blocks[k].teachers.length; });
+}
+function blockLabel(k, s) {
+  var term = (s && s.blocks[k]) ? null : null;
+  return { cumA: '①②累計（上期）', cumB: '③〜⑤累計（下期）',
+           t1: 'テスト①', t2: 'テスト②', t3: 'テスト③', t4: 'テスト④', t5: 'テスト⑤' }[k] || k;
+}
+function defaultBlock(s) {
+  if (!s) return null;
+  var ks = blockKeys(s);
+  if (s.termKey && ks.indexOf(s.termKey) >= 0) return s.termKey;
+  return ks[0] || null;
+}
+
+function getBlock(d, bk) {
+  var s = snapAt(d); if (!s) return null;
+  return s.blocks[bk] || null;
+}
+
+/* ---------- 先生の名寄せと在籍判定 -------------------------------------- */
+var _nk = {};
+function tKey(name) {
+  if (_nk[name] === undefined) _nk[name] = nameKey(name);
+  return _nk[name];
+}
+
+function teachersOf(d, bk) {
+  var b = getBlock(d, bk);
+  return b ? b.teachers : [];
+}
+function teacherAt(d, bk, key) { return teacherIndex(d, bk)[key] || null; }
+
+/* 在籍している先生＝最新スナップショットの明細に名前がある人。
+   退職者は明細から消えるのでこれで判別できる。
+   退職“予定”の人はまだ載っているので、設定タブで手動の対象外リストにも入れられるようにする。
+   （7/22の手作り夕礼用シートでは、退職予定の4名が手作業で外されていた） */
+function rosterKeys() {
+  if (CACHE.roster) return CACHE.roster;
+  var d = latestDate(); if (!d) return (CACHE.roster = {});
+  var s = snapAt(d), out = {};
+  blockKeys(s).forEach(function (bk) {
+    s.blocks[bk].teachers.forEach(function (t) { out[tKey(t.name)] = t.name; });
+  });
+  return (CACHE.roster = out);
+}
+function isOut(key) {
+  if (DB.out[key]) return true;
+  if (!DB.cfg.autoOut) return false;
+  var r = rosterKeys();
+  return Object.keys(r).length > 0 && !r[key];
+}
+
+/* 全期間に登場した先生（表示名は一番新しい表記を使う） */
+function allTeachers(bk) {
+  var map = {}, ds = allDates();
+  for (var i = 0; i < ds.length; i++) {
+    var b = getBlock(ds[i], bk); if (!b) continue;
+    b.teachers.forEach(function (t) { map[tKey(t.name)] = t.name; });
+  }
+  return map;
+}
+
+/* 日付の足し引き。toISOString はUTCに変換されて時差ぶんずれるので使わない。 */
+function addDays(iso, n) {
+  var t = new Date(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10) + n);
+  return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
+}
+
+/* ---------- 週の扱い ---------------------------------------------------- */
+/* 同じ性質の値どうしでしか比べない。
+   ・日曜配信＝前週(日〜土)の確定値。確定値どうしを比べる
+   ・平日は途中経過なので「7日前の同じ曜日」と比べる
+   月曜の値と金曜の値を比べると、単に日数の差で伸びたように見えてしまう。 */
+function prevComparable(d) {
+  var c = CACHE.pc || (CACHE.pc = {});
+  if (d in c) return c[d];
+  return (c[d] = prevComparable_(d));
+}
+function prevComparable_(d) {
+  var s = snapAt(d); if (!s) return null;
+  var ds = allDates();
+  if (s.finalized) {
+    for (var i = ds.length - 1; i >= 0; i--) {
+      if (ds[i] >= d) continue;
+      if (snapAt(ds[i]).finalized) return ds[i];
+    }
+    return null;
+  }
+  var want = addDays(d, -7);
+  return DB.snaps[want] ? want : null;
+}
+
+/* その週が始まる前の最後のスナップショット（累計しか無い指標の週次差分に使う） */
+function beforeWeek(d) {
+  var c = CACHE.bw || (CACHE.bw = {});
+  if (d in c) return c[d];
+  var s = snapAt(d); if (!s || !s.week) return (c[d] = null);
+  var ds = allDates(), r = null;
+  for (var i = ds.length - 1; i >= 0; i--) { if (ds[i] < s.week.start) { r = ds[i]; break; } }
+  return (c[d] = r);
+}
+
+/* 指標mについて、その日の「今週分」を返す。
+   今週列がある指標はそれをそのまま、無い指標(KWT・仕上げ)は累計の差分で作る。
+   分母が減った場合（生徒の異動）は 0% と誤表示せず null を返す。 */
+function weekVal(d, bk, t, m) {
+  if (m.week && t[m.week]) return { p: t[m.week], derived: false };
+  if (m.week) return { p: null, derived: false };
+  var base = beforeWeek(d);
+  if (!base) return { p: null, derived: true, why: '週初のデータが無い' };
+  var t0 = teacherAt(base, bk, tKey(t.name));
+  var cur = t[m.cum];
+  if (!cur) return { p: null, derived: true };
+  var old = (t0 && t0[m.cum]) ? t0[m.cum] : [0, 0];
+  var dd = cur[0] - old[0], nn = cur[1] - old[1];
+  if (dd < 0 || nn < 0) return { p: null, derived: true, why: '対象が減っており算出できない' };
+  return { p: [dd, nn], derived: true };
+}
+
+/* ---------- 平均（校舎・エリア） ---------------------------------------- */
+function avgOf(d, bk, m, which) {
+  var b = getBlock(d, bk); if (!b) return null;
+  if (m.avg === 'totals') {
+    if (which === 'area') return null;                 // Fコーチ・KWTにエリア平均は存在しない
+    return rateOf(b.totals ? b.totals[m.cum] : null);
+  }
+  var line = (which === 'area') ? b.area : b.school;
+  if (!line) return null;
+  if (m.cum === 'fin' && !line.fin && line.finRate !== undefined && line.finRate !== null) return line.finRate;
+  return rateOf(line[m.cum]);
+}
+function goalOfMetric(d, bk, m) {
+  if (DB.cfg.goals && DB.cfg.goals[m.k] != null) return DB.cfg.goals[m.k];
+  var b = getBlock(d, bk);
+  if (b && b.goals && b.goals[m.k] != null) return b.goals[m.k];
+  // そのブロックで読めなければ他のブロック・他の日から拾う（7/22のように列が消されたファイル対策）
+  var gc = CACHE.goal || (CACHE.goal = {});
+  if (m.k in gc) return gc[m.k];
+  var ds = allDates();
+  for (var i = ds.length - 1; i >= 0; i--) {
+    var s = snapAt(ds[i]);
+    var ks = Object.keys(s.blocks);
+    for (var j = 0; j < ks.length; j++) {
+      var g = s.blocks[ks[j]].goals;
+      if (g && g[m.k] != null) return (gc[m.k] = g[m.k]);
+    }
+  }
+  return (gc[m.k] = null);
+}
+
+/* その指標が「いま評価に使える時期か」。校舎全体の率が下限を下回っていたら時期外とみなす。
+   例: 9月上旬の KWT は校舎で 3/193＝1.6%。テストがまだなので誰も実施していないだけ。 */
+var SEASON_FLOOR = 0.05;
+function inSeason(d, bk, m) {
+  var c = CACHE.season || (CACHE.season = {});
+  var k = d + '|' + bk + '|' + m.k;
+  if (k in c) return c[k];
+  var v = avgOf(d, bk, m, 'school');
+  return (c[k] = (v !== null && v >= SEASON_FLOOR));
+}
+
+/* ---------- 先生1人 × 指標1つ の評価 ------------------------------------ */
+function evalOne(d, bk, t, m) {
+  var cum = t[m.cum] || null;
+  var r = rateOf(cum);
+  var sAvg = avgOf(d, bk, m, 'school');
+  var aAvg = avgOf(d, bk, m, 'area');
+  var goal = goalOfMetric(d, bk, m);
+  var wv = weekVal(d, bk, t, m);
+  var wr = rateOf(wv.p);
+
+  // 伸び：同じ性質の値どうしで比べる
+  var grow = null, growBase = null;
+  var pd = prevComparable(d);
+  if (pd) {
+    var t0 = teacherAt(pd, bk, tKey(t.name));
+    if (t0) {
+      var wv0 = weekVal(pd, bk, t0, m), wr0 = rateOf(wv0.p);
+      if (wr !== null && wr0 !== null) { grow = wr - wr0; growBase = '今週'; }
+      else {
+        var r0 = rateOf(t0[m.cum]);
+        if (r !== null && r0 !== null) { grow = r - r0; growBase = '累計'; }
+      }
+    }
+  }
+  var wl = wilson(cum);
+  var sw = (DB.cfg.sizeW == null) ? 0.6 : DB.cfg.sizeW;
+  var eff = (r === null) ? null : (wl === null ? r : r * (1 - sw) + wl * sw);
+  return {
+    m: m, cum: cum, rate: r, week: wv.p, weekRate: wr, weekDerived: wv.derived, weekWhy: wv.why,
+    season: inSeason(d, bk, m),
+    schoolAvg: sAvg, areaAvg: aAvg, goal: goal, grow: grow, growBase: growBase,
+    wilson: wl, eff: eff, n: cum ? cum[0] : 0,
+    devEffSchool: (eff !== null && sAvg !== null) ? eff - sAvg : null,
+    devEffGoal:   (eff !== null && goal !== null) ? eff - goal : null,
+    devSchool: (r !== null && sAvg !== null) ? r - sAvg : null,
+    devGoal:   (r !== null && goal !== null) ? r - goal : null,
+    devWilson: (wl !== null && sAvg !== null) ? wl - sAvg : null,
+    few: !cum || cum[0] < DB.cfg.minN
+  };
+}
+
+/* 総合スコア。3つの軸を合成する。
+   軸1 平均超え / 軸2 伸び / 軸3 目標達成
+   母数の大きさは独立した軸ではなく、軸1・軸3が使う「実効率」に効かせている（sizeW）。
+   これで「5単元で100%」より「19単元で94.7%」が上に来る。 */
+function scoreOf(evs) {
+  var W = DB.cfg.weights, tot = 0, wsum = 0, parts = [];
+  evs.forEach(function (e) {
+    if (e.rate === null || !e.season) return;   // 時期外の指標はスコアに入れない
+    var wgt = clamp(e.n / Math.max(1, DB.cfg.minN), 0.15, 1);   // 母数が少ない指標は寄与も下げる
+    var a = (e.devEffSchool === null) ? 0 : clamp(e.devEffSchool / 0.15, -1, 1);
+    var g = (e.grow === null)         ? 0 : clamp(e.grow / 0.15, -1, 1);
+    var o = (e.devEffGoal === null)   ? 0 : (e.devEffGoal >= 0 ? 1 : clamp(e.devEffGoal / 0.20, -1, 0));
+    var v = W.avg * a + W.grow * g + W.goal * o;
+    tot += v * wgt; wsum += wgt;
+    parts.push({ k: e.m.k, v: v, a: a, g: g, o: o });
+  });
+  return { score: wsum ? tot / wsum : null, parts: parts, n: parts.length };
+}
+
+/* 先生1人の全指標をまとめて評価する */
+function evalTeacher(d, bk, t) {
+  var evs = METRICS.map(function (m) { return evalOne(d, bk, t, m); });
+  var sc = scoreOf(evs);
+  var byK = {}; evs.forEach(function (e) { byK[e.m.k] = e; });
+  return { name: t.name, key: tKey(t.name), rank: t.rank, evs: evs, e: byK,
+           score: sc.score, parts: sc.parts, out: isOut(tKey(t.name)) };
+}
+
+function evalAll(d, bk) {
+  var list = teachersOf(d, bk).map(function (t) { return evalTeacher(d, bk, t); });
+  return withDisplayScores(list);
+}
+
+/* 素点をその日の中での 0〜100 に置き換える（順位づけのための相対値）。
+   在籍外の先生は基準に入れない。 */
+function withDisplayScores(list) {
+  var vals = list.filter(function (T) { return !T.out && T.score !== null; })
+                 .map(function (T) { return T.score; });
+  if (!vals.length) { list.forEach(function (T) { T.disp = null; }); return list; }
+  var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+  list.forEach(function (T) {
+    T.disp = (T.score === null) ? null :
+      (hi - lo < 1e-9 ? 50 : Math.round(clamp((T.score - lo) / (hi - lo), 0, 1) * 100));
+  });
+  return list;
+}
+
+/* ---------- 推移（スパークライン用） ------------------------------------ */
+/* 週ごとの確定値（日曜配信）を並べる。無ければ各週の最終スナップショットで代用する。 */
+function weeklySeries(bk, key, m) {
+  var byWeek = {}, ds = allDates();
+  ds.forEach(function (d) {
+    var s = snapAt(d); if (!s || !s.week) return;
+    var t = teacherAt(d, bk, key); if (!t) return;
+    var w = s.week.start;
+    var cur = byWeek[w];
+    // 確定値(日曜)を最優先、無ければその週で一番新しい日
+    if (!cur || (s.finalized && !cur.fin) || (s.finalized === cur.fin && d > cur.d)) {
+      byWeek[w] = { d: d, fin: s.finalized, w: w };
+    }
+  });
+  return Object.keys(byWeek).sort().map(function (w) {
+    var d = byWeek[w].d, t = teacherAt(d, bk, key);
+    var wv = weekVal(d, bk, t, m);
+    return { week: w, date: d, finalized: byWeek[w].fin,
+             cum: rateOf(t[m.cum]), wk: rateOf(wv.p) };
+  });
+}
+function schoolSeries(bk, m, which) {
+  var byWeek = {}, ds = allDates();
+  ds.forEach(function (d) {
+    var s = snapAt(d); if (!s || !s.week || !s.blocks[bk]) return;
+    var w = s.week.start, cur = byWeek[w];
+    if (!cur || (s.finalized && !cur.fin) || (s.finalized === cur.fin && d > cur.d)) byWeek[w] = { d: d, fin: s.finalized };
+  });
+  return Object.keys(byWeek).sort().map(function (w) {
+    return { week: w, date: byWeek[w].d, v: avgOf(byWeek[w].d, bk, m, which) };
+  });
+}
+/* ==========================================================================
+   SS管理ツール — 表示層その1（今日のタッチ / 先生一覧 / 先生カルテ）
+   ========================================================================== */
+
+var VIEW = { date: null, block: null, teacher: null, sort: 'score', sortDir: -1 };
+
+function esc(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function el(id) { return document.getElementById(id); }
+function fmtDate(d) {
+  if (!d) return '';
+  var s = snapAt(d);
+  var mm = +d.slice(5, 7), dd = +d.slice(8, 10);
+  return mm + '/' + dd + (s && s.dow ? '(' + s.dow + ')' : '');
+}
+/* 配信ファイルの中身は前日まで。ここを黙っていると「今日やったのに0件」と誤解される。 */
+function dataThrough(d) {
+  var t = new Date(d + 'T00:00:00'); t.setDate(t.getDate() - 1);
+  return (t.getMonth() + 1) + '/' + t.getDate();
+}
+
+/* ---------- セルの色分け ------------------------------------------------ */
+function cellClass(e) {
+  if (e.rate === null) return '';
+  if (!e.season) return '';        // 時期外は色をつけない（0%が悪いわけではない）
+  if (e.goal !== null && e.rate >= e.goal) return 'g1';
+  if (e.schoolAvg !== null && e.rate >= e.schoolAvg) return 'g2';
+  if (e.schoolAvg !== null && e.rate < e.schoolAvg - DB.cfg.lowGap) return 'g4';
+  return 'g3';
+}
+function arrow(g) {
+  if (g === null || g === undefined) return '<span class="fl">—</span>';
+  if (g > 0.005) return '<span class="up">▲' + (g * 100).toFixed(1) + '</span>';
+  if (g < -0.005) return '<span class="dn">▼' + (Math.abs(g) * 100).toFixed(1) + '</span>';
+  return '<span class="fl">→</span>';
+}
+
+/* ---------- 声かけ文の生成 ---------------------------------------------- */
+/* 事実だけを並べる。数字は必ず分子/分母つきで出し、率だけで判断させない。 */
+function sayFor(T, kind) {
+  var parts = T.parts.slice().sort(function (a, b) { return kind === 'good' ? b.v - a.v : a.v - b.v; });
+  if (kind === 'good') {
+    // 寄与がプラスの指標だけをほめる材料にする（全部マイナスなら先頭だけ使う）
+    var pos = parts.filter(function (p) { return p.v > 0; });
+    if (pos.length) parts = pos;
+  }
+  if (!parts.length) return 'この期はまだ数字が動いていません。';
+  var top = T.e[parts[0].k], out = [];
+  var m = top.m;
+
+  if (kind === 'good') {
+    if (top.grow !== null && top.grow > 0.03) {
+      out.push(m.name + 'が' + signPct(top.grow) + '（' +
+        (top.growBase === '今週' ? '前週の今週分と比較' : '前回比') + '）。');
+    }
+    if (top.rate !== null) {
+      out.push(m.name + ' ' + pct(top.rate) + '（' + top.cum[1] + '/' + top.cum[0] + '）。');
+    }
+    if (top.schoolAvg !== null && top.devSchool !== null && top.devSchool > 0) {
+      out.push('校舎平均' + pct(top.schoolAvg) + 'を' + signPct(top.devSchool) + '上回っています。');
+    }
+    if (top.goal !== null && top.rate !== null && top.rate >= top.goal) {
+      out.push('目標' + pct(top.goal, 0) + 'は達成済み。');
+    }
+  } else {
+    if (top.rate !== null) {
+      out.push(m.name + 'が' + pct(top.rate) + '（' + top.cum[1] + '/' + top.cum[0] + '）。');
+    }
+    if (top.schoolAvg !== null && top.devSchool !== null && top.devSchool < 0) {
+      out.push('校舎平均' + pct(top.schoolAvg) + 'を' + signPct(top.devSchool) + '下回っています。');
+    }
+    if (top.grow !== null && top.grow < -0.03) out.push('前回から' + signPct(top.grow) + '。');
+    if (top.week && top.week[0] === 0) out.push('今週はまだ対象がありません。');
+    out.push('困っていることがないか聞いてみる場面です。');
+  }
+  // 弱かった/強かったもう1つの指標を添える
+  var second = T.e[parts[1] ? parts[1].k : null];
+  if (second && second.rate !== null) {
+    out.push((kind === 'good' ? 'あわせて' : '') + second.m.name + 'は' + pct(second.rate) +
+      (second.devSchool !== null ? '（校舎比' + signPct(second.devSchool) + '）' : '') + '。');
+  }
+  return out.join('');
+}
+
+function factsLine(T) {
+  return METRICS.map(function (m) {
+    var e = T.e[m.k];
+    if (e.rate === null) return m.name + ' <b>—</b>';
+    return m.name + ' <b>' + pct(e.rate, 0) + '</b><span class="sm">(' + e.cum[1] + '/' + e.cum[0] + ')</span>';
+  }).join(' ・ ');
+}
+
+/* ---------- 今日のタッチ ------------------------------------------------ */
+function renderTouch() {
+  var host = el('p-touch');
+  if (!VIEW.date) { host.innerHTML = emptyState(); return; }
+  var d = VIEW.date, bk = VIEW.block, s = snapAt(d);
+  var all = evalAll(d, bk).filter(function (T) { return !T.out; });
+  var scored = all.filter(function (T) { return T.score !== null; });
+
+  function judgeable(T) {
+    return T.evs.some(function (e) { return e.rate !== null && e.season && !e.few; });
+  }
+  var good = scored.filter(judgeable).sort(function (a, b) { return b.score - a.score; }).slice(0, 3);
+  var bad = scored.filter(function (T) { return good.indexOf(T) < 0 && judgeable(T); })
+    .sort(function (a, b) { return a.score - b.score; }).slice(0, 3);
+
+  // 母数が大きいのに率が低い＝校舎への影響が大きい先生
+  var heavy = scored.map(function (T) {
+    var worst = null;
+    T.evs.forEach(function (e) {
+      if (e.rate === null || !e.season || e.schoolAvg === null || e.n < DB.cfg.minN * 2) return;
+      var impact = (e.schoolAvg - e.rate) * e.n;    // 校舎平均まで届いていない単元数
+      if (impact > 0 && (!worst || impact > worst.impact)) worst = { e: e, impact: impact };
+    });
+    return worst ? { T: T, w: worst } : null;
+  }).filter(Boolean).sort(function (a, b) { return b.w.impact - a.w.impact; })
+    .filter(function (x) { return good.indexOf(x.T) < 0 && bad.indexOf(x.T) < 0; }).slice(0, 2);
+
+  var html = '';
+  html += '<div class="card"><h3>' + fmtDate(d) + 'のSS <span class="sub">' +
+    esc(blockLabel(bk, s)) + '</span>' + weekChip(s) + '</h3>' +
+    '<div class="muted">この週は <b>' + (s.week ? mdOf(s.week.start) + '〜' + mdOf(s.week.end) : '—') +
+    '</b>（日〜土）。配信ファイルの中身は <b>' + dataThrough(d) + 'まで</b>です。' +
+    (s.finalized ? '日曜配信なので<b>前週の確定値</b>です。' : '週の途中経過なので、母数はこれから増えます。') +
+    '</div></div>';
+
+  html += '<div class="touch">';
+  good.forEach(function (T) { html += touchCard(T, 'good', '🟢 ほめる・表彰候補'); });
+  bad.forEach(function (T) { html += touchCard(T, 'bad', '🔴 サポートに入る'); });
+  heavy.forEach(function (x) {
+    html += touchCard(x.T, 'watch', '⚠️ 母数が大きい（校舎への影響大）',
+      x.w.e.m.name + 'の母数が' + x.w.e.n + 'と大きく、校舎平均まであと' +
+      Math.ceil(x.w.impact) + '単元ぶん。ここが動くと校舎の数字が変わります。');
+  });
+  html += '</div>';
+
+  if (!good.length && !bad.length) {
+    html += '<div class="card"><div class="empty">この日はまだ判定できるデータがありません。<br>' +
+      '別の日付やテスト回に切り替えてみてください。</div></div>';
+  }
+  host.innerHTML = html;
+  bindNames(host);
+}
+function mdOf(iso) { return (+iso.slice(5, 7)) + '/' + (+iso.slice(8, 10)); }
+function weekChip(s) {
+  if (!s) return '';
+  return s.finalized ? '<span class="chip fix">確定値</span>' : '<span class="chip mid">途中経過</span>';
+}
+function touchCard(T, kind, label, extra) {
+  var last = lastMemo(T.key);
+  return '<div class="tc ' + kind + '">' +
+    '<div class="kind">' + label + '</div>' +
+    '<div class="who" data-t="' + esc(T.key) + '">' + esc(T.name) + '</div>' +
+    '<div class="say">' + esc(extra || sayFor(T, kind === 'bad' ? 'bad' : 'good')) + '</div>' +
+    '<div class="facts">' + factsLine(T) + '</div>' +
+    (last ? '<div class="facts" style="margin-top:6px">前回タッチ: <b>' + fmtDate(last.d) + '</b> ' + esc(last.text.slice(0, 40)) + '</div>' : '') +
+    '</div>';
+}
+function lastMemo(key) {
+  var a = DB.memo[key] || [];
+  return a.length ? a[a.length - 1] : null;
+}
+function emptyState() {
+  return '<div class="card"><div class="empty">まだSSのファイルが取り込まれていません。<br>' +
+    '「設定・取込」タブから xlsx をドラッグ＆ドロップしてください。<br>' +
+    '<span class="muted">フォルダの68ファイルをまとめて放り込めます。</span></div></div>';
+}
+function bindNames(host) {
+  Array.prototype.forEach.call(host.querySelectorAll('[data-t]'), function (n) {
+    n.onclick = function () { VIEW.teacher = n.getAttribute('data-t'); show('card'); };
+  });
+}
+
+/* ---------- 先生一覧 ---------------------------------------------------- */
+function renderList() {
+  var host = el('p-list');
+  if (!VIEW.date) { host.innerHTML = emptyState(); return; }
+  var d = VIEW.date, bk = VIEW.block;
+  var rows = evalAll(d, bk);
+
+  var sortKey = VIEW.sort;
+  rows.sort(function (a, b) {
+    var av, bv;
+    if (sortKey === 'score') { av = a.score; bv = b.score; }
+    else if (sortKey === 'rank') { av = -(a.rank || 999); bv = -(b.rank || 999); }
+    else if (sortKey === 'name') { return a.name.localeCompare(b.name, 'ja') * (VIEW.sortDir > 0 ? 1 : -1); }
+    else if (sortKey.indexOf('grow:') === 0) { av = a.e[sortKey.slice(5)].grow; bv = b.e[sortKey.slice(5)].grow; }
+    else { av = a.e[sortKey] ? a.e[sortKey].rate : null; bv = b.e[sortKey] ? b.e[sortKey].rate : null; }
+    if (av === null || av === undefined) av = -9;
+    if (bv === null || bv === undefined) bv = -9;
+    return (av - bv) * (VIEW.sortDir > 0 ? 1 : -1);
+  });
+
+  var h = '<div class="card"><h3>先生一覧 <span class="sub">' + fmtDate(d) + ' ／ ' +
+    esc(blockLabel(bk)) + '</span>' +
+    '<span class="spacer"></span></h3>' +
+    '<div class="row noprint"><label>並べ替え</label><select id="lsort">' +
+    optList([['score', '総合スコア'], ['rank', 'SSの順位'], ['name', '名前']].concat(
+      METRICS.map(function (m) { return [m.k, m.name + '（率）']; }),
+      METRICS.map(function (m) { return ['grow:' + m.k, m.name + '（伸び）']; })), sortKey) +
+    '</select><button class="btn sec" id="lsdir">' + (VIEW.sortDir > 0 ? '昇順' : '降順') + '</button>' +
+    '<span class="muted">色 = <span class="g1">目標達成</span> / <span class="g2">校舎平均以上</span> / ' +
+    '<span class="g3">平均未満</span> / <span class="g4">平均を' + (DB.cfg.lowGap * 100).toFixed(0) + 'pt以上下回る</span></span></div>';
+
+  h += '<div class="tblwrap"><table><thead><tr>' +
+    '<th class="name">先生</th><th>相対スコア</th>' +
+    METRICS.map(function (m) { return '<th colspan="2">' + m.name + '</th>'; }).join('') +
+    '</tr><tr><th class="name sm">在籍外は薄く表示</th><th class="sm">その日の中の位置</th>' +
+    METRICS.map(function () { return '<th class="sm">率 (分子/分母)</th><th class="sm">前回比</th>'; }).join('') +
+    '</tr></thead><tbody>';
+
+  rows.forEach(function (T) {
+    h += '<tr class="' + (T.out ? 'off' : '') + '">' +
+      '<td class="name" data-t="' + esc(T.key) + '">' + esc(T.name) +
+      (T.out ? '<span class="badge out">在籍外</span>' : '') + '</td>' +
+      '<td class="v">' + (T.disp === null ? '—' : T.disp) + '</td>';
+    METRICS.forEach(function (m) {
+      var e = T.e[m.k];
+      h += '<td class="' + cellClass(e) + '"><span class="v">' + pct(e.rate) + '</span>' +
+        (e.cum ? ' <span class="sm">' + e.cum[1] + '/' + e.cum[0] + '</span>' : '') +
+        (!e.season && e.cum ? '<span class="badge">時期外</span>' :
+         (e.few && e.cum ? '<span class="badge few">参考</span>' : '')) + '</td>' +
+        '<td>' + arrow(e.grow) + '</td>';
+    });
+    h += '</tr>';
+  });
+
+  // 校舎・エリアの行
+  h += '<tr class="sep"><td colspan="' + (2 + METRICS.length * 2) + '">校舎・エリア（比較の基準）</td></tr>';
+  [['戸塚西口（校舎平均）', 'school'], ['中山エリア（エリア平均）', 'area']].forEach(function (pair) {
+    h += '<tr><td class="name">' + pair[0] + '</td><td>—</td>';
+    METRICS.forEach(function (m) {
+      var v = avgOf(d, bk, m, pair[1]);
+      h += '<td class="v">' + (v === null ? '—' : pct(v)) + '</td><td>—</td>';
+    });
+    h += '</tr>';
+  });
+  h += '<tr><td class="name">目標</td><td>—</td>' +
+    METRICS.map(function (m) {
+      var g = goalOfMetric(d, bk, m);
+      return '<td class="v">' + (g === null ? '—' : pct(g, 0)) + '</td><td>—</td>';
+    }).join('') + '</tr>';
+  h += '</tbody></table></div></div>';
+  host.innerHTML = h;
+  bindNames(host);
+  el('lsort').onchange = function () { VIEW.sort = this.value; renderList(); };
+  el('lsdir').onclick = function () { VIEW.sortDir = -VIEW.sortDir; renderList(); };
+}
+function optList(pairs, sel) {
+  return pairs.map(function (p) {
+    return '<option value="' + esc(p[0]) + '"' + (p[0] === sel ? ' selected' : '') + '>' + esc(p[1]) + '</option>';
+  }).join('');
+}
+
+/* ---------- スパークライン ---------------------------------------------- */
+function spark(vals, w, hgt, goal) {
+  var pts = vals.filter(function (v) { return v !== null && v !== undefined; });
+  if (pts.length < 2) return '<svg width="' + w + '" height="' + hgt + '"></svg>';
+  var lo = Math.min.apply(null, pts), hi = Math.max.apply(null, pts);
+  if (goal !== null && goal !== undefined) { lo = Math.min(lo, goal); hi = Math.max(hi, goal); }
+  if (hi - lo < 0.02) { hi = lo + 0.02; }
+  var n = vals.length, seg = [], gy = null;
+  function y(v) { return hgt - 2 - ((v - lo) / (hi - lo)) * (hgt - 4); }
+  var dstr = '', started = false;
+  vals.forEach(function (v, i) {
+    if (v === null || v === undefined) return;
+    var x = n > 1 ? (i / (n - 1)) * (w - 2) + 1 : w / 2;
+    dstr += (started ? 'L' : 'M') + x.toFixed(1) + ',' + y(v).toFixed(1) + ' ';
+    started = true;
+  });
+  var last = null;
+  for (var i = vals.length - 1; i >= 0; i--) { if (vals[i] !== null && vals[i] !== undefined) { last = i; break; } }
+  var lx = n > 1 ? (last / (n - 1)) * (w - 2) + 1 : w / 2;
+  if (goal !== null && goal !== undefined) gy = y(goal);
+  return '<svg width="' + w + '" height="' + hgt + '" viewBox="0 0 ' + w + ' ' + hgt + '">' +
+    (gy !== null ? '<line x1="0" y1="' + gy.toFixed(1) + '" x2="' + w + '" y2="' + gy.toFixed(1) +
+      '" stroke="#d99a13" stroke-width="1" stroke-dasharray="3 3"/>' : '') +
+    '<path d="' + dstr + '" fill="none" stroke="#1b62c9" stroke-width="1.8" stroke-linejoin="round"/>' +
+    '<circle cx="' + lx.toFixed(1) + '" cy="' + y(vals[last]).toFixed(1) + '" r="2.6" fill="#1b62c9"/>' +
+    '</svg>';
+}
+
+/* ---------- 先生カルテ -------------------------------------------------- */
+function renderCard() {
+  var host = el('p-card');
+  if (!VIEW.date) { host.innerHTML = emptyState(); return; }
+  var d = VIEW.date, bk = VIEW.block;
+  var names = allTeachers(bk);
+  var keys = Object.keys(names).sort(function (a, b) { return names[a].localeCompare(names[b], 'ja'); });
+  if (!keys.length) { host.innerHTML = emptyState(); return; }
+  if (!VIEW.teacher || keys.indexOf(VIEW.teacher) < 0) VIEW.teacher = keys[0];
+
+  var t = teacherAt(d, bk, VIEW.teacher);
+  var h = '<div class="card"><h3>先生カルテ <span class="sub">' + fmtDate(d) + ' ／ ' + esc(blockLabel(bk)) + '</span></h3>' +
+    '<div class="row noprint"><label>先生</label><select id="tsel">' +
+    keys.map(function (k) {
+      return '<option value="' + esc(k) + '"' + (k === VIEW.teacher ? ' selected' : '') + '>' +
+        esc(names[k]) + (isOut(k) ? '（在籍外）' : '') + '</option>';
+    }).join('') + '</select></div>';
+
+  if (!t) {
+    h += '<div class="empty">この日のデータにこの先生は載っていません。</div></div>';
+    host.innerHTML = h;
+    el('tsel').onchange = function () { VIEW.teacher = this.value; renderCard(); };
+    return;
+  }
+
+  // 相対スコアはその日の全員を見て決まるので、一覧と同じ evalAll から取る
+  var T = evalAll(d, bk).filter(function (x) { return x.key === VIEW.teacher; })[0] || evalTeacher(d, bk, t);
+
+  // 強み・弱み：校舎平均との差が大きい順
+  var ranked = T.evs.filter(function (e) { return e.devSchool !== null && e.season && !e.few; })
+    .sort(function (a, b) { return b.devSchool - a.devSchool; });
+  var strong = ranked.slice(0, 2).filter(function (e) { return e.devSchool > 0.01; });
+  var weak = ranked.slice(-2).filter(function (e) { return e.devSchool < -0.01; });
+
+  h += '<div class="row"><span class="muted">相対スコア <b>' +
+    (T.disp === null || T.disp === undefined ? '—' : T.disp + ' / 100') + '</b>' +
+    (T.rank ? '　SSの週別指導率順位 <b>' + T.rank + '位</b>' : '') +
+    (T.out ? '　<span class="badge out">在籍外</span>' : '') + '</span></div>';
+
+  h += '<div>';
+  strong.forEach(function (e) { h += '<span class="tag s">強み: ' + e.m.name + ' 校舎比' + signPct(e.devSchool) + '</span>'; });
+  weak.forEach(function (e) { h += '<span class="tag w">弱み: ' + e.m.name + ' 校舎比' + signPct(e.devSchool) + '</span>'; });
+  if (!strong.length && !weak.length) h += '<span class="muted">母数が足りず、強み・弱みの判定は保留です。</span>';
+  h += '</div></div>';
+
+  h += '<div class="kpi">';
+  METRICS.forEach(function (m) {
+    var e = T.e[m.k];
+    var ser = weeklySeries(bk, VIEW.teacher, m);
+    var vals = ser.map(function (x) { return x.cum; });
+    h += '<div class="kb"><div class="lb">' + m.name +
+      (!e.season && e.cum ? '<span class="badge">時期外</span>' :
+       (e.few && e.cum ? '<span class="badge few">参考</span>' : '')) + '</div>' +
+      '<div class="vl ' + cellClass(e) + '" style="display:inline-block;padding:0 4px;border-radius:4px">' + pct(e.rate) + '</div>' +
+      '<div class="lb">' + (e.cum ? e.m.nn + ' ' + e.cum[1] + ' / ' + e.m.dn + ' ' + e.cum[0] : 'データなし') + '</div>' +
+      '<div class="df">' + (e.devSchool === null ? '' : '校舎比 ' + arrowTxt(e.devSchool)) +
+      (e.devGoal === null ? '' : '　目標比 ' + arrowTxt(e.devGoal)) + '</div>' +
+      '<div class="df">前回比 ' + arrow(e.grow) + (e.growBase ? '<span class="sm">（' + e.growBase + '）</span>' : '') + '</div>' +
+      spark(vals, 168, 30, e.goal) +
+      '<div class="lb">週ごとの累計推移（' + ser.length + '週）</div>' +
+      '</div>';
+  });
+  h += '</div>';
+
+  // 中学/高校の内訳
+  h += '<div class="card"><h3>中学 / 高校の内訳</h3><div class="tblwrap"><table><thead><tr>' +
+    '<th class="name">指標</th><th>中高計</th><th>中学生</th><th>高校生</th></tr></thead><tbody>';
+  METRICS.filter(function (m) { return m.jh; }).forEach(function (m) {
+    var a = t[m.cum], j = t[m.cum + 'J'], hh = t[m.cum + 'H'];
+    h += '<tr><td class="name">' + m.name + '</td>' +
+      [a, j, hh].map(function (p) {
+        return '<td>' + (p ? '<span class="v">' + pct(rateOf(p)) + '</span> <span class="sm">' + p[1] + '/' + p[0] + '</span>' : '—') + '</td>';
+      }).join('') + '</tr>';
+  });
+  h += '</tbody></table></div><div class="muted">CT・Fコーチ・KWTは中学/高校の内訳がSSに含まれていません。</div></div>';
+
+  // タッチ履歴
+  var logs = DB.memo[VIEW.teacher] || [];
+  h += '<div class="card noprint"><h3>タッチ履歴</h3>' +
+    '<textarea class="memo" id="memoIn" placeholder="' + esc('例）CT合格率の伸びを褒めた。宿題チェックのやり方を相談された。') + '"></textarea>' +
+    '<div class="row"><button class="btn" id="memoAdd">' + fmtDate(d) + 'として記録</button>' +
+    '<span class="muted">記録は端末に保存され、タッチカードに「前回タッチ」として出ます。</span></div>';
+  if (logs.length) {
+    h += '<div class="log">' + logs.slice().reverse().map(function (x, i) {
+      return '<div><b>' + fmtDate(x.d) + '</b> ' + esc(x.text) +
+        ' <a href="#" data-del="' + (logs.length - 1 - i) + '" style="color:#c0392b">削除</a></div>';
+    }).join('') + '</div>';
+  } else {
+    h += '<div class="muted">まだ記録はありません。</div>';
+  }
+  h += '</div>';
+
+  host.innerHTML = h;
+  el('tsel').onchange = function () { VIEW.teacher = this.value; renderCard(); };
+  el('memoAdd').onclick = function () {
+    var v = el('memoIn').value.trim(); if (!v) return;
+    (DB.memo[VIEW.teacher] = DB.memo[VIEW.teacher] || []).push({ d: d, text: v });
+    DB.memo[VIEW.teacher].sort(function (a, b) { return a.d < b.d ? -1 : 1; });
+    saveMemo(); renderCard();
+  };
+  Array.prototype.forEach.call(host.querySelectorAll('[data-del]'), function (a) {
+    a.onclick = function (ev) {
+      ev.preventDefault();
+      DB.memo[VIEW.teacher].splice(+a.getAttribute('data-del'), 1);
+      saveMemo(); renderCard();
+    };
+  });
+}
+function arrowTxt(v) {
+  if (v === null) return '—';
+  return '<span class="' + (v >= 0 ? 'up' : 'dn') + '">' + signPct(v) + '</span>';
+}
+/* ==========================================================================
+   SS管理ツール — 表示層その2（夕礼シート / 校舎の推移 / 設定・取込）
+   ========================================================================== */
+
+/* ---------- 夕礼シート -------------------------------------------------- */
+/* 7/22のファイルに残っていた手作り「夕礼用」シートと同じ考え方。
+   ・エリア平均と校舎平均を基準に置く
+   ・その平均を上回った先生だけを、率の高い順に並べる
+   ・退職（在籍外）の先生は外す ← 手作りシートでも手作業で外されていた
+   同率のときは母数の大きいほうを上にする。 */
+function aboveAvg(d, bk, m) {
+  var avg = avgOf(d, bk, m, 'school');
+  if (avg === null) return { avg: null, list: [] };
+  var list = teachersOf(d, bk)
+    .filter(function (t) { return !isOut(tKey(t.name)); })
+    .map(function (t) { return { name: t.name, key: tKey(t.name), p: t[m.cum], r: rateOf(t[m.cum]) }; })
+    .filter(function (x) { return x.r !== null && x.r > avg; })
+    .sort(function (a, b) { return (b.r - a.r) || (b.p[0] - a.p[0]); });
+  return { avg: avg, area: avgOf(d, bk, m, 'area'), list: list };
+}
+
+function renderYurei() {
+  var host = el('p-yurei');
+  if (!VIEW.date) { host.innerHTML = emptyState(); return; }
+  var d = VIEW.date, bk = VIEW.block, s = snapAt(d);
+
+  var cands = evalAll(d, bk)
+    .filter(function (T) { return !T.out && T.score !== null; })
+    .filter(function (T) { return T.evs.some(function (e) { return e.rate !== null && e.season && !e.few; }); })
+    .sort(function (a, b) { return b.score - a.score; });
+  var top = cands.slice(0, 3);
+
+  var h = '<div class="card"><h3>夕礼シート <span class="sub">' + fmtDate(d) + ' ／ ' +
+    esc(blockLabel(bk)) + '</span>' + weekChip(s) + '</h3>' +
+    '<div class="muted">この週 <b>' + (s.week ? mdOf(s.week.start) + '〜' + mdOf(s.week.end) : '—') +
+    '</b>（日〜土）／データは <b>' + dataThrough(d) + 'まで</b>。' +
+    '在籍外の先生は除いています。</div>' +
+    '<div class="row noprint"><button class="btn" id="yCopy">読み上げ用テキストをコピー</button>' +
+    '<button class="btn sec" id="yPrint">印刷</button></div></div>';
+
+  h += '<div class="card"><h3>今週の表彰候補</h3>';
+  if (!top.length) {
+    h += '<div class="empty">判定できるデータがまだありません。</div>';
+  } else {
+    h += '<div class="podium">';
+    top.forEach(function (T, i) {
+      h += '<div class="pod"><div class="rk">' + ['第1候補', '第2候補', '第3候補'][i] +
+        (T.disp === null || T.disp === undefined ? '' : '　相対スコア ' + T.disp + '/100') + '</div>' +
+        '<div class="nm" data-t="' + esc(T.key) + '">' + esc(T.name) + '</div>' +
+        '<div class="rs">' + esc(reasonFor(T)) + '</div></div>';
+    });
+    h += '</div>';
+    h += '<div class="muted">相対スコアは「校舎平均超え・前回からの伸び・目標達成」を合成し、その日の中での位置を0〜100にしたものです。' +
+      '母数の大きさは Wilson信頼下限で効かせているので、5単元で100%より19単元で94.7%が上に来ます。' +
+      '重みは設定タブで変えられます。</div>';
+  }
+  h += '</div>';
+
+  var dt = d;
+  METRICS.forEach(function (m) {
+    var A = aboveAvg(d, bk, m);
+    h += '<div class="card yblock"><div class="yhead">' +
+      '<span class="nm">' + m.name + (inSeason(dt, bk, m) ? '' : ' <span class="badge">時期外</span>') + '</span>' +
+      '<span class="av">校舎平均 <b>' + pct(A.avg) + '</b>' +
+      (A.area !== null && A.area !== undefined ? '　エリア平均 <b>' + pct(A.area) + '</b>' :
+        '　<span class="sm">エリア平均はSSに無し</span>') +
+      '　目標 <b>' + (goalOfMetric(d, bk, m) === null ? '—' : pct(goalOfMetric(d, bk, m), 0)) + '</b></span></div>';
+    if (!A.list.length) {
+      h += '<div class="muted">校舎平均を上回っている先生はいません。</div>';
+    } else {
+      h += '<div class="ylist">' + A.list.map(function (x) {
+        return '<span class="yi" data-t="' + esc(x.key) + '"><b>' + esc(x.name) + '</b>' +
+          '<span class="r">' + pct(x.r) + '</span> <span class="sm">' + x.p[1] + '/' + x.p[0] + '</span></span>';
+      }).join('') + '</div>';
+    }
+    h += '</div>';
+  });
+
+  host.innerHTML = h;
+  bindNames(host);
+  el('yPrint').onclick = function () { window.print(); };
+  el('yCopy').onclick = function () {
+    copyText(yureiText(d, bk, top), el('yCopy'));
+  };
+}
+
+function reasonFor(T) {
+  var out = [];
+  var ps = T.parts.slice().sort(function (a, b) { return b.v - a.v; }).filter(function (p) { return p.v > 0; });
+  if (!ps.length) ps = T.parts.slice().sort(function (a, b) { return b.v - a.v; }).slice(0, 1);
+  ps.slice(0, 2).forEach(function (p) {
+    var e = T.e[p.k];
+    if (!e || e.rate === null) return;
+    var bits = [e.m.name + ' ' + pct(e.rate) + '（' + e.cum[1] + '/' + e.cum[0] + '）'];
+    if (e.devSchool !== null) bits.push('校舎比' + signPct(e.devSchool));
+    if (e.grow !== null && Math.abs(e.grow) > 0.005) bits.push('前回比' + signPct(e.grow));
+    if (e.goal !== null && e.rate >= e.goal) bits.push('目標達成');
+    out.push(bits.join('／'));
+  });
+  return out.join('　');
+}
+
+function yureiText(d, bk, top) {
+  var L = ['【夕礼用】' + fmtDate(d) + ' SS（' + blockLabel(bk) + '）'];
+  var s = snapAt(d);
+  L.push('この週 ' + (s.week ? mdOf(s.week.start) + '〜' + mdOf(s.week.end) : '—') +
+    '／データは' + dataThrough(d) + 'まで' + (s.finalized ? '（前週の確定値）' : '（途中経過）'));
+  L.push('');
+  L.push('■ 今週の表彰候補');
+  if (!top.length) L.push('　（判定できるデータなし）');
+  top.forEach(function (T, i) { L.push('　' + (i + 1) + '. ' + T.name + '　' + reasonFor(T)); });
+  L.push('');
+  METRICS.forEach(function (m) {
+    var A = aboveAvg(d, bk, m);
+    L.push('■ ' + m.name + '（校舎平均 ' + pct(A.avg) +
+      (A.area !== null && A.area !== undefined ? ' / エリア平均 ' + pct(A.area) : '') + '）');
+    if (!A.list.length) L.push('　平均超えなし');
+    else L.push('　' + A.list.map(function (x) { return x.name + ' ' + pct(x.r) + '(' + x.p[1] + '/' + x.p[0] + ')'; }).join('、'));
+  });
+  return L.join('\n');
+}
+function copyText(txt, btn) {
+  var done = function () { var o = btn.textContent; btn.textContent = 'コピーしました'; setTimeout(function () { btn.textContent = o; }, 1600); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(done, function () { fallbackCopy(txt, done); });
+  } else fallbackCopy(txt, done);
+}
+function fallbackCopy(txt, done) {
+  var ta = document.createElement('textarea');
+  ta.value = txt; ta.style.position = 'fixed'; ta.style.left = '-9999px';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); done(); } catch (e) { alert('コピーできませんでした'); }
+  document.body.removeChild(ta);
+}
+
+/* ---------- 校舎の推移 -------------------------------------------------- */
+function renderSchool() {
+  var host = el('p-school');
+  if (!VIEW.date) { host.innerHTML = emptyState(); return; }
+  var d = VIEW.date, bk = VIEW.block, b = getBlock(d, bk);
+
+  var h = '<div class="card"><h3>校舎の推移 <span class="sub">' + fmtDate(d) + ' ／ ' + esc(blockLabel(bk)) + '</span></h3>' +
+    '<div class="tblwrap"><table><thead><tr><th class="name">指標</th><th>校舎</th><th>エリア</th><th>目標</th>' +
+    '<th>校舎−エリア</th><th>推移（週ごと）</th></tr></thead><tbody>';
+  METRICS.forEach(function (m) {
+    var sv = avgOf(d, bk, m, 'school'), av = avgOf(d, bk, m, 'area'), g = goalOfMetric(d, bk, m);
+    var ser = schoolSeries(bk, m, 'school').map(function (x) { return x.v; });
+    h += '<tr><td class="name">' + m.name + '</td>' +
+      '<td class="v ' + (g !== null && sv !== null && sv >= g ? 'g1' : '') + '">' + pct(sv) + '</td>' +
+      '<td>' + (av === null ? '<span class="sm">SSに無し</span>' : pct(av)) + '</td>' +
+      '<td>' + (g === null ? '—' : pct(g, 0)) + '</td>' +
+      '<td>' + (sv === null || av === null ? '—' : arrowTxt(sv - av)) + '</td>' +
+      '<td>' + spark(ser, 190, 30, g) + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+
+  if (b && b.school && (b.school.pyDay != null || b.school.pyFin != null)) {
+    h += '<div class="muted">仕上げの前年同日 <b>' + pct(b.school.pyDay) + '</b>' +
+      '／前年の最終結果 <b>' + pct(b.school.pyFin) + '</b>（下期のSSにのみ入っています）</div>';
+  }
+  h += '</div>';
+
+  // 担任別（SSが持っている公式値。R指導率・CT・仕上げのみ）
+  if (b && b.staff && b.staff.length) {
+    h += '<div class="card"><h3>担任スタッフ別 <span class="sub">SSの担任行そのまま</span></h3>' +
+      '<div class="tblwrap"><table><thead><tr><th class="name">担任</th><th>学校成績</th><th>対象数</th><th>目標差</th>' +
+      METRICS.filter(function (m) { return m.avg === 'school'; }).map(function (m) { return '<th>' + m.name + '</th>'; }).join('') +
+      '</tr></thead><tbody>';
+    b.staff.forEach(function (st) {
+      h += '<tr><td class="name">' + esc(st.name) + '</td>' +
+        '<td>' + (st.score == null ? '—' : st.score) + '</td>' +
+        '<td>' + (st.target == null ? '—' : st.target) + '</td>' +
+        '<td>' + (st.diff == null ? '—' : st.diff) + '</td>' +
+        METRICS.filter(function (m) { return m.avg === 'school'; }).map(function (m) {
+          var p = st[m.cum];
+          var r = p ? rateOf(p) : (m.cum === 'fin' ? st.finRate : null);
+          return '<td><span class="v">' + pct(r) + '</span>' + (p ? ' <span class="sm">' + p[1] + '/' + p[0] + '</span>' : '') + '</td>';
+        }).join('') + '</tr>';
+    });
+    h += '</tbody></table></div>' +
+      '<div class="muted">担任行は「その担任の生徒全員」を集計したもので、先生別の合計とは母集団が違います。' +
+      'KWTとFコーチは担任別の数字がSSに入っていないため出せません。</div></div>';
+  }
+  host.innerHTML = h;
+}
+
+/* ---------- 設定・取込 -------------------------------------------------- */
+function renderCfg() {
+  var host = el('p-cfg');
+  var ds = allDates();
+  var h = '';
+
+  h += '<div class="card"><h3>SSファイルの取り込み</h3>' +
+    '<div class="drop" id="drop">ここに <b>xlsx</b> をドラッグ＆ドロップ<br>' +
+    '<span class="muted">フォルダの全ファイルをまとめて放り込めます。同じ日付は上書きされます。</span><br>' +
+    '<button class="btn sec" id="pick" style="margin-top:9px">ファイルを選ぶ</button>' +
+    '<input type="file" id="fin" accept=".xlsx" multiple style="display:none"></div>' +
+    '<div class="prog" id="prog" style="display:none"><i id="progi"></i></div>' +
+    '<div class="msg" id="impmsg"></div>' +
+    '<div class="row"><label><input type="checkbox" id="cbTests"' + (DB.cfg.tests ? ' checked' : '') + '> ' +
+    'テスト回別（③④⑤など）も取り込む</label>' +
+    '<span class="muted">既定はオフ。オンにすると保存量が約4倍になります。</span></div>' +
+    '</div>';
+
+  h += '<div class="card"><h3>ダウンロードフォルダの監視 <span class="sub">毎回の取り込みを省く</span></h3>' +
+    '<div class="muted">ダウンロードフォルダを一度だけ許可すると、次からはこのツールを開くだけで' +
+    '<b>未取込のSSファイルだけ</b>を自動で読み込みます。<br>' +
+    'メールのリンクが社内システムのため取得の自動化はできませんが、' +
+    '「いつも通りダウンロードする」だけで済むようになります。</div>' +
+    '<div class="row"><button class="btn" id="fsPick">フォルダを選ぶ</button>' +
+    '<button class="btn sec" id="fsScan">今すぐ確認</button>' +
+    '<button class="btn dgr" id="fsClear">解除</button></div>' +
+    '<div class="msg" id="fsmsg"></div>' +
+    '<div class="muted">この機能は Chrome / Edge のパソコンで、' +
+    '<b>START-TOOL.bat（localhost）か公開版（https）から開いたとき</b>に使えます。' +
+    'ファイルを直接ダブルクリックして開いた場合は使えません。</div></div>';
+
+  h += '<div class="card"><h3>スプレッドシート同期 <span class="sub">パソコンで取込 → スマホで見る</span></h3>' +
+    '<div class="row"><label>ウェブアプリURL</label>' +
+    '<input type="text" id="syncUrl" style="flex:1;min-width:240px" value="' + esc(DB.cfg.syncUrl || '') + '" placeholder=".../exec"></div>' +
+    '<div class="row"><label>合言葉</label><input type="password" id="syncKey" value="' + esc(DB.cfg.syncKey || '') + '"></div>' +
+    '<div class="row"><button class="btn" id="syncSave">保存する</button>' +
+    '<button class="btn sec" id="syncLoad">読み込む</button></div>' +
+    '<div class="msg" id="syncmsg"></div>' +
+    '<div class="muted">他の塾ツールと同じ <code>Code.gs</code> をそのまま使えます（sync_ss シートが自動で作られます）。' +
+    '<b>読込 → 編集 → 保存</b>の順を守ってください。先に保存すると他の端末の変更を上書きします。</div></div>';
+
+  h += '<div class="card"><h3>判定の設定</h3><div class="tblwrap"><table><thead><tr>' +
+    '<th class="name">指標</th><th>SSの目標</th><th>手動で上書き</th></tr></thead><tbody>';
+  METRICS.forEach(function (m) {
+    var ss = null, dd = latestDate();
+    if (dd) { var b = getBlock(dd, defaultBlock(snapAt(dd))); if (b && b.goals) ss = b.goals[m.k]; }
+    h += '<tr><td class="name">' + m.name + '</td><td>' + (ss == null ? '—' : pct(ss, 0)) + '</td>' +
+      '<td><input type="text" size="5" class="goalIn" data-k="' + m.k + '" value="' +
+      (DB.cfg.goals[m.k] != null ? (DB.cfg.goals[m.k] * 100) : '') + '" placeholder="％"></td></tr>';
+  });
+  h += '</tbody></table></div>';
+  h += '<div class="row"><label>母数がこれ未満なら「参考」扱い</label>' +
+    '<input type="text" size="4" id="minN" value="' + DB.cfg.minN + '">' +
+    '<span class="muted">表彰・苦戦の判定から外します</span></div>';
+  h += '<div class="row"><label>「大きく下」の基準（校舎平均から何pt下）</label>' +
+    '<input type="text" size="4" id="lowGap" value="' + (DB.cfg.lowGap * 100) + '"> pt</div>';
+  h += '<h3 style="margin-top:14px">表彰スコアの重み</h3>';
+  [['avg', '平均超え'], ['grow', '伸び（前回比）'], ['goal', '目標達成']].forEach(function (p) {
+    h += '<div class="row"><label style="width:170px">' + p[1] + '</label>' +
+      '<input type="range" class="sld wIn" data-k="' + p[0] + '" min="0" max="100" value="' +
+      Math.round(DB.cfg.weights[p[0]] * 100) + '"><span id="w-' + p[0] + '">' +
+      Math.round(DB.cfg.weights[p[0]] * 100) + '</span></div>';
+  });
+  h += '<div class="row"><label style="width:170px">母数の重み</label>' +
+    '<input type="range" class="sld" id="sizeW" min="0" max="100" value="' + Math.round((DB.cfg.sizeW == null ? .6 : DB.cfg.sizeW) * 100) + '">' +
+    '<span id="w-size">' + Math.round((DB.cfg.sizeW == null ? .6 : DB.cfg.sizeW) * 100) + '</span></div>' +
+    '<div class="muted">大きくするほど、母数の少ない満点を割り引きます（Wilson信頼下限に寄せる）。' +
+    '既定の60では「5単元で100%」より「19単元で94.7%」が上に来ます。0にすると生の率そのままです。</div>';
+  h += '<div class="row"><button class="btn" id="cfgSave">設定を保存</button>' +
+    '<button class="btn sec" id="cfgReset">既定に戻す</button></div></div>';
+
+  // 在籍の管理
+  var names = {}, r = rosterKeys();
+  allDates().forEach(function (dd) {
+    blockKeys(snapAt(dd)).forEach(function (bk2) {
+      snapAt(dd).blocks[bk2].teachers.forEach(function (t) { names[tKey(t.name)] = t.name; });
+    });
+  });
+  var keys = Object.keys(names).sort(function (a, b) { return names[a].localeCompare(names[b], 'ja'); });
+  h += '<div class="card"><h3>先生の在籍 <span class="sub">在籍外は表彰候補と平均超えリストから外れます</span></h3>' +
+    '<div class="row"><label><input type="checkbox" id="cbAuto"' + (DB.cfg.autoOut ? ' checked' : '') +
+    '> 最新のSSに載っていない先生を自動で在籍外にする</label></div>' +
+    '<div class="muted">退職すると先生明細から名前が消えるので自動で判別できます。' +
+    '<b>退職“予定”の先生はまだ載っている</b>ので、下で手動で外してください。</div>' +
+    '<div class="ylist" style="margin-top:8px">' +
+    keys.map(function (k) {
+      var auto = DB.cfg.autoOut && Object.keys(r).length && !r[k];
+      return '<label class="yi"><input type="checkbox" class="outCb" data-k="' + esc(k) + '"' +
+        (DB.out[k] ? ' checked' : '') + (auto ? ' disabled' : '') + '> ' + esc(names[k]) +
+        (auto ? '<span class="badge out">自動で在籍外</span>' : '') + '</label>';
+    }).join('') + '</div></div>';
+
+  h += '<div class="card"><h3>取り込み済みのデータ <span class="sub">' + ds.length + '日分</span></h3>';
+  if (!ds.length) h += '<div class="muted">まだありません。</div>';
+  else {
+    h += '<div class="muted">保存サイズの目安: <b>' + sizeKB() + ' KB</b></div>' +
+      '<div class="ylist" style="margin-top:8px">' + ds.map(function (x) {
+        var s = snapAt(x);
+        return '<span class="yi">' + fmtDate(x) + (s.finalized ? '<span class="chip fix">確定</span>' : '') +
+          ' <a href="#" data-rm="' + x + '" style="color:#c0392b">×</a></span>';
+      }).join('') + '</div>';
+  }
+  h += '<div class="row" style="margin-top:10px"><button class="btn dgr" id="wipe">すべて消去</button></div></div>';
+
+  host.innerHTML = h;
+  wireCfg();
+}
+function sizeKB() {
+  try { return Math.round((localStorage.getItem(LS_SNAP) || '').length / 1024); } catch (e) { return '?'; }
+}
+/* ==========================================================================
+   SS管理ツール — 取り込み・フォルダ監視・同期・起動
+   ========================================================================== */
+
+function setMsg(id, txt, cls) {
+  var n = el(id); if (!n) return;
+  n.className = 'msg' + (cls ? ' ' + cls : '');
+  n.textContent = txt;
+}
+
+/* ---------- ファイル取り込み -------------------------------------------- */
+async function importFiles(files, msgId) {
+  var list = Array.prototype.slice.call(files).filter(function (f) { return /\.xlsx$/i.test(f.name); });
+  if (!list.length) { setMsg(msgId, 'xlsx ファイルがありません。', 'er'); return { ok: 0, ng: 0 }; }
+  var prog = el('prog'), progi = el('progi');
+  if (prog) { prog.style.display = 'block'; progi.style.width = '0%'; }
+
+  var ok = 0, ng = [], added = [];
+  for (var i = 0; i < list.length; i++) {
+    var f = list[i];
+    try {
+      var buf = new Uint8Array(await f.arrayBuffer());
+      var snap = await parseSSFile(buf, { tests: !!DB.cfg.tests });
+      DB.snaps[snap.date] = trimSnap(snap);
+      added.push(snap.date); ok++;
+    } catch (e) {
+      ng.push(f.name + ' … ' + e.message);
+    }
+    if (prog) progi.style.width = Math.round((i + 1) / list.length * 100) + '%';
+    if (msgId) setMsg(msgId, '読み込み中… ' + (i + 1) + ' / ' + list.length);
+  }
+
+  // 期（上期/下期）は単一ファイルでは決まらない日があるので、履歴で前後から確定させる
+  bust();
+  var arr = allDates().map(function (d) { return DB.snaps[d]; });
+  resolveTerms(arr);
+  arr.forEach(function (s) { DB.snaps[s.date] = s; });
+
+  var saved = saveSnaps();
+  if (prog) setTimeout(function () { prog.style.display = 'none'; }, 700);
+
+  var txt = ok + '件を取り込みました' + (saved ? '' : '（※保存に失敗）') + '。';
+  if (added.length) {
+    added.sort();
+    txt += '\n' + fmtDate(added[0]) + ' 〜 ' + fmtDate(added[added.length - 1]);
+  }
+  if (ng.length) txt += '\n\n読めなかったファイル ' + ng.length + '件:\n' + ng.join('\n');
+  if (msgId) setMsg(msgId, txt, ng.length ? 'er' : 'ok');
+  return { ok: ok, ng: ng.length, added: added };
+}
+
+/* ---------- フォルダ監視（File System Access API） ----------------------- */
+/* 社内システムのリンクからは自動でファイルを取れないので、
+   「いつも通りダウンロードする」ところまでは人がやり、そこから先を自動にする。 */
+var IDB_NAME = 'ss_tracker', IDB_STORE = 'kv';
+function idb() {
+  return new Promise(function (res, rej) {
+    var r = indexedDB.open(IDB_NAME, 1);
+    r.onupgradeneeded = function () { r.result.createObjectStore(IDB_STORE); };
+    r.onsuccess = function () { res(r.result); };
+    r.onerror = function () { rej(r.error); };
+  });
+}
+async function idbSet(k, v) {
+  var db = await idb();
+  return new Promise(function (res, rej) {
+    var tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(v, k);
+    tx.oncomplete = function () { res(); }; tx.onerror = function () { rej(tx.error); };
+  });
+}
+async function idbGet(k) {
+  var db = await idb();
+  return new Promise(function (res, rej) {
+    var tx = db.transaction(IDB_STORE, 'readonly');
+    var q = tx.objectStore(IDB_STORE).get(k);
+    q.onsuccess = function () { res(q.result); }; q.onerror = function () { rej(q.error); };
+  });
+}
+
+function fsSupported() { return typeof window.showDirectoryPicker === 'function'; }
+
+async function fsPickDir() {
+  if (!fsSupported()) {
+    setMsg('fsmsg', 'このブラウザ／開き方ではフォルダ監視が使えません。\n' +
+      'START-TOOL.bat（localhost）か公開版のURLから、Chrome か Edge で開いてください。', 'er');
+    return;
+  }
+  try {
+    var h = await window.showDirectoryPicker({ id: 'ssdl', mode: 'read' });
+    await idbSet('dir', h);
+    setMsg('fsmsg', 'フォルダを登録しました。未取込のファイルを確認します…', 'ok');
+    await fsScan(true);
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+    setMsg('fsmsg', '登録できませんでした: ' + e.message, 'er');
+  }
+}
+
+async function fsScan(verbose) {
+  if (!fsSupported()) { if (verbose) setMsg('fsmsg', 'このブラウザ／開き方では使えません。', 'er'); return; }
+  var h;
+  try { h = await idbGet('dir'); } catch (e) { h = null; }
+  if (!h) { if (verbose) setMsg('fsmsg', 'まだフォルダが登録されていません。', 'er'); return; }
+
+  var perm = await h.queryPermission({ mode: 'read' });
+  if (perm !== 'granted') {
+    if (!verbose) { setMsg('fsmsg', 'フォルダの読み取り許可が切れています。「今すぐ確認」を押して許可してください。', 'er'); return; }
+    perm = await h.requestPermission({ mode: 'read' });
+    if (perm !== 'granted') { setMsg('fsmsg', '許可されませんでした。', 'er'); return; }
+  }
+
+  var seen = DB.ui.seen || (DB.ui.seen = {});
+  var picks = [];
+  for await (var ent of h.values()) {
+    if (ent.kind !== 'file') continue;
+    if (!/\.xlsx$/i.test(ent.name)) continue;
+    if (!/成績進捗/.test(ent.name)) continue;
+    if (seen[ent.name]) continue;
+    picks.push(ent);
+  }
+  if (!picks.length) { if (verbose) setMsg('fsmsg', '新しいSSファイルはありませんでした。', 'ok'); return; }
+
+  var files = [];
+  for (var i = 0; i < picks.length; i++) files.push(await picks[i].getFile());
+  var res = await importFiles(files, 'fsmsg');
+  picks.forEach(function (p) { seen[p.name] = 1; });
+  saveUi();
+  setMsg('fsmsg', '新しく ' + res.ok + '件 取り込みました。' + (res.ng ? '（' + res.ng + '件は読めませんでした）' : ''),
+    res.ng ? 'er' : 'ok');
+  refreshAll();
+}
+
+/* ---------- スプレッドシート同期 ---------------------------------------- */
+async function syncPost(action, data) {
+  var url = (DB.cfg.syncUrl || '').trim(), key = (DB.cfg.syncKey || '').trim();
+  if (!url || !key) throw new Error('URLと合言葉を入れてください');
+  var res = await fetch(url, {
+    method: 'POST', redirect: 'follow',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // preflightを避けるため text/plain
+    body: JSON.stringify({ key: key, tool: 'ss', action: action, data: data || '' })
+  });
+  var j = await res.json();
+  if (!j.ok) throw new Error(j.error || '不明なエラー');
+  return j;
+}
+function syncPayload() {
+  return JSON.stringify({ v: 1, snaps: DB.snaps, cfg: DB.cfg, memo: DB.memo, out: DB.out });
+}
+async function syncSave() {
+  try {
+    setMsg('syncmsg', '保存しています…');
+    var j = await syncPost('save', syncPayload());
+    setMsg('syncmsg', '保存しました（' + Math.round(j.bytes / 1024) + ' KB／' + j.cells + 'セル）。', 'ok');
+  } catch (e) { setMsg('syncmsg', '保存できませんでした: ' + e.message, 'er'); }
+}
+async function syncLoad() {
+  try {
+    setMsg('syncmsg', '読み込んでいます…');
+    var j = await syncPost('load');
+    if (!j.data) { setMsg('syncmsg', 'まだ何も保存されていません。', 'er'); return; }
+    var o = JSON.parse(j.data);
+    if (!o || !o.snaps) throw new Error('中身が読めませんでした');
+    DB.snaps = o.snaps;
+    if (o.cfg) { var u = DB.cfg.syncUrl, k = DB.cfg.syncKey; DB.cfg = Object.assign({}, DEF_CFG, o.cfg); DB.cfg.syncUrl = u; DB.cfg.syncKey = k; }
+    if (o.memo) DB.memo = o.memo;
+    if (o.out) DB.out = o.out;
+    saveSnaps(); saveCfg(); saveMemo(); saveOut();
+    setMsg('syncmsg', '読み込みました（' + allDates().length + '日分／更新 ' + (j.updatedAt || '—') + '）。', 'ok');
+    boot(true);
+  } catch (e) { setMsg('syncmsg', '読み込めませんでした: ' + e.message, 'er'); }
+}
+
+/* ---------- 設定画面の配線 ---------------------------------------------- */
+function wireCfg() {
+  var drop = el('drop');
+  ['dragenter', 'dragover'].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); });
+  });
+  ['dragleave', 'drop'].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); });
+  });
+  drop.addEventListener('drop', async function (e) {
+    await importFiles(e.dataTransfer.files, 'impmsg'); refreshAll();
+  });
+  el('pick').onclick = function () { el('fin').click(); };
+  el('fin').onchange = async function () { await importFiles(this.files, 'impmsg'); this.value = ''; refreshAll(); };
+  el('cbTests').onchange = function () { DB.cfg.tests = this.checked; saveCfg(); };
+
+  el('fsPick').onclick = fsPickDir;
+  el('fsScan').onclick = function () { fsScan(true); };
+  el('fsClear').onclick = async function () {
+    await idbSet('dir', null); DB.ui.seen = {}; saveUi();
+    setMsg('fsmsg', 'フォルダの登録を解除しました。', 'ok');
+  };
+  if (!fsSupported()) {
+    setMsg('fsmsg', 'この開き方ではフォルダ監視が使えません（file:// で開いているか、対応していないブラウザです）。', 'er');
+  }
+
+  el('syncSave').onclick = function () {
+    DB.cfg.syncUrl = el('syncUrl').value.trim(); DB.cfg.syncKey = el('syncKey').value.trim(); saveCfg(); syncSave();
+  };
+  el('syncLoad').onclick = function () {
+    DB.cfg.syncUrl = el('syncUrl').value.trim(); DB.cfg.syncKey = el('syncKey').value.trim(); saveCfg(); syncLoad();
+  };
+
+  Array.prototype.forEach.call(document.querySelectorAll('.wIn'), function (s) {
+    s.oninput = function () { el('w-' + s.getAttribute('data-k')).textContent = s.value; };
+  });
+  el('sizeW').oninput = function () { el('w-size').textContent = this.value; };
+  el('cfgSave').onclick = function () {
+    var g = {};
+    Array.prototype.forEach.call(document.querySelectorAll('.goalIn'), function (i) {
+      var v = parseFloat(i.value);
+      if (isFinite(v)) g[i.getAttribute('data-k')] = v / 100;
+    });
+    DB.cfg.goals = g;
+    var mn = parseInt(el('minN').value, 10); if (isFinite(mn) && mn > 0) DB.cfg.minN = mn;
+    var lg = parseFloat(el('lowGap').value); if (isFinite(lg) && lg > 0) DB.cfg.lowGap = lg / 100;
+    var w = {};
+    Array.prototype.forEach.call(document.querySelectorAll('.wIn'), function (i) { w[i.getAttribute('data-k')] = (+i.value) / 100; });
+    DB.cfg.weights = w;
+    var sw = parseInt(el('sizeW').value, 10); if (isFinite(sw)) DB.cfg.sizeW = sw / 100;
+    DB.cfg.autoOut = el('cbAuto').checked;
+    saveCfg(); refreshAll(); renderCfg();
+  };
+  el('cfgReset').onclick = function () {
+    var u = DB.cfg.syncUrl, k = DB.cfg.syncKey, t = DB.cfg.tests;
+    DB.cfg = Object.assign({}, DEF_CFG); DB.cfg.syncUrl = u; DB.cfg.syncKey = k; DB.cfg.tests = t;
+    saveCfg(); refreshAll(); renderCfg();
+  };
+  el('cbAuto').onchange = function () { DB.cfg.autoOut = this.checked; saveCfg(); refreshAll(); renderCfg(); };
+  Array.prototype.forEach.call(document.querySelectorAll('.outCb'), function (c) {
+    c.onchange = function () {
+      var k = c.getAttribute('data-k');
+      if (c.checked) DB.out[k] = 1; else delete DB.out[k];
+      saveOut(); refreshAll();
+    };
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-rm]'), function (a) {
+    a.onclick = function (e) {
+      e.preventDefault();
+      var d = a.getAttribute('data-rm');
+      if (!confirm(fmtDate(d) + ' のデータを消します。よろしいですか？')) return;
+      delete DB.snaps[d]; saveSnaps(); boot(true); show('cfg');
+    };
+  });
+  el('wipe').onclick = function () {
+    if (!confirm('取り込んだSSデータ・タッチ履歴・設定をすべて消します。よろしいですか？')) return;
+    [LS_SNAP, LS_CFG, LS_MEMO, LS_OUT, LS_UI].forEach(function (k) { try { localStorage.removeItem(k); } catch (e) {} });
+    location.reload();
+  };
+}
+
+/* ---------- タブ切替と起動 ---------------------------------------------- */
+var PANES = { touch: renderTouch, list: renderList, card: renderCard, yurei: renderYurei, school: renderSchool, cfg: renderCfg };
+function show(p) {
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
+    b.classList.toggle('on', b.getAttribute('data-p') === p);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.pane'), function (n) {
+    n.classList.toggle('on', n.id === 'p-' + p);
+  });
+  DB.ui.tab = p; saveUi();
+  try { PANES[p](); }
+  catch (e) {
+    el('p-' + p).innerHTML = '<div class="card"><div class="empty">表示中にエラーが起きました。<br>' +
+      esc(e.message) + '</div></div>';
+  }
+}
+function refreshAll() {
+  fillSelectors();
+  var t = DB.ui.tab && PANES[DB.ui.tab] ? DB.ui.tab : 'touch';
+  show(t);
+}
+
+function fillSelectors() {
+  var ds = allDates();
+  var sd = el('selDate'), sb = el('selBlock');
+  if (!ds.length) {
+    sd.innerHTML = ''; sb.innerHTML = '';
+    el('asof').innerHTML = 'データ未取込';
+    VIEW.date = null; VIEW.block = null;
+    return;
+  }
+  if (!VIEW.date || ds.indexOf(VIEW.date) < 0) VIEW.date = DB.ui.date && ds.indexOf(DB.ui.date) >= 0 ? DB.ui.date : ds[ds.length - 1];
+  sd.innerHTML = ds.slice().reverse().map(function (d) {
+    var s = snapAt(d);
+    return '<option value="' + d + '"' + (d === VIEW.date ? ' selected' : '') + '>' +
+      fmtDate(d) + (s.finalized ? ' 確定' : '') + '</option>';
+  }).join('');
+
+  var s = snapAt(VIEW.date), ks = blockKeys(s);
+  if (!VIEW.block || ks.indexOf(VIEW.block) < 0) VIEW.block = defaultBlock(s);
+  sb.innerHTML = ks.map(function (k) {
+    return '<option value="' + k + '"' + (k === VIEW.block ? ' selected' : '') + '>' + esc(blockLabel(k)) + '</option>';
+  }).join('');
+
+  el('asof').innerHTML = '<b>' + fmtDate(VIEW.date) + '</b> のSS ／ 中身は <b>' + dataThrough(VIEW.date) + 'まで</b>' +
+    ' ／ 週 <b>' + (s.week ? mdOf(s.week.start) + '〜' + mdOf(s.week.end) : '—') + '</b> ' +
+    weekChip(s) + ' <span class="sm">' + esc(s.term || '') + '期</span>';
+}
+
+function boot(reload) {
+  if (!reload) dbLoad();
+  fillSelectors();
+  el('selDate').onchange = function () { VIEW.date = this.value; DB.ui.date = this.value; saveUi(); fillSelectors(); show(DB.ui.tab || 'touch'); };
+  el('selBlock').onchange = function () { VIEW.block = this.value; show(DB.ui.tab || 'touch'); };
+  el('btnPrint').onclick = function () { window.print(); };
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
+    b.onclick = function () { show(b.getAttribute('data-p')); };
+  });
+  show(DB.ui.tab && PANES[DB.ui.tab] ? DB.ui.tab : 'touch');
+  // フォルダを登録済みなら、開いた時点で未取込のファイルを静かに取り込む
+  if (!reload && fsSupported()) { setTimeout(function () { fsScan(false); }, 400); }
+}
+
+if (typeof document !== 'undefined' && document.getElementById('selDate')) boot();
+</script>
+</body>
+</html>
