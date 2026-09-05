@@ -966,6 +966,18 @@ function beforeWeek(d) {
   var c = CACHE.bw || (CACHE.bw = {});
   if (d in c) return c[d];
   var s = snapAt(d); if (!s || !s.week) return (c[d] = null);
+  var base = lastBefore(d);
+  if (!base) return (c[d] = null);
+  // 週の始まりから10日以上さかのぼる相手は「先週」ではない。差分を出すと別物になる。
+  return (c[d] = (base >= addDays(s.week.start, -10)) ? base : null);
+}
+
+/* 週が始まる前の最後のスナップショット（日付の抜けがあっても返す）。
+   累計の比較で「いつと比べているか」を出すために使う。 */
+function lastBefore(d) {
+  var c = CACHE.lb || (CACHE.lb = {});
+  if (d in c) return c[d];
+  var s = snapAt(d); if (!s || !s.week) return (c[d] = null);
   var ds = allDates(), r = null;
   for (var i = ds.length - 1; i >= 0; i--) { if (ds[i] < s.week.start) { r = ds[i]; break; } }
   return (c[d] = r);
@@ -1029,6 +1041,49 @@ function inSeason(d, bk, m) {
   var v = avgOf(d, bk, m, 'school');
   return (c[k] = (v !== null && v >= SEASON_FLOOR));
 }
+
+/* ---------- 校舎・エリアの週次／累計 ------------------------------------ */
+function schoolCum(d, bk, m, which) {
+  var b = getBlock(d, bk); if (!b) return null;
+  if (m.avg === 'totals') return (which === 'area') ? null : (b.totals ? (b.totals[m.cum] || null) : null);
+  var L = (which === 'area') ? b.area : b.school;
+  return L ? (L[m.cum] || null) : null;
+}
+function schoolWeek(d, bk, m, which) {
+  var b = getBlock(d, bk); if (!b) return { p: null };
+  if (m.week) {
+    if (m.avg === 'totals') return { p: (which === 'area') ? null : (b.totals ? (b.totals[m.week] || null) : null), derived: false };
+    var L = (which === 'area') ? b.area : b.school;
+    return { p: L ? (L[m.week] || null) : null, derived: false };
+  }
+  // 今週列が無い指標は、週が始まる前の累計との差で作る
+  var cur = schoolCum(d, bk, m, which);
+  if (!cur) return { p: null, derived: true };
+  var base = beforeWeek(d);
+  if (!base) return { p: null, derived: true, why: '週初より前のデータが無い' };
+  var old = schoolCum(base, bk, m, which) || [0, 0];
+  var dd = cur[0] - old[0], nn = cur[1] - old[1];
+  if (dd < 0 || nn < 0) return { p: null, derived: true, why: '対象が減っており算出できない' };
+  return { p: [dd, nn], derived: true };
+}
+
+/* 先週の確定値が入っているスナップショット。
+   日曜配信のファイルは「前週(日〜土)」を指すので、
+   今週が 8/30 始まりなら 8/30(日) 付のファイルが先週(8/23〜8/29)の確定値になる。 */
+function prevWeekSnap(d) {
+  var s = snapAt(d); if (!s || !s.week) return null;
+  var want = addDays(s.week.start, -7), ds = allDates(), best = null;
+  for (var i = 0; i < ds.length; i++) {
+    var x = snapAt(ds[i]);
+    if (!x.week || x.week.start !== want) continue;
+    if (!best) { best = ds[i]; continue; }
+    var bs = snapAt(best);
+    if ((x.finalized && !bs.finalized) || (x.finalized === bs.finalized && ds[i] > best)) best = ds[i];
+  }
+  return best;
+}
+/* 先週の同じ曜日のスナップショット（途中経過どうしを公平に比べるため） */
+function sameDowPrev(d) { var w = addDays(d, -7); return DB.snaps[w] ? w : null; }
 
 /* ---------- 先生1人 × 指標1つ の評価 ------------------------------------ */
 function evalOne(d, bk, t, m) {
@@ -1683,33 +1738,118 @@ function fallbackCopy(txt, done) {
 }
 
 /* ---------- 校舎の推移 -------------------------------------------------- */
+/* 週報を書くための画面。「先週◯% → 今週の現状◯%」を並べて出す。
+   今週はまだ途中なので、そのまま比べると必ず小さく見える。
+   そこで「先週の同じ曜日まで」も並べ、公平な比較ができるようにしている。 */
+
+function cellPair(p, cls, why) {
+  if (!p) return '<td><span class="sm">—' + (why ? '<br>' + esc(why) : '') + '</span></td>';
+  return '<td class="' + (cls || '') + '"><span class="v">' + pct(rateOf(p)) +
+    '</span> <span class="sm">' + p[1] + '/' + p[0] + '</span></td>';
+}
+function diffTd(a, b) {
+  var ra = rateOf(a), rb = rateOf(b);
+  if (ra === null || rb === null) return '<td><span class="sm">—</span></td>';
+  return '<td>' + arrowTxt(rb - ra) + '</td>';
+}
+
 function renderSchool() {
   var host = el('p-school');
   if (!VIEW.date) { host.innerHTML = emptyState(); return; }
-  var d = VIEW.date, bk = VIEW.block, b = getBlock(d, bk);
+  var d = VIEW.date, bk = VIEW.block, s = snapAt(d), b = getBlock(d, bk);
+  var pw = prevWeekSnap(d);          // 先週（確定）
+  var sd = sameDowPrev(d);           // 先週の同じ曜日
+  if (sd && sd === pw) sd = null;    // 日曜のファイルでは先週の確定値と同じになるので出さない
+  var lastWkEnd = lastBefore(d);     // 累計の比較相手（日付の抜けがあっても返す）
+  var gapOK = !!beforeWeek(d);       // 直前の週にデータがあるか。無ければ差は出さない
 
-  var h = '<div class="card"><h3>校舎の推移 <span class="sub">' + fmtDate(d) + ' ／ ' + esc(blockLabel(bk)) + '</span></h3>' +
-    '<div class="tblwrap"><table><thead><tr><th class="name">指標</th><th>校舎</th><th>エリア</th><th>目標</th>' +
-    '<th>校舎−エリア</th><th>推移（週ごと）</th></tr></thead><tbody>';
+  var h = '';
+  h += '<div class="card"><h3>校舎の推移 <span class="sub">' + fmtDate(d) + ' ／ ' + esc(blockLabel(bk)) + '</span>' +
+    weekChip(s) + '</h3>' +
+    '<div class="muted">今週 <b>' + (s.week ? mdOf(s.week.start) + '〜' + mdOf(s.week.end) : '—') +
+    '</b>（日〜土）。データは <b>' + dataThrough(d) + 'まで</b>。' +
+    (pw ? '先週は <b>' + mdOf(snapAt(pw).week.start) + '〜' + mdOf(snapAt(pw).week.end) + '</b>（' +
+      fmtDate(pw) + '配信の確定値）。' : '先週の確定値がまだ取り込まれていません。') +
+    '</div>' +
+    '<div class="row noprint"><button class="btn" id="repCopy">週報用テキストをコピー</button>' +
+    '<button class="btn sec" id="repPrint">印刷</button></div></div>';
+
+  /* --- 週の実績（先週 vs 今週の現状） --- */
+  h += '<div class="card"><h3>今週の動き <span class="sub">その週に動いた分だけ</span></h3><div class="tblwrap"><table><thead><tr>' +
+    '<th class="name">指標</th><th>先週（確定）</th><th>今週（現状）</th><th>先週との差</th>' +
+    (sd ? '<th>先週の同じ曜日まで<br><span class="sm">' + fmtDate(sd) + '</span></th><th>同じ曜日どうしの差</th>' : '') +
+    '<th>エリア（今週）</th></tr></thead><tbody>';
   METRICS.forEach(function (m) {
+    var now = schoolWeek(d, bk, m, 'school');
+    var prev = pw ? schoolWeek(pw, bk, m, 'school') : { p: null };
+    var same = sd ? schoolWeek(sd, bk, m, 'school') : { p: null };
+    var area = schoolWeek(d, bk, m, 'area');
+    h += '<tr><td class="name">' + m.name +
+      (m.week ? '' : '<span class="badge">累計の差分</span>') + '</td>' +
+      cellPair(prev.p, '', prev.why) + cellPair(now.p, '', now.why) + diffTd(prev.p, now.p) +
+      (sd ? cellPair(same.p) + diffTd(same.p, now.p) : '') +
+      cellPair(area.p) + '</tr>';
+  });
+  h += '</tbody></table></div>' +
+    '<div class="muted">KWTと仕上げにはSSに「今週」の列がないので、' +
+    '週が始まる前の累計との差から出しています。' +
+    (sd ? '今週はまだ途中なので、先週の全部と比べると必ず小さく出ます。' +
+          '<b>同じ曜日どうしの差</b>のほうが実態に近い比較です。'
+        : (s.finalized ? 'この日は日曜配信なので、今週の欄が先週(日〜土)の確定値そのものです。'
+                       : '先週の同じ曜日のデータが無いため、途中経過どうしの比較は出せていません。')) +
+    '</div></div>';
+
+  /* --- 累計 --- */
+  h += '<div class="card"><h3>累計 <span class="sub">期のはじめからの積み上げ</span></h3><div class="tblwrap"><table><thead><tr>' +
+    '<th class="name">指標</th><th>' + (lastWkEnd ? '先週末<br><span class="sm">' + fmtDate(lastWkEnd) + '時点</span>' : '先週末') +
+    '</th><th>今日</th><th>差</th><th>エリア</th><th>校舎−エリア</th>' +
+    '<th>目標</th><th>目標差</th><th>推移（週ごと）</th></tr></thead><tbody>';
+  METRICS.forEach(function (m) {
+    var cur = schoolCum(d, bk, m, 'school');
+    var old = lastWkEnd ? schoolCum(lastWkEnd, bk, m, 'school') : null;
     var sv = avgOf(d, bk, m, 'school'), av = avgOf(d, bk, m, 'area'), g = goalOfMetric(d, bk, m);
     var ser = schoolSeries(bk, m, 'school').map(function (x) { return x.v; });
     h += '<tr><td class="name">' + m.name + '</td>' +
-      '<td class="v ' + (g !== null && sv !== null && sv >= g ? 'g1' : '') + '">' + pct(sv) + '</td>' +
+      cellPair(old) +
+      (cur ? cellPair(cur, (g !== null && sv !== null && sv >= g) ? 'g1' : '') :
+        '<td class="v">' + pct(sv) + '</td>') +
+      (gapOK ? diffTd(old, cur) : '<td><span class="sm">—</span></td>') +
       '<td>' + (av === null ? '<span class="sm">SSに無し</span>' : pct(av)) + '</td>' +
+      '<td>' + (sv === null || av === null ? '<span class="sm">—</span>' : arrowTxt(sv - av)) + '</td>' +
       '<td>' + (g === null ? '—' : pct(g, 0)) + '</td>' +
-      '<td>' + (sv === null || av === null ? '—' : arrowTxt(sv - av)) + '</td>' +
-      '<td>' + spark(ser, 190, 30, g) + '</td></tr>';
+      '<td>' + (sv === null || g === null ? '<span class="sm">—</span>' : arrowTxt(sv - g)) + '</td>' +
+      '<td>' + spark(ser, 170, 28, g) + '</td></tr>';
   });
   h += '</tbody></table></div>';
-
+  if (lastWkEnd && !gapOK) {
+    h += '<div class="msg er">先週のデータが取り込まれていないため、差は出していません。' +
+      '比較相手は ' + fmtDate(lastWkEnd) + ' で、期間が離れています' +
+      '（この間に集計がやり直されている指標があると、引き算しても意味のない数字になります）。</div>';
+  }
   if (b && b.school && (b.school.pyDay != null || b.school.pyFin != null)) {
     h += '<div class="muted">仕上げの前年同日 <b>' + pct(b.school.pyDay) + '</b>' +
       '／前年の最終結果 <b>' + pct(b.school.pyFin) + '</b>（下期のSSにのみ入っています）</div>';
   }
   h += '</div>';
 
-  // 担任別（SSが持っている公式値。R指導率・CT・仕上げのみ）
+  /* --- 今週の動きが大きい先生（週報の材料） --- */
+  var movers = weekMovers(d, bk);
+  h += '<div class="card"><h3>今週の動きが大きい先生 <span class="sub">週報の材料</span></h3>';
+  if (!movers.up.length && !movers.down.length) {
+    h += '<div class="muted">先週と比べられるデータがまだありません。</div>';
+  } else {
+    h += '<div class="tblwrap"><table><thead><tr><th class="name">先生</th><th>指標</th>' +
+      '<th>先週</th><th>今週</th><th>差</th></tr></thead><tbody>';
+    movers.up.concat(movers.down).forEach(function (x) {
+      h += '<tr><td class="name" data-t="' + esc(x.key) + '">' + esc(x.name) + '</td>' +
+        '<td class="name">' + x.m.name + '</td>' +
+        cellPair(x.prev) + cellPair(x.now) + '<td>' + arrowTxt(x.diff) + '</td></tr>';
+    });
+    h += '</tbody></table></div>';
+  }
+  h += '</div>';
+
+  /* --- 担任スタッフ別 --- */
   if (b && b.staff && b.staff.length) {
     h += '<div class="card"><h3>担任スタッフ別 <span class="sub">SSの担任行そのまま</span></h3>' +
       '<div class="tblwrap"><table><thead><tr><th class="name">担任</th><th>学校成績</th><th>対象数</th><th>目標差</th>' +
@@ -1730,8 +1870,110 @@ function renderSchool() {
       '<div class="muted">担任行は「その担任の生徒全員」を集計したもので、先生別の合計とは母集団が違います。' +
       'KWTとFコーチは担任別の数字がSSに入っていないため出せません。</div></div>';
   }
+
   host.innerHTML = h;
+  bindNames(host);
+  el('repPrint').onclick = function () { window.print(); };
+  el('repCopy').onclick = function () { copyText(weeklyReportText(d, bk), el('repCopy')); };
 }
+
+/* 先週と今週で動きの大きかった先生を拾う。週報の「誰が伸びたか」に使う。
+   比べる相手は先週の同じ曜日（無ければ先週の確定値）。 */
+function weekMovers(d, bk) {
+  var ref = sameDowPrev(d) || prevWeekSnap(d);
+  var up = [], down = [];
+  if (!ref) return { up: up, down: down, ref: null };
+  teachersOf(d, bk).forEach(function (t) {
+    var t0 = teacherAt(ref, bk, tKey(t.name));
+    if (!t0) return;
+    METRICS.forEach(function (m) {
+      if (!inSeason(d, bk, m)) return;
+      var a = weekVal(ref, bk, t0, m).p, c = weekVal(d, bk, t, m).p;
+      var ra = rateOf(a), rc = rateOf(c);
+      if (ra === null || rc === null) return;
+      if (c[0] < DB.cfg.minN && a[0] < DB.cfg.minN) return;   // 母数が両方少なければ拾わない
+      var row = { name: t.name, key: tKey(t.name), m: m, prev: a, now: c, diff: rc - ra };
+      if (rc - ra > 0.05) up.push(row);
+      else if (rc - ra < -0.05) down.push(row);
+    });
+  });
+  up.sort(function (a, b) { return b.diff - a.diff; });
+  down.sort(function (a, b) { return a.diff - b.diff; });
+  return { up: up.slice(0, 5), down: down.slice(0, 5), ref: ref };
+}
+
+/* 週報にそのまま貼れるテキスト */
+function weeklyReportText(d, bk) {
+  var s = snapAt(d), pw = prevWeekSnap(d), sd = sameDowPrev(d), lastWkEnd = lastBefore(d);
+  if (sd && sd === pw) sd = null;
+  var gapOK = !!beforeWeek(d);
+  var L = [];
+  var pad = function (x, n) { x = String(x); while (x.length < n) x += '　'; return x; };
+  L.push('【週報】' + fmtDate(d) + ' 時点のSS（' + blockLabel(bk) + '）');
+  L.push('対象週 ' + (s.week ? mdOf(s.week.start) + '〜' + mdOf(s.week.end) : '—') + '（日〜土）' +
+    '／データは' + dataThrough(d) + 'まで' + (s.finalized ? '（前週の確定値）' : '（週の途中経過）'));
+  if (pw) L.push('先週 ' + mdOf(snapAt(pw).week.start) + '〜' + mdOf(snapAt(pw).week.end) + '（' + fmtDate(pw) + '配信の確定値）');
+  L.push('');
+
+  L.push('■ 今週の動き（週に動いた分）');
+  METRICS.forEach(function (m) {
+    var nowW = schoolWeek(d, bk, m, 'school');
+    var now = nowW.p;
+    var prev = pw ? schoolWeek(pw, bk, m, 'school').p : null;
+    var same = sd ? schoolWeek(sd, bk, m, 'school').p : null;
+    var bits = [pad(m.name, 8)];
+    bits.push('先週 ' + fmtPair(prev) + ' → 今週 ' + fmtPair(now) + ' ' + fmtDiff(prev, now));
+    if (!now && nowW.why) bits.push('※' + nowW.why);
+    if (same) bits.push('（先週の同じ曜日まで ' + fmtPair(same) + ' ' + fmtDiff(same, now) + '）');
+    L.push('　' + bits.join(' '));
+  });
+  L.push('');
+
+  L.push('■ 累計');
+  if (lastWkEnd && !gapOK) L.push('　※先週のデータが未取込のため、比較相手は' + fmtDate(lastWkEnd) + 'です。差は出していません。');
+  METRICS.forEach(function (m) {
+    var cur = schoolCum(d, bk, m, 'school');
+    var old = lastWkEnd ? schoolCum(lastWkEnd, bk, m, 'school') : null;
+    var av = avgOf(d, bk, m, 'area'), g = goalOfMetric(d, bk, m);
+    var line = pad(m.name, 8) + (lastWkEnd ? fmtDate(lastWkEnd) + '時点 ' : '前回 ') + fmtPair(old) +
+      ' → 今日 ' + fmtPair(cur) + (gapOK ? ' ' + fmtDiff(old, cur) : '');
+    if (av !== null && av !== undefined) line += '（エリア ' + pct(av) + '）';
+    if (g !== null) line += '（目標 ' + pct(g, 0) + '／' + (rateOf(cur) !== null ? signPct(rateOf(cur) - g) : '—') + '）';
+    L.push('　' + line);
+  });
+  L.push('');
+
+  var mv = weekMovers(d, bk);
+  if (mv.up.length) {
+    L.push('■ 今週伸びた先生');
+    mv.up.forEach(function (x) {
+      L.push('　' + x.name + '　' + x.m.name + ' ' + fmtPair(x.prev) + ' → ' + fmtPair(x.now) + ' ' + signPct(x.diff));
+    });
+    L.push('');
+  }
+  if (mv.down.length) {
+    L.push('■ 今週落ちた先生（サポート対象）');
+    mv.down.forEach(function (x) {
+      L.push('　' + x.name + '　' + x.m.name + ' ' + fmtPair(x.prev) + ' → ' + fmtPair(x.now) + ' ' + signPct(x.diff));
+    });
+    L.push('');
+  }
+
+  var top = evalAll(d, bk).filter(function (T) { return !T.out && T.score !== null; })
+    .filter(function (T) { return T.evs.some(function (e) { return e.rate !== null && e.season && !e.few; }); })
+    .sort(function (a, b) { return b.score - a.score; }).slice(0, 3);
+  if (top.length) {
+    L.push('■ 表彰候補');
+    top.forEach(function (T, i) { L.push('　' + (i + 1) + '. ' + T.name + '　' + reasonFor(T)); });
+  }
+  return L.join('\n');
+}
+function fmtPair(p) { return p ? pct(rateOf(p)) + '(' + p[1] + '/' + p[0] + ')' : '—'; }
+function fmtDiff(a, b) {
+  var ra = rateOf(a), rb = rateOf(b);
+  return (ra === null || rb === null) ? '' : signPct(rb - ra);
+}
+
 
 /* ---------- 設定・取込 -------------------------------------------------- */
 function renderCfg() {
