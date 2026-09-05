@@ -907,8 +907,8 @@ function copyBackupText(){
   }
 }
 function exportBackup(){
-  const data={ allRecords:state.allRecords, roster:state.roster, archives:state.archives, assignments:state.assignments,
-    nameAliases:state.nameAliases,
+  const data={ campus:state.campus, allRecords:state.allRecords, roster:state.roster, archives:state.archives,
+    assignments:state.assignments, nameAliases:state.nameAliases,
     work:{flags:state.flags,decisions:state.decisions,notes:state.notes}, exportedAt:new Date().toISOString() };
   const json=JSON.stringify(data,null,2);
   let downloaded=false;
@@ -930,19 +930,68 @@ function importBackup(input){
   reader.onload=e=>{
     try{
       const d=JSON.parse(e.target.result);
-      applyBackupData(d);
-      state.err="✅ バックアップを復元しました"; render(); setTimeout(()=>{ state.err=""; render(); },2500);
+      const r=applyBackupData(d);
+      state.err=r.failed.length
+        ? "⚠ 復元しましたが端末に保存できませんでした（"+r.failed.join("・")+"／約"+r.kb+"KB）。閉じると元に戻ります。"
+        : "✅ バックアップを復元しました（約"+r.kb+"KB）";
+      render(); setTimeout(()=>{ state.err=""; render(); },4000);
     }catch(err){ state.err="復元エラー: "+err.message; render(); }
   };
   reader.readAsText(file,"UTF-8"); input.value="";
 }
+// 復元した中身を localStorage に書き、書けなかったものを返す。
+// 戻り値 {failed:[キー名...], kb:推定サイズ}
 function applyBackupData(d){
-  if(d.allRecords){ state.allRecords=d.allRecords; LS.set("survey_allRecords",d.allRecords); }
-  if(d.roster){ state.roster=d.roster; LS.set("survey_roster",d.roster); }
-  if(d.archives){ state.archives=d.archives; LS.set("survey_archives",d.archives); }
-  if(d.assignments){ state.assignments=d.assignments; LS.set("survey_assignments",d.assignments); }
-  if(d.nameAliases){ state.nameAliases=d.nameAliases; LS.set("survey_nameAliases",d.nameAliases); }
-  if(d.work){ state.flags=d.work.flags||{}; state.decisions=d.work.decisions||{}; state.notes=d.work.notes||{}; saveWork(); }
+  const failed=[]; let bytes=0;
+  const put=(key,val,label)=>{
+    bytes+=LS.sizeOf(val);
+    if(LS.set(key,val)===false) failed.push(label);
+  };
+  if(d.campus){ state.campus=d.campus; put("survey_campus",d.campus,"校舎"); }
+  if(d.allRecords){ state.allRecords=d.allRecords; put("survey_allRecords",d.allRecords,"回答"); }
+  if(d.roster){ state.roster=d.roster; put("survey_roster",d.roster,"先生名簿"); }
+  if(d.archives){ state.archives=d.archives; put("survey_archives",d.archives,"アーカイブ"); }
+  if(d.assignments){ state.assignments=d.assignments; put("survey_assignments",d.assignments,"担当"); }
+  if(d.nameAliases){ state.nameAliases=d.nameAliases; put("survey_nameAliases",d.nameAliases,"名寄せ"); }
+  if(d.work){
+    state.flags=d.work.flags||{}; state.decisions=d.work.decisions||{}; state.notes=d.work.notes||{};
+    bytes+=LS.sizeOf(d.work);
+    if(LS.set(workKey(),{flags:state.flags,decisions:state.decisions,notes:state.notes})===false) failed.push("判断・メモ");
+  }
+  // 本当に読み戻せるかを確かめる。書けたつもりで消えているケースを拾う。
+  if(d.allRecords && !failed.length){
+    const back=LS.get("survey_allRecords",null);
+    if(!back || back.length!==d.allRecords.length) failed.push("回答（書き戻し確認に失敗）");
+  }
+  return { failed, kb: Math.round(bytes/1024) };
+}
+function checkStorage(){
+  const el=document.getElementById("storageMsg"); if(!el) return;
+  const lines=[]; let total=0;
+  const mine=[];
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i), v=localStorage.getItem(k)||"";
+    const kb=(k.length+v.length)/1024; total+=kb;
+    if(k.indexOf("survey_")===0) mine.push([k,kb]);
+  }
+  mine.sort((a,b)=>b[1]-a[1]);
+  lines.push("このツールのデータ:");
+  if(!mine.length) lines.push("　（まだ何も入っていません）");
+  mine.forEach(([k,kb])=>lines.push("　"+k.replace("survey_","")+"　"+Math.round(kb)+"KB"));
+  lines.push("この端末の合計: "+Math.round(total)+"KB（他の塾ツールと共用）");
+  // あとどれだけ書けるか実際に試す
+  const KEY="__survey_probe__"; let free=0;
+  try{
+    const block="x".repeat(64*1024); let buf="";
+    while(buf.length < 8*1024*1024){
+      try{ localStorage.setItem(KEY, buf+block); buf+=block; }catch(e){ break; }
+    }
+    free=buf.length/1024;
+  }catch(e){}
+  try{ localStorage.removeItem(KEY); }catch(e){}
+  lines.push("あと書ける目安: "+Math.round(free)+"KB");
+  if(free < 300) lines.push("⚠ 空きが少ないです。アーカイブを減らすか、パソコンで作業してください。");
+  el.textContent=lines.join(String.fromCharCode(10));
 }
 function syncMsgSet(text,color){
   const el=document.getElementById("syncMsg2");
@@ -953,8 +1002,9 @@ async function syncSave(){
   const url=(LS.get('survey_syncUrl','')||'').trim(), key=(LS.get('survey_syncKey','')||'').trim();
   if(!url||!key){ syncMsgSet("接続先URLと合言葉を入力してください","#f87171"); return; }
   syncMsgSet("スプシに保存中…","#94a3b8");
-  const data={ allRecords:state.allRecords, roster:state.roster, archives:state.archives, assignments:state.assignments,
-    nameAliases:state.nameAliases, work:{flags:state.flags,decisions:state.decisions,notes:state.notes} };
+  const data={ campus:state.campus, allRecords:state.allRecords, roster:state.roster, archives:state.archives,
+    assignments:state.assignments, nameAliases:state.nameAliases,
+    work:{flags:state.flags,decisions:state.decisions,notes:state.notes} };
   try{
     const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
       body:JSON.stringify({key,tool:'survey',data:JSON.stringify(data)})});
@@ -974,9 +1024,16 @@ async function syncLoad(){
     const d=await res.json();
     if(d.ok){
       if(!d.data){ syncMsgSet("スプシにまだデータがありません（先に保存してください）","#f87171"); return; }
-      applyBackupData(JSON.parse(d.data));
-      syncMsgSet("✅ 読み込みました","#16a34a");
-      toast("✅ スプシから読み込みました");
+      const r=applyBackupData(JSON.parse(d.data));
+      if(r.failed.length){
+        syncMsgSet("⚠ 読み込みましたが端末に保存できませんでした（"+r.failed.join("・")+
+          "／約"+r.kb+"KB）。閉じると元に戻ります。不要なアーカイブを削除するか、パソコンでお試しください。","#f87171");
+        return;
+      }
+      syncMsgSet("✅ 読み込んで端末に保存しました（約"+r.kb+"KB）。画面を作り直します…","#16a34a");
+      // 保存した内容から画面を作り直す。こうすると「表示は出ているのに保存されていない」状態が残らない。
+      setTimeout(()=>location.reload(),700);
+      return;
     } else { syncMsgSet("エラー: "+(d.error||"不明"),"#f87171"); }
   }catch(e){ syncMsgSet("通信エラー: ネット接続を確認してください","#f87171"); }
 }
@@ -986,9 +1043,12 @@ function applyPasteRestore(){
   if(!ta||!ta.value.trim()){ toast("テキストを貼り付けてください"); return; }
   try{
     const d=JSON.parse(ta.value);
-    applyBackupData(d);
-    state.modal=null; state.err="✅ テキストから復元しました";
-    render(); setTimeout(()=>{ state.err=""; render(); },2500);
+    const r=applyBackupData(d);
+    state.modal=null;
+    state.err=r.failed.length
+      ? "⚠ 復元しましたが端末に保存できませんでした（"+r.failed.join("・")+"／約"+r.kb+"KB）。閉じると元に戻ります。"
+      : "✅ テキストから復元しました（約"+r.kb+"KB）";
+    render(); setTimeout(()=>{ state.err=""; render(); },4000);
   }catch(err){ toast("⚠ 復元できません。テキストが正しいJSONか確認してください"); }
 }
 
@@ -1606,6 +1666,10 @@ function renderSettings(){
         <button class="btn" style="background:#059669;flex:1" onclick="syncSave()">⬆️ スプシに保存</button>
       </div>
       <div id="syncMsg2" style="font-size:12px;margin-top:8px;color:#94a3b8"></div>
+      <div style="margin-top:10px;padding-top:10px;border-top:1px dashed #d1d5db">
+        <button class="decbtn" style="border:1px solid #cbd5e1;color:#64748b" onclick="checkStorage()">端末の保存状況をしらべる</button>
+        <div id="storageMsg" style="font-size:11px;color:#94a3b8;margin-top:6px;line-height:1.7;white-space:pre-wrap"></div>
+      </div>
     </div>
 
     <div class="card" style="padding:16px;margin-bottom:14px">
