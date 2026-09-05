@@ -707,7 +707,10 @@ var DEF_CFG = {
   minN:    5,      // これ未満の母数は「参考」扱いにして表彰・苦戦の判定から外す
   lowGap:  0.10,   // 校舎平均をこれ以上下回ったら「大きく下」
   syncUrl: '', syncKey: '',
-  autoOut: true    // 最新データに載っていない先生を自動で在籍外にする
+  autoOut: true,   // 最新データに載っていない先生を自動で在籍外にする
+  tests:   true,   // テスト回別（③④⑤など）も取り込む
+  keepDays: 70,    // 「古い日を間引く」を押したとき、これより新しい日はそのまま残す
+  showOut: false   // 在籍外の先生を画面に出すか（既定は出さない）
 };
 
 /* ---------- localStorage の読み書き ------------------------------------ */
@@ -801,13 +804,21 @@ function teacherIndex(d, bk) {
   if (ix[k]) return ix[k];
   var m = {}, b = getBlock(d, bk);
   if (b) b.teachers.forEach(function (t) { m[tKey(t.name)] = t; });
-  return (ix[k] = m);
+  return (ix[k] = m);   // 在籍外もここには入れておく（過去との比較で引く必要があるため）
 }
 
 /* 表示中のブロック（テスト回）のキー候補を、日付のスナップショットから並べる */
+function hasAnyValue(b) {
+  return !!(b && b.teachers && b.teachers.some(function (t) {
+    return t.r || t.ct || t.f || t.kwt || t.fin || t.rw || t.ctw || t.fw;
+  }));
+}
 function blockKeys(s) {
   if (!s) return [];
   var order = ['cumA', 'cumB', 't1', 't2', 't3', 't4', 't5'];
+  var withData = order.filter(function (k) { return hasAnyValue(s.blocks[k]); });
+  if (withData.length) return withData;
+  // 全部空なら、先生行だけでもあるものを出す（取り込んだのに何も選べない状態を避ける）
   return order.filter(function (k) { return s.blocks[k] && s.blocks[k].teachers && s.blocks[k].teachers.length; });
 }
 function blockLabel(k, s) {
@@ -836,6 +847,13 @@ function tKey(name) {
 
 function teachersOf(d, bk) {
   var b = getBlock(d, bk);
+  if (!b) return [];
+  if (DB.cfg.showOut) return b.teachers;
+  return b.teachers.filter(function (t) { return !isOut(tKey(t.name)); });
+}
+/* 在籍外も含めた全員（設定タブの名簿と、保存データの掃除に使う） */
+function teachersRaw(d, bk) {
+  var b = getBlock(d, bk);
   return b ? b.teachers : [];
 }
 function teacherAt(d, bk, key) { return teacherIndex(d, bk)[key] || null; }
@@ -848,8 +866,9 @@ function rosterKeys() {
   if (CACHE.roster) return CACHE.roster;
   var d = latestDate(); if (!d) return (CACHE.roster = {});
   var s = snapAt(d), out = {};
-  blockKeys(s).forEach(function (bk) {
-    s.blocks[bk].teachers.forEach(function (t) { out[tKey(t.name)] = t.name; });
+  // 値の有無に関わらず、最新ファイルの明細に名前がある人を在籍とみなす
+  Object.keys(s.blocks).forEach(function (bk) {
+    (s.blocks[bk].teachers || []).forEach(function (t) { out[tKey(t.name)] = t.name; });
   });
   return (CACHE.roster = out);
 }
@@ -861,13 +880,55 @@ function isOut(key) {
 }
 
 /* 全期間に登場した先生（表示名は一番新しい表記を使う） */
-function allTeachers(bk) {
+function allTeachers(bk, includeOut) {
   var map = {}, ds = allDates();
   for (var i = 0; i < ds.length; i++) {
     var b = getBlock(ds[i], bk); if (!b) continue;
-    b.teachers.forEach(function (t) { map[tKey(t.name)] = t.name; });
+    b.teachers.forEach(function (t) {
+      var k = tKey(t.name);
+      if (!includeOut && !DB.cfg.showOut && isOut(k)) return;
+      map[k] = t.name;
+    });
   }
   return map;
+}
+
+function thinOld() {
+  var ds = allDates();
+  if (!ds.length) return { removed: 0, thinned: 0 };
+  var cut = addDays(ds[ds.length - 1], -(DB.cfg.keepDays || 70));
+  var removed = 0, thinned = 0;
+  ds.forEach(function (d) {
+    if (d >= cut) return;
+    var s = DB.snaps[d];
+    if (!s.finalized) { delete DB.snaps[d]; removed++; return; }   // 平日の途中経過は落とす
+    var had = false;
+    Object.keys(s.blocks).forEach(function (k) {
+      if (k.indexOf('cum') !== 0) { delete s.blocks[k]; had = true; }
+    });
+    if (had) thinned++;
+  });
+  saveSnaps();
+  return { removed: removed, thinned: thinned };
+}
+
+/* 在籍外の先生を保存データから取り除く（容量の節約用）。戻り値は消した人数。 */
+function pruneOut() {
+  var r = rosterKeys(), removed = {};
+  allDates().forEach(function (d) {
+    var s = DB.snaps[d];
+    Object.keys(s.blocks).forEach(function (bk) {
+      var b = s.blocks[bk];
+      if (!b.teachers) return;
+      b.teachers = b.teachers.filter(function (t) {
+        var k = tKey(t.name);
+        if (DB.out[k] || !r[k]) { removed[k] = t.name; return false; }
+        return true;
+      });
+    });
+  });
+  saveSnaps();
+  return Object.keys(removed).length;
 }
 
 /* 日付の足し引き。toISOString はUTCに変換されて時差ぶんずれるので使わない。 */
@@ -1299,14 +1360,14 @@ function renderList() {
   h += '<div class="tblwrap"><table><thead><tr>' +
     '<th class="name">先生</th><th>相対スコア</th>' +
     METRICS.map(function (m) { return '<th colspan="2">' + m.name + '</th>'; }).join('') +
-    '</tr><tr><th class="name sm">在籍外は薄く表示</th><th class="sm">その日の中の位置</th>' +
+    '</tr><tr><th class="name sm">名前を押すとカルテへ</th><th class="sm">その日の中の位置</th>' +
     METRICS.map(function () { return '<th class="sm">率 (分子/分母)</th><th class="sm">前回比</th>'; }).join('') +
     '</tr></thead><tbody>';
 
   rows.forEach(function (T) {
     h += '<tr class="' + (T.out ? 'off' : '') + '">' +
       '<td class="name" data-t="' + esc(T.key) + '">' + esc(T.name) +
-      (T.out ? '<span class="badge out">在籍外</span>' : '') + '</td>' +
+      (T.out ? '<span class="badge out">在籍外</span>' : '') + '</td>' +   // 在籍外は既定で teachersOf が除いている
       '<td class="v">' + (T.disp === null ? '—' : T.disp) + '</td>';
     METRICS.forEach(function (m) {
       var e = T.e[m.k];
@@ -1379,7 +1440,7 @@ function renderCard() {
   var host = el('p-card');
   if (!VIEW.date) { host.innerHTML = emptyState(); return; }
   var d = VIEW.date, bk = VIEW.block;
-  var names = allTeachers(bk);
+  var names = allTeachers(bk);   // 既定では在籍外を含まない
   var keys = Object.keys(names).sort(function (a, b) { return names[a].localeCompare(names[b], 'ja'); });
   if (!keys.length) { host.innerHTML = emptyState(); return; }
   if (!VIEW.teacher || keys.indexOf(VIEW.teacher) < 0) VIEW.teacher = keys[0];
@@ -1389,7 +1450,7 @@ function renderCard() {
     '<div class="row noprint"><label>先生</label><select id="tsel">' +
     keys.map(function (k) {
       return '<option value="' + esc(k) + '"' + (k === VIEW.teacher ? ' selected' : '') + '>' +
-        esc(names[k]) + (isOut(k) ? '（在籍外）' : '') + '</option>';
+        esc(names[k]) + (isOut(k) ? '（在籍外）' : '') + '</option>';   // showOut のときだけ在籍外が並ぶ
     }).join('') + '</select></div>';
 
   if (!t) {
@@ -1686,8 +1747,9 @@ function renderCfg() {
     '<div class="prog" id="prog" style="display:none"><i id="progi"></i></div>' +
     '<div class="msg" id="impmsg"></div>' +
     '<div class="row"><label><input type="checkbox" id="cbTests"' + (DB.cfg.tests ? ' checked' : '') + '> ' +
-    'テスト回別（③④⑤など）も取り込む</label>' +
-    '<span class="muted">既定はオフ。オンにすると保存量が約4倍になります。</span></div>' +
+    'テスト回別（テスト③だけ、④だけ…）も取り込む</label>' +
+    '<span class="muted">オフにすると累計だけになり、保存量が約1/3になります。</span></div>' +
+    noTestNote() +
     '</div>';
 
   h += '<div class="card"><h3>ダウンロードフォルダの監視 <span class="sub">毎回の取り込みを省く</span></h3>' +
@@ -1746,14 +1808,21 @@ function renderCfg() {
   // 在籍の管理
   var names = {}, r = rosterKeys();
   allDates().forEach(function (dd) {
-    blockKeys(snapAt(dd)).forEach(function (bk2) {
-      snapAt(dd).blocks[bk2].teachers.forEach(function (t) { names[tKey(t.name)] = t.name; });
+    var sn = snapAt(dd);
+    Object.keys(sn.blocks).forEach(function (bk2) {
+      (sn.blocks[bk2].teachers || []).forEach(function (t) { names[tKey(t.name)] = t.name; });
     });
   });
   var keys = Object.keys(names).sort(function (a, b) { return names[a].localeCompare(names[b], 'ja'); });
-  h += '<div class="card"><h3>先生の在籍 <span class="sub">在籍外は表彰候補と平均超えリストから外れます</span></h3>' +
+  var outCount = keys.filter(isOut).length;
+  h += '<div class="card"><h3>先生の在籍 <span class="sub">在籍外の先生は画面に出ません</span></h3>' +
     '<div class="row"><label><input type="checkbox" id="cbAuto"' + (DB.cfg.autoOut ? ' checked' : '') +
     '> 最新のSSに載っていない先生を自動で在籍外にする</label></div>' +
+    '<div class="row"><label><input type="checkbox" id="cbShowOut"' + (DB.cfg.showOut ? ' checked' : '') +
+    '> 在籍外の先生も画面に出す</label>' +
+    '<span class="muted">今 ' + outCount + '名が在籍外です</span></div>' +
+    '<div class="row"><button class="btn dgr" id="pruneOut">在籍外' + outCount + '名のデータを保存から消す</button>' +
+    '<span class="muted">容量が空きます。消しても、その先生が載っているSSを取り込み直せば戻ります。</span></div>' +
     '<div class="muted">退職すると先生明細から名前が消えるので自動で判別できます。' +
     '<b>退職“予定”の先生はまだ載っている</b>ので、下で手動で外してください。</div>' +
     '<div class="ylist" style="margin-top:8px">' +
@@ -1764,11 +1833,19 @@ function renderCfg() {
         (auto ? '<span class="badge out">自動で在籍外</span>' : '') + '</label>';
     }).join('') + '</div></div>';
 
-  h += '<div class="card"><h3>取り込み済みのデータ <span class="sub">' + ds.length + '日分</span></h3>';
+  var kb = sizeKB();
+  h += '<div class="card"><h3>取り込み済みのデータ <span class="sub">' + ds.length + '日分・約' + kb + ' KB</span></h3>';
+  if (kb > 2000) {
+    h += '<div class="msg er">保存量が増えています（ブラウザの上限はだいたい5000KBで、他の塾ツールと共用です）。' +
+      '下の「古い日を間引く」か「在籍外を消す」で減らせます。</div>';
+  }
+  h += '<div class="row"><button class="btn sec" id="thinOld">' + (DB.cfg.keepDays || 70) +
+    '日より古い日を間引く</button>' +
+    '<span class="muted">日曜（前週の確定値）だけを残し、テスト回別は落とします。' +
+    '推移グラフは日曜のデータから作っているので欠けません。</span></div>';
   if (!ds.length) h += '<div class="muted">まだありません。</div>';
   else {
-    h += '<div class="muted">保存サイズの目安: <b>' + sizeKB() + ' KB</b></div>' +
-      '<div class="ylist" style="margin-top:8px">' + ds.map(function (x) {
+    h += '<div class="ylist" style="margin-top:8px">' + ds.map(function (x) {
         var s = snapAt(x);
         return '<span class="yi">' + fmtDate(x) + (s.finalized ? '<span class="chip fix">確定</span>' : '') +
           ' <a href="#" data-rm="' + x + '" style="color:#c0392b">×</a></span>';
@@ -1779,6 +1856,19 @@ function renderCfg() {
   host.innerHTML = h;
   wireCfg();
 }
+/* 既に取り込んだ日に回別が入っていなければ、取り込み直しを促す */
+function noTestNote() {
+  if (!DB.cfg.tests) return '';
+  var ds = allDates(), miss = 0;
+  ds.forEach(function (d) {
+    var b = snapAt(d).blocks;
+    if (!Object.keys(b).some(function (k) { return k.indexOf('cum') !== 0; })) miss++;
+  });
+  if (!miss) return '';
+  return '<div class="msg er">回別が入っていない日が ' + miss + '日あります。' +
+    'テスト回別を見るには、SSフォルダのファイルをもう一度まとめて放り込んでください。</div>';
+}
+
 function sizeKB() {
   try { return Math.round((localStorage.getItem(LS_SNAP) || '').length / 1024); } catch (e) { return '?'; }
 }
@@ -1804,7 +1894,7 @@ async function importFiles(files, msgId) {
     var f = list[i];
     try {
       var buf = new Uint8Array(await f.arrayBuffer());
-      var snap = await parseSSFile(buf, { tests: !!DB.cfg.tests });
+      var snap = await parseSSFile(buf, { tests: DB.cfg.tests !== false });
       DB.snaps[snap.date] = trimSnap(snap);
       added.push(snap.date); ok++;
     } catch (e) {
@@ -1969,7 +2059,14 @@ function wireCfg() {
   });
   el('pick').onclick = function () { el('fin').click(); };
   el('fin').onchange = async function () { await importFiles(this.files, 'impmsg'); this.value = ''; refreshAll(); };
-  el('cbTests').onchange = function () { DB.cfg.tests = this.checked; saveCfg(); };
+  el('cbTests').onchange = function () { DB.cfg.tests = this.checked; saveCfg(); renderCfg(); };
+  el('cbShowOut').onchange = function () { DB.cfg.showOut = this.checked; saveCfg(); refreshAll(); renderCfg(); };
+  el('pruneOut').onclick = function () {
+    if (!confirm('在籍外の先生のデータを保存から消します。画面の表示は変わりません（もともと出していないため）。よろしいですか？')) return;
+    var n = pruneOut();
+    refreshAll(); renderCfg();
+    setMsg('impmsg', n + '名分を消しました。保存サイズは ' + sizeKB() + ' KB になりました。', 'ok');
+  };
 
   el('fsPick').onclick = fsPickDir;
   el('fsScan').onclick = function () { fsScan(true); };
@@ -2029,6 +2126,12 @@ function wireCfg() {
       delete DB.snaps[d]; saveSnaps(); boot(true); show('cfg');
     };
   });
+  el('thinOld').onclick = function () {
+    if (!confirm((DB.cfg.keepDays || 70) + '日より古い日を間引きます。日曜（前週の確定値）だけが残り、テスト回別は落ちます。よろしいですか？')) return;
+    var r = thinOld();
+    refreshAll(); renderCfg();
+    setMsg('impmsg', '平日 ' + r.removed + '日分を削除し、' + r.thinned + '日分を累計だけにしました。保存サイズは ' + sizeKB() + ' KB になりました。', 'ok');
+  };
   el('wipe').onclick = function () {
     if (!confirm('取り込んだSSデータ・タッチ履歴・設定をすべて消します。よろしいですか？')) return;
     [LS_SNAP, LS_CFG, LS_MEMO, LS_OUT, LS_UI].forEach(function (k) { try { localStorage.removeItem(k); } catch (e) {} });
