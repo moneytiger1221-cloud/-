@@ -1,0 +1,1693 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>進路（私立打診値）</title>
+<style>
+/* ==========================================================
+   進路ツール（私立高校 打診値）
+   ・打診値は機密情報。データはこの端末のブラウザ内（localStorage）だけに置く。
+   ・PDFはブラウザの中だけで解析する。外部への通信は一切しない。
+   ========================================================== */
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;font-family:"Segoe UI","Hiragino Kaku Gothic ProN","Meiryo",sans-serif;
+  background:#f4f6f9;color:#22303f;font-size:13px;}
+body{display:flex;flex-direction:column;}
+button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit;}
+a{color:#2b6fe0;}
+
+/* ---- ヘッダ ---- */
+#top{flex:0 0 auto;background:#22303f;color:#fff;display:flex;align-items:center;gap:10px;padding:8px 12px;}
+#top .ttl{font-weight:800;font-size:14px;letter-spacing:.5px;white-space:nowrap;}
+#top .ver{font-size:11px;color:#9db2c6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#top .sp{margin-left:auto;}
+#top .lock{font-size:11px;color:#8fd0a8;border:1px solid #3c5a49;background:#233a2d;border-radius:5px;padding:3px 8px;white-space:nowrap;}
+
+/* ---- タブ ---- */
+#tabs{flex:0 0 auto;display:flex;background:#2c3e50;overflow-x:auto;scrollbar-width:none;}
+#tabs::-webkit-scrollbar{display:none;}
+.tab{flex:0 0 auto;border:none;background:transparent;color:#a8b8c8;font-weight:700;font-size:13px;
+  padding:9px 16px;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;}
+.tab:hover{background:#374d63;color:#e2ecf5;}
+.tab.on{color:#fff;border-bottom-color:#4a9df0;background:#37506a;}
+
+/* ---- 本体 ---- */
+#body{flex:1 1 auto;overflow:auto;padding:12px;}
+.pane{display:none;}
+.pane.on{display:block;}
+.card{background:#fff;border:1px solid #dde3ea;border-radius:8px;padding:12px;margin-bottom:12px;
+  box-shadow:0 1px 3px rgba(0,0,0,.04);}
+.card>h3{margin:0 0 10px;font-size:13.5px;color:#33465a;display:flex;align-items:center;gap:8px;}
+.card>h3 .sub{font-weight:400;font-size:11.5px;color:#7a8b9c;}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+.row>label{font-size:12px;color:#5a6b7d;}
+.grow{flex:1 1 auto;}
+.muted{color:#7a8b9c;}
+.small{font-size:11.5px;}
+.mono{font-variant-numeric:tabular-nums;}
+
+/* ---- 部品 ---- */
+.btn{border:1px solid #c3cfdb;background:#fff;border-radius:6px;padding:6px 12px;font-size:12.5px;
+  font-weight:700;cursor:pointer;}
+.btn:hover{background:#eef3f8;}
+.btn.pri{background:#2b6fe0;border-color:#2b6fe0;color:#fff;}
+.btn.pri:hover{background:#215bbd;}
+.btn.dan{background:#fff;border-color:#e3b0ac;color:#b83b34;}
+.btn.dan:hover{background:#fdf0ef;}
+.btn:disabled{opacity:.45;cursor:default;}
+.btn.sm{padding:3px 8px;font-size:11.5px;}
+input[type=text],input[type=number],select,textarea{border:1px solid #c3cfdb;border-radius:5px;padding:5px 7px;background:#fff;}
+input[type=number]{width:72px;}
+input.num{width:58px;text-align:right;}
+textarea{width:100%;min-height:60px;}
+.tag{display:inline-block;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;white-space:nowrap;}
+.t-ok{background:#e4f4e8;color:#2b7a45;border:1px solid #b6ddc2;}
+.t-near{background:#fdf3dd;color:#8a6300;border:1px solid #ecd39a;}
+.t-ng{background:#fbeceb;color:#a3413a;border:1px solid #e8bfbb;}
+.t-unk{background:#eef1f5;color:#5a6b7d;border:1px solid #d3dbe4;}
+.t-info{background:#e8f0fb;color:#2559a8;border:1px solid #bed4f0;}
+.t-warn{background:#fdf0e3;color:#9a5b12;border:1px solid #edcfa8;}
+
+/* ---- 表 ---- */
+table.tbl{border-collapse:collapse;width:100%;font-size:12px;}
+table.tbl th,table.tbl td{border:1px solid #dde3ea;padding:5px 7px;text-align:left;vertical-align:top;}
+table.tbl th{background:#eef2f7;font-weight:700;color:#44566a;position:sticky;top:0;z-index:2;white-space:nowrap;}
+table.tbl tbody tr:nth-child(even){background:#fafcfe;}
+table.tbl tbody tr:hover{background:#eff5fc;}
+table.tbl td.c{text-align:center;}
+table.tbl td.r{text-align:right;}
+.scroller{overflow:auto;max-height:calc(100vh - 300px);border:1px solid #dde3ea;border-radius:6px;background:#fff;}
+.scroller table.tbl{border:none;}
+.nowrap{white-space:nowrap;}
+.clip2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+
+/* ---- 詳細モーダル ---- */
+#modal{position:fixed;inset:0;background:rgba(20,30,40,.45);display:none;z-index:60;padding:20px;}
+#modal.on{display:flex;align-items:flex-start;justify-content:center;}
+#modalbox{background:#fff;border-radius:10px;max-width:960px;width:100%;max-height:calc(100vh - 40px);
+  overflow:auto;box-shadow:0 8px 30px rgba(0,0,0,.25);}
+#modalhd{position:sticky;top:0;background:#fff;border-bottom:1px solid #e3e9f0;padding:12px 16px;
+  display:flex;align-items:center;gap:10px;z-index:2;}
+#modalhd .nm{font-weight:800;font-size:15px;}
+#modalbd{padding:14px 16px;}
+dl.kv{margin:0;display:grid;grid-template-columns:120px 1fr;gap:1px;background:#e6ecf3;border:1px solid #e6ecf3;border-radius:6px;overflow:hidden;}
+dl.kv dt{background:#f4f7fa;padding:6px 9px;font-weight:700;font-size:11.5px;color:#4a5c6e;}
+dl.kv dd{background:#fff;margin:0;padding:6px 9px;font-size:12px;white-space:pre-wrap;word-break:break-word;}
+
+/* ---- 取込 ---- */
+#drop{border:2px dashed #b9c8d8;border-radius:10px;padding:26px;text-align:center;color:#6a7c8e;background:#fbfdff;cursor:pointer;}
+#drop.hot{border-color:#2b6fe0;background:#eef5ff;color:#2559a8;}
+.loglist{font-size:12px;line-height:1.8;margin:0;padding-left:18px;}
+.loglist li.ng{color:#b83b34;}
+.loglist li.ok{color:#2b7a45;}
+
+/* ---- 生徒 ---- */
+.stu{display:flex;flex-wrap:wrap;gap:6px;}
+.stu .chip{border:1px solid #c3cfdb;border-radius:16px;padding:4px 12px;cursor:pointer;background:#fff;font-size:12px;}
+.stu .chip.on{background:#2b6fe0;border-color:#2b6fe0;color:#fff;font-weight:700;}
+.gridin{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;}
+.gridin .fld{display:flex;flex-direction:column;gap:3px;}
+.gridin .fld label{font-size:11px;color:#5a6b7d;}
+.hint{font-size:11.5px;color:#7a8b9c;line-height:1.7;}
+.warnbox{background:#fdf6e8;border:1px solid #ecd8a8;border-radius:6px;padding:9px 11px;font-size:12px;color:#7a5a12;line-height:1.7;}
+.okbox{background:#eef7f0;border:1px solid #bfdfc8;border-radius:6px;padding:9px 11px;font-size:12px;color:#2b6b42;line-height:1.7;}
+.errbox{background:#fbeceb;border:1px solid #e8bfbb;border-radius:6px;padding:9px 11px;font-size:12px;color:#96372f;line-height:1.7;}
+
+@media (max-width:820px){
+  #body{padding:8px;}
+  .card{padding:9px;}
+  .tab{padding:8px 11px;font-size:12px;}
+  dl.kv{grid-template-columns:82px 1fr;}
+  .scroller{max-height:none;}
+}
+</style>
+</head>
+<body>
+
+<div id="top">
+  <span class="ttl">🎓 進路（私立打診値）</span>
+  <span class="ver" id="verLabel">データ未取込</span>
+  <span class="sp"></span>
+  <span class="lock" title="打診値はこの端末のブラウザ内だけに保存されます。外部には一切送信しません。">🔒 端末内のみ</span>
+</div>
+
+<div id="tabs">
+  <button class="tab on" data-p="suggest">提案</button>
+  <button class="tab" data-p="schools">学校一覧</button>
+  <button class="tab" data-p="access">通学時間</button>
+  <button class="tab" data-p="import">取込・版</button>
+  <button class="tab" data-p="settings">設定</button>
+</div>
+
+<div id="body">
+
+  <!-- ============ 提案 ============ -->
+  <div class="pane on" id="p-suggest">
+    <div class="card">
+      <h3>生徒 <span class="sub">内申を入れると、届く学校が出ます</span></h3>
+      <div class="row" style="margin-bottom:8px;">
+        <div class="stu grow" id="stuChips"></div>
+        <button class="btn sm" id="btnStuNew">＋ 新規</button>
+        <button class="btn sm" id="btnStuFromRoster">名簿から選ぶ</button>
+        <button class="btn sm dan" id="btnStuDel">この生徒を削除</button>
+      </div>
+      <div id="stuEdit"></div>
+    </div>
+
+    <div class="card">
+      <h3>条件</h3>
+      <div class="row">
+        <label>選考</label>
+        <select id="fKind">
+          <option value="単願推薦基準">単願推薦</option>
+          <option value="併願推薦基準">併願推薦</option>
+          <option value="一般専願基準">一般専願</option>
+          <option value="一般併願基準">一般併願</option>
+        </select>
+        <label>通学</label>
+        <select id="fTime">
+          <option value="0">指定なし</option>
+          <option value="30">30分以内</option>
+          <option value="45">45分以内</option>
+          <option value="60" selected>60分以内</option>
+          <option value="75">75分以内</option>
+          <option value="90">90分以内</option>
+        </select>
+        <label>並び</label>
+        <select id="fSort">
+          <option value="tight">おすすめ順（ぎりぎり届く学校から）</option>
+          <option value="loose">余裕が大きい順</option>
+          <option value="time">通学が近い順</option>
+        </select>
+        <label>共学形態</label>
+        <select id="fSex"><option value="">すべて</option><option value="共">共学</option><option value="男">男子</option><option value="女">女子</option></select>
+        <label><input type="checkbox" id="fNear" checked> あと少し（-3まで）も出す</label>
+        <label><input type="checkbox" id="fUnk"> 判定できない学校も出す</label>
+        <label><input type="checkbox" id="fTokutai"> 特待が狙える学校だけ</label>
+        <span class="grow"></span>
+        <input type="text" id="fWord" placeholder="校名・コースで絞る" style="width:170px;">
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>結果 <span class="sub" id="sgCount"></span></h3>
+      <div class="scroller"><table class="tbl" id="sgTbl"></table></div>
+    </div>
+  </div>
+
+  <!-- ============ 学校一覧 ============ -->
+  <div class="pane" id="p-schools">
+    <div class="card">
+      <div class="row">
+        <input type="text" id="scWord" placeholder="校名・コース・交通で検索" style="width:230px;">
+        <select id="scSex"><option value="">共学形態すべて</option><option value="共">共学</option><option value="男">男子</option><option value="女">女子</option></select>
+        <select id="scSort">
+          <option value="name">校名順</option>
+          <option value="time">通学時間が短い順</option>
+          <option value="tan">単願推薦の基準が低い順</option>
+          <option value="ippan">一般併願の基準が低い順</option>
+        </select>
+        <label><input type="checkbox" id="scNeed"> 要確認だけ表示</label>
+        <span class="grow"></span>
+        <span class="small muted" id="scCount"></span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="scroller"><table class="tbl" id="scTbl"></table></div>
+    </div>
+  </div>
+
+  <!-- ============ 通学時間 ============ -->
+  <div class="pane" id="p-access">
+    <div class="card">
+      <h3>起点と乗換 <span class="sub">校舎から通う前提の設定。一度入れれば以後ずっと使えます</span></h3>
+      <div class="row">
+        <label>起点の駅</label><input type="text" id="acOrigin" style="width:120px;">
+        <label>乗換1回あたり</label><input type="number" id="acTransfer" min="0" max="30"> 分
+        <button class="btn" id="acSave">保存</button>
+        <span class="grow"></span>
+        <span class="small muted" id="acStat"></span>
+      </div>
+      <div class="hint" style="margin-top:8px;">
+        初期値は<b>目安（未確認）</b>です。実際に調べた駅は「確認済」にチェックを入れてください。
+        チェックの無い駅は結果に「〜」を付けて表示します。
+      </div>
+    </div>
+    <div class="card">
+      <div class="row" style="margin-bottom:8px;">
+        <input type="text" id="acWord" placeholder="駅名で絞る" style="width:160px;">
+        <label><input type="checkbox" id="acOnlyBlank"> 未設定だけ</label>
+        <span class="grow"></span>
+        <button class="btn sm" id="acAdd">＋ 駅を追加</button>
+      </div>
+      <div class="scroller"><table class="tbl" id="acTbl"></table></div>
+    </div>
+  </div>
+
+  <!-- ============ 取込・版 ============ -->
+  <div class="pane" id="p-import">
+    <div class="card">
+      <h3>PDFを取り込む <span class="sub">解析はこの画面の中だけで行われます（外部送信なし）</span></h3>
+      <div id="drop">
+        ここに打診値一覧のPDFをドラッグ＆ドロップ<br>
+        <span class="small">またはクリックしてファイルを選ぶ</span>
+        <input type="file" id="file" accept="application/pdf,.pdf" style="display:none;">
+      </div>
+      <div id="impLog" style="margin-top:10px;"></div>
+      <div id="impActions" style="margin-top:10px;display:none;">
+        <div class="row">
+          <label>この版の名前</label><input type="text" id="impLabel" style="width:260px;">
+          <label>基準日</label><input type="text" id="impAsOf" placeholder="例: 2026-08-29" style="width:120px;">
+          <button class="btn pri" id="impSave">この内容で保存する</button>
+          <button class="btn" id="impCancel">やめる</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>保存されている版</h3>
+      <div class="scroller" style="max-height:none;"><table class="tbl" id="verTbl"></table></div>
+    </div>
+    <div class="card" id="diffCard" style="display:none;">
+      <h3>前の版との違い <span class="sub" id="diffSub"></span></h3>
+      <div id="diffBody"></div>
+    </div>
+  </div>
+
+  <!-- ============ 設定 ============ -->
+  <div class="pane" id="p-settings">
+    <div class="card">
+      <h3>この端末に保存されているもの</h3>
+      <div id="stStorage"></div>
+    </div>
+    <div class="card">
+      <h3>手で直した内容</h3>
+      <div id="stEdits"></div>
+    </div>
+    <div class="card">
+      <h3>バックアップ</h3>
+      <div class="row">
+        <button class="btn" id="stExport">JSONに書き出す</button>
+        <button class="btn" id="stImport">JSONから読み込む</button>
+        <input type="file" id="stFile" accept="application/json,.json" style="display:none;">
+      </div>
+      <div class="hint" style="margin-top:6px;">
+        書き出したJSONには打診値が入ります。<b>共有フォルダやメールに置かないでください。</b>
+      </div>
+    </div>
+    <div class="card">
+      <h3>全消去</h3>
+      <div class="row">
+        <button class="btn dan" id="stClear">この端末の進路データを全部消す</button>
+      </div>
+      <div class="hint" style="margin-top:6px;">版・生徒・駅・手直しのすべてが消えます。取り消せません。</div>
+    </div>
+  </div>
+
+</div>
+
+<div id="modal"><div id="modalbox">
+  <div id="modalhd"><span class="nm" id="modalNm"></span><span class="sp grow"></span><button class="btn sm" id="modalX">閉じる</button></div>
+  <div id="modalbd"></div>
+</div></div>
+
+<script>
+"use strict";
+
+/* ===================================================================
+   打診値一覧PDF パーサ（ライブラリ非依存・ブラウザ内で完結）
+   inflate だけ外から渡す（ブラウザ=DecompressionStream / Node=zlib）
+   =================================================================== */
+(function(root){
+'use strict';
+
+/* ---------- 低レベル ---------- */
+function bytesToLatin1(u8){
+  var CH=0x8000, out=[];
+  for(var i=0;i<u8.length;i+=CH) out.push(String.fromCharCode.apply(null,u8.subarray(i,i+CH)));
+  return out.join('');
+}
+
+/* オブジェクトを総なめする。xref/ObjStmを解かなくても
+   「N G obj … (stream…endstream) … endobj」の形は全部拾える。 */
+function scanObjects(u8, raw){
+  var re=/(\d+)\s+(\d+)\s+obj\b/g, m, list=[];
+  while((m=re.exec(raw))) list.push({num:+m[1], hdrEnd:re.lastIndex});
+  var objs={};
+  for(var i=0;i<list.length;i++){
+    var o=list[i], stop = (i+1<list.length) ? list[i+1].hdrEnd : raw.length;
+    var st=raw.indexOf('stream', o.hdrEnd);
+    var eo=raw.indexOf('endobj', o.hdrEnd);
+    var rec={num:o.num, dict:'', start:-1, end:-1};
+    if(st>=0 && st<stop && (eo<0 || st<eo)){
+      rec.dict = raw.slice(o.hdrEnd, st);
+      var ds=st+6; if(raw.charCodeAt(ds)===13)ds++; if(raw.charCodeAt(ds)===10)ds++;
+      var en=raw.indexOf('endstream', ds);
+      if(en>=0){ rec.start=ds; rec.end=en; }
+    } else {
+      rec.dict = raw.slice(o.hdrEnd, eo<0?Math.min(stop,o.hdrEnd+4000):eo);
+    }
+    objs[o.num]=rec;
+  }
+  return objs;
+}
+
+/* ---------- 埋め込みTrueTypeの cmap を逆引き（GID→Unicode） ---------- */
+function ttfGidToUnicode(u8){
+  var map={};
+  try{
+    var dv=new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+    var num=dv.getUint16(4), cmapOff=-1;
+    for(var i=0;i<num;i++){
+      var r=12+i*16, tag='';
+      for(var k=0;k<4;k++) tag+=String.fromCharCode(u8[r+k]);
+      if(tag==='cmap'){ cmapOff=dv.getUint32(r+8); break; }
+    }
+    if(cmapOff<0) return map;
+    var n=dv.getUint16(cmapOff+2), best=-1, bestScore=-1;
+    for(var j=0;j<n;j++){
+      var rr=cmapOff+4+j*8, pid=dv.getUint16(rr), eid=dv.getUint16(rr+2), off=dv.getUint32(rr+4);
+      var sc = (pid===3&&eid===10)?5 : (pid===3&&eid===1)?4 : (pid===0)?3 : 1;
+      if(sc>bestScore){ bestScore=sc; best=cmapOff+off; }
+    }
+    if(best<0) return map;
+    var fmt=dv.getUint16(best);
+    if(fmt===4){
+      var segX2=dv.getUint16(best+6), seg=segX2/2;
+      var endO=best+14, startO=endO+segX2+2, deltaO=startO+segX2, rangeO=deltaO+segX2;
+      for(var si=0; si<seg; si++){
+        var end=dv.getUint16(endO+si*2), sta=dv.getUint16(startO+si*2);
+        var delta=dv.getUint16(deltaO+si*2), ro=dv.getUint16(rangeO+si*2);
+        if(sta===0xFFFF) continue;
+        for(var c=sta;c<=end && c!==0xFFFF;c++){
+          var gid;
+          if(ro===0) gid=(c+delta)&0xFFFF;
+          else{
+            var gi=rangeO+si*2+ro+(c-sta)*2;
+            if(gi+1>=u8.length) continue;
+            gid=dv.getUint16(gi); if(gid) gid=(gid+delta)&0xFFFF;
+          }
+          if(gid && map[gid]===undefined) map[gid]=String.fromCharCode(c);
+        }
+      }
+    } else if(fmt===12){
+      var ng=dv.getUint32(best+12);
+      for(var gi2=0; gi2<ng; gi2++){
+        var r2=best+16+gi2*12, s2=dv.getUint32(r2), e2=dv.getUint32(r2+4), sg=dv.getUint32(r2+8);
+        if(e2-s2>0x10000) e2=s2+0x10000;
+        for(var cc=s2; cc<=e2; cc++){ var g2=sg+cc-s2; if(map[g2]===undefined) map[g2]=String.fromCodePoint(cc); }
+      }
+    }
+  }catch(e){}
+  return map;
+}
+
+/* ---------- ToUnicode CMap ---------- */
+function parseToUnicode(txt){
+  var U={};
+  txt.replace(/beginbfchar([\s\S]*?)endbfchar/g, function(_,b){
+    b.replace(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g, function(_,a,c){
+      var hs=c.match(/.{1,4}/g)||[], s='';
+      for(var i=0;i<hs.length;i++) s+=String.fromCharCode(parseInt(hs[i],16));
+      U[parseInt(a,16)]=s; return '';
+    }); return '';
+  });
+  txt.replace(/beginbfrange([\s\S]*?)endbfrange/g, function(_,b){
+    b.replace(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g, function(_,a,c,d){
+      var A=parseInt(a,16), C=parseInt(c,16), D=parseInt(d,16);
+      if(C-A>0x10000) C=A+0x10000;
+      for(var i=A;i<=C;i++) U[i]=String.fromCharCode(D+i-A);
+      return '';
+    }); return '';
+  });
+  return U;
+}
+
+/* ---------- 参照の取り出し ---------- */
+function refNum(dict, key){
+  var m=new RegExp('\\/'+key+'\\s+(\\d+)\\s+\\d+\\s+R').exec(dict);
+  return m? +m[1] : null;
+}
+
+/* ---------- ストリーム展開 ---------- */
+async function streamBytes(rec, u8, inflate){
+  if(!rec || rec.start<0) return null;
+  /* 末尾の改行を落とす。/Length があればそれを最優先で使う。 */
+  var ends=[], trimmed=rec.end;
+  while(trimmed>rec.start && (u8[trimmed-1]===10||u8[trimmed-1]===13||u8[trimmed-1]===32)) trimmed--;
+  var lm=/\/Length\s+(\d+)(?!\s+\d+\s+R)/.exec(rec.dict);
+  if(lm){ var n=+lm[1]; if(n>0 && rec.start+n<=rec.end) ends.push(rec.start+n); }
+  if(ends.indexOf(trimmed)<0) ends.push(trimmed);
+  if(ends.indexOf(rec.end)<0) ends.push(rec.end);
+  if(!/FlateDecode/.test(rec.dict)) return u8.subarray(rec.start, ends[0]);
+  for(var i=0;i<ends.length;i++){
+    var raw=u8.subarray(rec.start, ends[i]);
+    if(raw.length<2) continue;
+    try{ return await inflate(raw,'deflate'); }catch(e){}
+    try{ return await inflate(raw,'deflate-raw'); }catch(e2){}
+  }
+  return null;
+}
+async function streamText(rec, u8, inflate){
+  var b=await streamBytes(rec,u8,inflate);
+  return b? bytesToLatin1(b) : '';
+}
+
+/* ---------- フォント解決 ---------- */
+async function buildFonts(objs, u8, inflate, resDict){
+  var fonts={};
+  var fm=/\/Font\s*<<([\s\S]*?)>>/.exec(resDict);
+  if(!fm) return fonts;
+  var entries=fm[1].match(/\/([A-Za-z0-9_]+)\s+(\d+)\s+\d+\s+R/g)||[];
+  for(var i=0;i<entries.length;i++){
+    var em=/\/([A-Za-z0-9_]+)\s+(\d+)/.exec(entries[i]);
+    var name=em[1], fo=objs[+em[2]];
+    if(!fo) continue;
+    var d=fo.dict, f={twoByte:false, simple:false, toUni:{}, gid:{}};
+    f.twoByte = /\/Subtype\s*\/Type0/.test(d) && /Identity/.test(d);
+    /* Type0 以外（TrueType/Type1）は 1バイト＝そのままの文字コード。
+       GID逆引きを当てると数字が別の字に化けるので使ってはいけない。 */
+    f.simple = !/\/Subtype\s*\/Type0/.test(d);
+    var tu=refNum(d,'ToUnicode');
+    if(tu && objs[tu]) f.toUni=parseToUnicode(await streamText(objs[tu], u8, inflate));
+    var descNum=null;
+    var dm=/\/DescendantFonts\s*(?:\[\s*(\d+)\s+\d+\s+R\s*\]|(\d+)\s+\d+\s+R)/.exec(d);
+    if(dm){
+      var dn=+(dm[1]||dm[2]);
+      /* /DescendantFonts 9 0 R → obj9 が [ 10 0 R ] という配列のことがある */
+      if(objs[dn]){
+        var arr=/^\s*\[\s*(\d+)\s+\d+\s+R\s*\]/.exec(objs[dn].dict);
+        if(arr && objs[+arr[1]]) dn=+arr[1];
+        if(objs[dn]) descNum=refNum(objs[dn].dict,'FontDescriptor');
+      }
+    }
+    else descNum=refNum(d,'FontDescriptor');
+    if(descNum && objs[descNum] && !f.simple){
+      var ff=refNum(objs[descNum].dict,'FontFile2');
+      if(ff && objs[ff]){
+        var fb=await streamBytes(objs[ff], u8, inflate);
+        if(fb) f.gid=ttfGidToUnicode(fb);
+      }
+    }
+    fonts[name]=f;
+  }
+  return fonts;
+}
+
+/* ---------- 文字コード → 文字 ---------- */
+function mapCode(c,f){
+  if(!f) return String.fromCharCode(c);
+  if(f.toUni[c]!==undefined) return f.toUni[c];
+  if(f.simple) return String.fromCharCode(c);   /* WinAnsi等の1バイトフォント */
+  if(f.gid[c]!==undefined) return f.gid[c];
+  return '〓';                    /* 〓 = 復元できなかった文字（検証で弾く） */
+}
+function decodeHex(h,f){
+  h=h.replace(/[^0-9A-Fa-f]/g,'');
+  var out='', step=(f&&f.twoByte)?4:2;
+  if(step===4 && h.length%4) h=h+'000'.slice(0,4-h.length%4);
+  for(var i=0;i<h.length;i+=step) out+=mapCode(parseInt(h.substr(i,step),16),f);
+  return out;
+}
+function decodeLit(t,f){
+  var out='';
+  t=t.replace(/\\([nrtbf()\\]|[0-7]{1,3})/g,function(_,e){
+    if(e==='n')return '\n'; if(e==='r')return '\r'; if(e==='t')return '\t';
+    if(e==='b')return '\b'; if(e==='f')return '\f';
+    if(e==='('||e===')'||e==='\\')return e;
+    return String.fromCharCode(parseInt(e,8));
+  });
+  if(f&&f.twoByte){ for(var i=0;i+1<t.length;i+=2) out+=mapCode((t.charCodeAt(i)<<8)|t.charCodeAt(i+1),f); }
+  else { for(var j=0;j<t.length;j++) out+=mapCode(t.charCodeAt(j),f); }
+  return out;
+}
+
+/* ---------- 1ページ分のテキスト片を座標付きで取り出す ---------- */
+function extractRuns(content, fonts){
+  var runs=[], rects=[];
+  var reRect=/(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+re\b/g, mr;
+  while((mr=reRect.exec(content))) rects.push({x:+mr[1],y:+mr[2],w:+mr[3],h:+mr[4],at:mr.index,end:reRect.lastIndex});
+
+  var reBT=/BT([\s\S]*?)ET/g, mb;
+  while((mb=reBT.exec(content))){
+    var body=mb[1], at=mb.index;
+    /* 直前の「re W* n」＝このテキストを囲むセル枠（縦結合セルの実体） */
+    var clip=null;
+    for(var i=rects.length-1;i>=0;i--){
+      if(rects[i].end>at) continue;
+      if(rects[i].end<at-300) break;
+      if(/^\s*W\*?\s*n/.test(content.slice(rects[i].end, rects[i].end+16))){ clip=rects[i]; break; }
+    }
+    var f=null, x=0, y=0;
+    var re2=/\/([A-Za-z0-9_]+)\s+[\d.]+\s+Tf|([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+Tm|([-\d.]+)\s+([-\d.]+)\s+Td|\[([^\]]*)\]\s*TJ|<([0-9A-Fa-f\s]*)>\s*Tj|\(((?:\\.|[^()\\])*)\)\s*Tj/g;
+    var m2;
+    while((m2=re2.exec(body))){
+      if(m2[1]!==undefined){ f=fonts[m2[1]]||f; }
+      else if(m2[2]!==undefined){ x=+m2[6]; y=+m2[7]; }
+      else if(m2[8]!==undefined){ x+=+m2[8]; y+=+m2[9]; }
+      else if(m2[10]!==undefined){
+        var s='';
+        m2[10].replace(/<([0-9A-Fa-f\s]*)>/g, function(_,h){ s+=decodeHex(h,f); return ''; });
+        m2[10].replace(/\(((?:\\.|[^()\\])*)\)/g, function(_,t){ s+=decodeLit(t,f); return ''; });
+        if(s) runs.push({x:x,y:y,s:s,clip:clip});
+      }
+      else if(m2[11]!==undefined){ var s2=decodeHex(m2[11],f); if(s2) runs.push({x:x,y:y,s:s2,clip:clip}); }
+      else if(m2[12]!==undefined){ var s3=decodeLit(m2[12],f); if(s3) runs.push({x:x,y:y,s:s3,clip:clip}); }
+    }
+  }
+  return {runs:runs, rects:rects};
+}
+
+/* ---------- 列の定義（打診値一覧のレイアウト） ---------- */
+var COLDEF=[
+  ['校名',        18,   64],
+  ['コース',      64,  111],
+  ['交通',       111,  161],
+  ['形',         161,  183],
+  ['所在地',     183,  211],
+  ['情報',       211,  251],
+  ['推薦入試',   251,  271],
+  ['一般入試',   271,  292],
+  ['二次入試',   292,  312],
+  ['推薦確約',   312,  333],
+  ['単願推薦基準',333, 447],
+  ['併願推薦基準',447, 561],
+  ['一般確約',   561,  581],
+  ['一般専願基準',581, 696],
+  ['一般併願基準',696, 811],
+  ['特待有無',   811,  843],
+  ['特待内容',   843,  963],
+  ['公立前納付', 963,  998],
+  ['その他',     998, 1180]
+];
+function colOf(x){
+  for(var i=0;i<COLDEF.length;i++) if(x>=COLDEF[i][1]-2 && x<COLDEF[i][2]-2) return COLDEF[i][0];
+  return null;
+}
+
+/* ---------- 表の組み立て ---------- */
+function buildRows(page){
+  var rects=page.rects, runs=page.runs;
+  var rules=[];
+  for(var i=0;i<rects.length;i++){
+    var r=rects[i];
+    if(Math.abs(r.h)<2 && r.w>1000) rules.push(Math.round(r.y*100)/100);
+  }
+  rules=rules.filter(function(v,i,a){return a.indexOf(v)===i;}).sort(function(a,b){return b-a;});
+  if(rules.length<3) return {rows:[],bands:[],top:0};
+  var allBands=[];
+  for(var j=0;j<rules.length-1;j++) allBands.push({top:rules[j], bottom:rules[j+1]});
+
+  function assign(bands, ceiling){
+    var cells=bands.map(function(){ return {}; });
+    function bandIndex(y){
+      for(var k=0;k<bands.length;k++) if(y>=bands[k].bottom-1 && y<bands[k].top) return k;
+      return -1;
+    }
+    var live=[];
+    /* 1) まず自分のY座標が入るバンドへ入れる（通常のセル） */
+    for(var n=0;n<runs.length;n++){
+      var run=runs[n];
+      if(run.y>=ceiling) continue;
+      var col=colOf(run.x); if(!col) continue;
+      live.push(run);
+      var bi=bandIndex(run.y); if(bi<0) continue;
+      var t=cells[bi]; if(!t[col]) t[col]=[];
+      t[col].push(run);
+    }
+    /* 2) 空のままのセルだけ、枠が縦にまたいでいる文字で埋める（縦結合セル対策）。
+          先に埋まっているセルには触らない＝同じ文字が全行に重複するのを防ぐ。 */
+    for(var b2=0;b2<bands.length;b2++){
+      var mid=(bands[b2].top+bands[b2].bottom)/2;
+      for(var ci=0;ci<COLDEF.length;ci++){
+        var cname=COLDEF[ci][0];
+        if(cells[b2][cname]) continue;
+        var pick=null;
+        for(var m2=0;m2<live.length;m2++){
+          var rn=live[m2];
+          if(colOf(rn.x)!==cname) continue;
+          if(!rn.clip || rn.clip.h<=1) continue;
+          var top=Math.min(rn.clip.y+rn.clip.h, ceiling), bot=rn.clip.y;
+          if(!(mid>bot+1 && mid<top-1)) continue;
+          if(!pick) pick={clip:rn.clip, arr:[]};
+          if(pick.clip===rn.clip) pick.arr.push(rn);
+        }
+        if(pick && pick.arr.length) cells[b2][cname]=pick.arr;
+      }
+    }
+    return cells.map(function(c){
+      var o={};
+      for(var k in c){
+        var arr=c[k].slice().sort(function(a,b){ return (b.y-a.y) || (a.x-b.x); });
+        var s='';
+        for(var i2=0;i2<arr.length;i2++) s+=arr[i2].s;
+        o[k]=s.replace(/ /g,'').trim();
+      }
+      return o;
+    });
+  }
+
+  /* 1回目で見出し行の位置を調べ、2回目は見出しを完全に外して組み直す。
+     見出しセルの枠が下まで伸びていて文字が全行に混ざるのを防ぐため。 */
+  var bands=allBands, ceiling=rules[0];
+  var probe=assign(allBands, rules[0]), hdr=-1;
+  for(var h=0;h<probe.length && h<3;h++){
+    if((probe[h]['校名']||'').indexOf('校名')>=0 || (probe[h]['交通']||'').indexOf('交通')>=0){ hdr=h; break; }
+  }
+  var rows=probe;
+  if(hdr>=0 && hdr+1<allBands.length){
+    bands=allBands.slice(hdr+1);
+    ceiling=allBands[hdr].bottom;
+    rows=assign(bands, ceiling);
+  }
+  return {rows:rows, bands:bands, top:ceiling};
+}
+
+/* ---------- 本体 ---------- */
+async function parsePdf(arrayBuffer, inflate){
+  var u8=new Uint8Array(arrayBuffer);
+  var raw=bytesToLatin1(u8);
+  if(raw.slice(0,5)!=='%PDF-') throw new Error('PDFファイルではありません。');
+  if(/\/Encrypt\s/.test(raw)) throw new Error('暗号化されたPDFは読めません。');
+  var objs=scanObjects(u8, raw);
+
+  var pageNums=[];
+  var kids=/\/Type\s*\/Pages[\s\S]{0,200}?\/Kids\s*\[([\s\S]*?)\]/.exec(raw);
+  if(kids){ var km=kids[1].match(/(\d+)\s+\d+\s+R/g)||[]; pageNums=km.map(function(x){return +/(\d+)/.exec(x)[1];}); }
+  var isPage=function(n){ return objs[n] && /\/Type\s*\/Page[^s]/.test(objs[n].dict); };
+  pageNums=pageNums.filter(isPage);
+  if(!pageNums.length){
+    for(var k in objs) if(isPage(+k)) pageNums.push(+k);
+    pageNums.sort(function(a,b){return a-b;});
+  }
+  if(!pageNums.length) throw new Error('ページが見つかりません。表形式の打診値一覧PDFか確認してください。');
+
+  var allRows=[], warn=[], pageInfo=[], fontCache={};
+  for(var p=0;p<pageNums.length;p++){
+    var po=objs[pageNums[p]];
+    var resM=/\/Resources\s*(<<[\s\S]*?)\/(?:MediaBox|Contents|Group|Tabs|StructParents)/.exec(po.dict);
+    var resDict=resM? resM[1] : po.dict;
+    var fkey=(/\/Font\s*<<([\s\S]*?)>>/.exec(resDict)||[])[1]||('p'+p);
+    if(!fontCache[fkey]) fontCache[fkey]=await buildFonts(objs, u8, inflate, resDict);
+    var fonts=fontCache[fkey];
+
+    var cNum=refNum(po.dict,'Contents');
+    var content='';
+    if(cNum && objs[cNum]) content=await streamText(objs[cNum], u8, inflate);
+    if(!content){ warn.push((p+1)+'ページ目の中身が読めませんでした。'); continue; }
+    var page=extractRuns(content, fonts);
+    var built=buildRows(page);
+    var kept=0;
+    for(var r=0;r<built.rows.length;r++){
+      var row=built.rows[r];
+      if(!row['校名'] || row['校名']==='校名') continue;
+      row.__page=p+1;
+      allRows.push(row); kept++;
+    }
+    pageInfo.push({page:p+1, bands:built.bands.length, rows:kept});
+  }
+  return {rows:allRows, pages:pageInfo, warnings:warn};
+}
+
+root.DashinPdf={ parsePdf:parsePdf, COLDEF:COLDEF };
+
+})(typeof module!=='undefined'&&module.exports? module.exports : (typeof window!=='undefined'? window : this));
+
+
+/* ==========================================================
+   1. 保存（この端末のブラウザ内だけ）
+   ========================================================== */
+var K={
+  ver:'shinro_versions_v1',    cur:'shinro_current_v1',
+  edit:'shinro_edits_v1',      sta:'shinro_stations_v1',
+  stu:'shinro_students_v1',    set:'shinro_settings_v1'
+};
+function lsGet(k,d){ try{ var v=localStorage.getItem(k); return v==null? d : JSON.parse(v); }catch(e){ return d; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); return true; }
+  catch(e){ alert('保存できませんでした（容量オーバーの可能性）。設定タブで古い版を消してください。'); return false; } }
+
+var COLS=['校名','コース','交通','形','所在地','情報','推薦入試','一般入試','二次入試',
+  '推薦確約','単願推薦基準','併願推薦基準','一般確約','一般専願基準','一般併願基準',
+  '特待有無','特待内容','公立前納付','その他'];
+var KINDS=['単願推薦基準','併願推薦基準','一般専願基準','一般併願基準'];
+var KINDLABEL={'単願推薦基準':'単願推薦','併願推薦基準':'併願推薦','一般専願基準':'一般専願','一般併願基準':'一般併願'};
+
+var DEF_SET={origin:'戸塚', transferMin:3, nearLimit:3, busGuessMin:10};
+var S={ versions:[], curId:'', edits:{}, stations:{}, students:[], settings:{} };
+
+function loadAll(){
+  S.versions = lsGet(K.ver,[]) || [];
+  S.curId    = lsGet(K.cur,'') || (S.versions.length? S.versions[S.versions.length-1].id : '');
+  S.edits    = lsGet(K.edit,{}) || {};
+  S.stations = lsGet(K.sta,null);
+  S.students = lsGet(K.stu,[]) || [];
+  S.settings = Object.assign({}, DEF_SET, lsGet(K.set,{})||{});
+  if(!S.stations){ S.stations=seedStations(); lsSet(K.sta,S.stations); }
+}
+function curVersion(){ for(var i=0;i<S.versions.length;i++) if(S.versions[i].id===S.curId) return S.versions[i]; return null; }
+function editKey(r,col){ return (r['校名']||'')+'|#|'+(r['コース']||'')+'|#|'+col; }
+function cellOf(r,col){
+  var k=editKey(r,col);
+  if(S.edits[k]!==undefined) return S.edits[k];
+  return r[col]||'';
+}
+function isEdited(r,col){ return S.edits[editKey(r,col)]!==undefined; }
+
+/* ==========================================================
+   2. 文字の正規化
+   ========================================================== */
+function toHalf(s){
+  return String(s||'')
+    .replace(/[０-９]/g,function(c){ return String.fromCharCode(c.charCodeAt(0)-0xFEE0); })
+    .replace(/[Ａ-Ｚａ-ｚ]/g,function(c){ return String.fromCharCode(c.charCodeAt(0)-0xFEE0); })
+    .replace(/[／]/g,'/').replace(/[：]/g,':').replace(/[，]/g,',')
+    .replace(/[（]/g,'(').replace(/[）]/g,')')
+    .replace(/[　]/g,' ');
+}
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+/* ==========================================================
+   3. 打診値（内申基準）の読み取り
+   ------------------------------------------------------------
+   満点ごとに「どの内申を足した数か」が違う。ここを取り違えると
+   まったく別の学校を勧めてしまうので、迷う書き方は要確認にする。
+   ========================================================== */
+var BASIS={
+  '9科'    :{max:45, label:'3年9科',              need:['g3_9']},
+  '5科'    :{max:25, label:'3年5科',              need:['g3_5']},
+  '3科'    :{max:15, label:'3年3科',              need:['g3_3']},
+  '4科'    :{max:20, label:'3年実技4科',          need:['g3_4']},
+  '5科50'  :{max:50, label:'2年5科+3年5科',       need:['g2_5','g3_5']},
+  '5科75'  :{max:75, label:'2年5科+3年5科×2',     need:['g2_5','g3_5']},
+  '9科90'  :{max:90, label:'2年9科+3年9科',       need:['g2_9','g3_9']},
+  '9科135' :{max:135,label:'2年9科+3年9科×2',     need:['g2_9','g3_9']}
+};
+function scoreFor(basis,st){
+  if(!st) return null;
+  var n=function(k){ var v=st[k]; return (v===''||v==null||isNaN(+v))? null : +v; };
+  switch(basis){
+    case '9科':   return n('g3_9');
+    case '5科':   return n('g3_5');
+    case '3科':   return n('g3_3');
+    case '4科':   return n('g3_4');
+    case '5科50': return (n('g2_5')==null||n('g3_5')==null)? null : n('g2_5')+n('g3_5');
+    case '5科75': return (n('g2_5')==null||n('g3_5')==null)? null : n('g2_5')+n('g3_5')*2;
+    case '9科90': return (n('g2_9')==null||n('g3_9')==null)? null : n('g2_9')+n('g3_9');
+    case '9科135':return (n('g2_9')==null||n('g3_9')==null)? null : n('g2_9')+n('g3_9')*2;
+  }
+  return null;
+}
+var MAX2BASIS={15:'3科',20:'4科',25:'5科',45:'9科',50:'5科50',75:'5科75',90:'9科90',135:'9科135'};
+
+/* 「実施しない」「基準なし」の言い回し */
+var RE_NA  =/実施せず|実施しない|併願なし|推薦は専願のみ|設定無し|設定なし|募集なし|併願受験不可|専願のみ/;
+var RE_SAME=/推薦基準(?:同様|に準じる|と同じ|同等)|基準を満たす場合は推薦を受験|推薦の基準に準ずる|推薦と同じ/;
+var RE_FREE=/成績基準なし|事前の内申基準なし|内申基準なし|基準を設けない|出願基準なし/;
+
+function parseCriteria(rawText){
+  var raw=String(rawText||'').trim();
+  var out={raw:raw, alts:[], status:'none', note:''};
+  if(!raw || raw==='-' || raw==='－' || raw==='—') return out;
+  var t=toHalf(raw);
+  if(RE_FREE.test(t)){ out.status='free'; return out; }
+
+  var seen={}, alts=[];
+  function push(need,max,src,amb){
+    if(!(max in MAX2BASIS)) return;
+    if(need<1 || need>max) return;
+    /* 「9教科5段階」「9科に3以上」のような数字を打診値と取り違えないための下限。
+       実データの最低は 18/45（0.40）なので 0.35 を下限にする。 */
+    if(need < max*0.35) return;
+    var key=need+'/'+max; if(seen[key]) return; seen[key]=1;
+    alts.push({need:need, max:max, basis:MAX2BASIS[max], src:src, ambiguous:!!amb});
+  }
+  /* ① 105点/135点満点 のような書き方 */
+  t.replace(/(\d{1,3})\s*点\s*\/\s*(\d{2,3})\s*点満点/g,function(m,a,b){ push(+a,+b,m,false); return ''; });
+  /* ② 34/45・22/25 などの分数 */
+  var re=/(\d{1,3})\s*\/\s*(\d{2,3})/g, m;
+  while((m=re.exec(t))){
+    var need=+m[1], max=+m[2];
+    if(!(max in MAX2BASIS)) continue;
+    var around=t.slice(Math.max(0,m.index-28), m.index+m[0].length+16);
+    var amb=false;
+    /* 「45」でも9科ではなく国数英×重みのことがある（平塚学園） */
+    if(max===45 && /国語\+数学\+英語|国数英|3科|三科|上位3/.test(around)) amb=true;
+    var before=t.slice(Math.max(0,m.index-12), m.index);
+    if(max===25 && /9科|9教科/.test(around) && !/5科|5教科|主要5/.test(before)) amb=true;
+    push(need,max,m[0],amb);
+  }
+  /* ③ 9科28・5科17・3科12 などの書き方 */
+  var re2=/([9543])\s*(?:科目|科|教科)\s*(\d{1,3})(?!\s*(?:[\/点]|段階))/g;
+  while((m=re2.exec(t))){
+    var k=m[1], mx={'9':45,'5':25,'3':15,'4':20}[k];
+    push(+m[2], mx, m[0], false);
+  }
+  /* ④ 「9教科の評定の合計が42以上」形式 */
+  var re3=/([95])\s*教科[^。]{0,30}?合計が\s*[「『]?(\d{1,3})/g;
+  while((m=re3.exec(t))) push(+m[2], m[1]==='9'?45:25, m[0], false);
+  /* ⑤ 「9教科→29/45」は②で拾える。「2年5科と3年5科の合計が47」形式 */
+  var re4=/2年5?教?科?と?3年5\s*教?科?との?合計が\s*[「『]?(\d{1,3})/g;
+  while((m=re4.exec(t))) push(+m[1], 50, m[0], false);
+
+  out.alts=alts;
+  if(alts.length) out.status='ok';
+  else if(RE_NA.test(t)) out.status='na';
+  else if(RE_SAME.test(t)) out.status='same';   /* 推薦と同じ基準。あとで推薦の基準を借りる */
+  else out.status='unknown';
+  return out;
+}
+
+/* 生徒×基準 → 判定 */
+function judge(cri, st, bonus){
+  var r={status:cri.status, best:null, diff:null, basis:'', need:null, score:null, missing:false, ambiguous:false, borrowed:!!cri.borrowed};
+  if(cri.status!=='ok') return r;
+  var b=+(bonus||0);
+  for(var i=0;i<cri.alts.length;i++){
+    var a=cri.alts[i], sc=scoreFor(a.basis, st);
+    if(sc==null){ r.missing=true; continue; }
+    var eff=sc+b, d=eff-a.need;
+    if(r.diff==null || d>r.diff){ r.diff=d; r.best=a; r.basis=a.basis; r.need=a.need; r.score=eff; r.ambiguous=a.ambiguous; }
+  }
+  if(r.diff==null){ r.status='unknown'; return r; }
+  /* 満点が違う基準どうしを比べられるよう、45点満点に換算した余裕も持たせる */
+  r.norm = Math.round(r.diff*45/r.best.max*10)/10;
+  r.status = r.diff>=0 ? 'ok' : (r.norm>=-(S.settings.nearLimit||3) ? 'near' : 'ng');
+  return r;
+}
+function judgeTag(j){
+  if(j.status==='free') return '<span class="tag t-ok">基準なし</span>';
+  if(j.status==='na')   return '<span class="tag t-unk">実施なし</span>';
+  if(j.status==='none') return '<span class="tag t-unk">記載なし</span>';
+  if(j.status==='unknown') return '<span class="tag t-warn">要確認</span>';
+  var d=j.diff;
+  var lab = d>0? ('余裕 +'+d) : (d===0? 'ちょうど' : ('あと '+(-d)));
+  var cls = j.status==='ok'? 't-ok' : (j.status==='near'? 't-near':'t-ng');
+  return '<span class="tag '+cls+'">'+lab+'</span>'+(j.borrowed?' <span class="tag t-info" title="この欄は「推薦基準同様」と書かれているため、単願推薦の基準で判定しています">推薦と同じ</span>':'')+(j.ambiguous?' <span class="tag t-warn" title="満点の意味が紛らわしい書き方です。原文を確認してください">満点?</span>':'');
+}
+
+/* ==========================================================
+   4. 特待の読み取り
+   ========================================================== */
+function parseTokutai(rawText){
+  var raw=String(rawText||'').trim(), list=[];
+  if(!raw||raw==='-') return list;
+  var t=toHalf(raw), seen={}, m;
+  /* 特待のランク名らしき語を、数値の手前40文字から拾う */
+  function labelBefore(pos){
+    var w=t.slice(Math.max(0,pos-40), pos);
+    var re=/(?:特別奨学生|[SABCDＳＡＢＣＤ]\s*特待|特待\s*[SABCDＳＡＢＣＤ]|第?[一二三四1-4]\s*種|[1-4]\s*種|特待生?\s*[SABCDＳＡＢＣＤ]?)/g, last=null, mm;
+    while((mm=re.exec(w))) last=mm[0];
+    if(last) return last.replace(/\s+/g,'');
+    return '特待';
+  }
+  function add(need,max,pos){
+    if(!(max in MAX2BASIS)) return;
+    if(need<1 || need>max || need<max*0.35) return;
+    var key=need+'/'+max; if(seen[key]) return; seen[key]=1;
+    list.push({label:labelBefore(pos), need:need, max:max, basis:MAX2BASIS[max]});
+  }
+  var re1=/(\d{1,3})\s*\/\s*(\d{2,3})/g;
+  while((m=re1.exec(t))){
+    if(m.index>0 && /[0-9.]/.test(t.charAt(m.index-1))) continue;   /* 46/50 の途中を拾わない */
+    add(+m[1], +m[2], m.index);
+  }
+  var re2=/([95])\s*科\s*(\d{1,3})(?!\s*(?:[\/点]|段階))/g;
+  while((m=re2.exec(t))) add(+m[2], m[1]==='9'?45:25, m.index);
+  return list;
+}
+function bestTokutai(list, st, bonus){
+  var best=null;
+  for(var i=0;i<list.length;i++){
+    var sc=scoreFor(list[i].basis, st); if(sc==null) continue;
+    var d=sc+(+bonus||0)-list[i].need;
+    if(d>=0 && (!best || d<best.diff)) best={item:list[i], diff:d};   /* 届く中で一番上のランク＝差が小さいもの */
+  }
+  return best;
+}
+
+/* ==========================================================
+   5. 交通（駅・所要時間）
+   ========================================================== */
+function numAt(s){ var m=toHalf(s).match(/(\d{1,3})/); return m? +m[1] : null; }
+
+function parseAccess(text){
+  var raw=String(text||'').trim();
+  if(!raw) return [];
+  var routes=[];
+  var segs=raw.split(/[／\/]/);
+  for(var i=0;i<segs.length;i++){
+    var seg=segs[i]; if(!seg.trim()) continue;
+    var busM=seg.match(/(?:スクールバス|バス)[\s　]*(?:約)?[\s　]*([0-9０-９]+)[\s　]*分/);
+    var bus=busM? numAt(busM[1]) : null;
+    var busPos=seg.search(/バス/);
+    /* バスに乗るのに分数が書かれていない＝時間不明。0分にはしない。 */
+    var busGuess=false;
+    if(bus==null && busPos>=0){ bus=+S.settings.busGuessMin||10; busGuess=true; }
+    var walkAll=[], wm, reW=/徒歩[\s　]*(?:約)?[\s　]*([0-9０-９]+)[\s　]*分/g;
+    while((wm=reW.exec(seg))) walkAll.push(numAt(wm[1]));
+    var walk=walkAll.length? Math.min.apply(null,walkAll) : null;
+    /* 括弧の中身: バスより前＝駅、あと＝バス停 */
+    var names=[], nm, reN=/[『「]([^』」]+)[』」]/g;
+    while((nm=reN.exec(seg))) names.push({t:nm[1], at:nm.index});
+    var stns=names.filter(function(n){ return busPos<0 || n.at<busPos; }).map(function(n){return n.t;});
+    if(!stns.length) stns=names.filter(function(n){ return /駅$/.test(n.t); }).map(function(n){return n.t;});
+    if(!stns.length) continue;
+    for(var j=0;j<stns.length;j++){
+      var st=stns[j].replace(/駅$/,'').replace(/[\s　]/g,'');
+      if(!st) continue;
+      routes.push({station:st, bus:(bus||0), walk:(walk||0), busGuess:busGuess, raw:seg.trim(), schoolBus:/スクールバス/.test(seg)});
+    }
+  }
+  return routes;
+}
+function routeMinutes(rt){
+  var s=S.stations[rt.station];
+  if(!s || s.min==null || s.min==='') return null;
+  var tr=(+s.tr||0)*(+S.settings.transferMin||0);
+  return (+s.min)+tr+(+rt.bus||0)+(+rt.walk||0);
+}
+function bestRoute(routes){
+  var best=null;
+  for(var i=0;i<routes.length;i++){
+    var m=routeMinutes(routes[i]);
+    if(m==null) continue;
+    if(!best || m<best.min){ best={min:m, rt:routes[i], ok:!!(S.stations[routes[i].station]||{}).ok && !routes[i].busGuess}; }
+  }
+  return best;
+}
+function accessText(routes){
+  var b=bestRoute(routes);
+  if(!b){
+    if(!routes.length) return '<span class="muted small">交通情報なし</span>';
+    var miss=routes.map(function(r){return r.station;}).filter(function(v,i,a){return a.indexOf(v)===i;});
+    return '<span class="tag t-warn" title="'+esc(miss.join('・'))+' の電車時間が未設定です">駅未設定</span>';
+  }
+  var s=S.stations[b.rt.station]||{};
+  var parts=['電車'+s.min+'分'];
+  if(+s.tr) parts.push('乗換'+s.tr+'回');
+  if(b.rt.bus) parts.push((b.rt.schoolBus?'ｽｸｰﾙﾊﾞｽ':'バス')+b.rt.bus+'分'+(b.rt.busGuess?'?':''));
+  if(b.rt.walk) parts.push('徒歩'+b.rt.walk+'分');
+  return '<b class="mono">'+(b.ok?'':'〜')+b.min+'分</b> <span class="small muted">'+esc(b.rt.station)+'／'+parts.join('＋')+'</span>';
+}
+
+/* 駅マスタの初期値（戸塚起点・すべて「目安」＝未確認） */
+function seedStations(){
+  var seed={
+    '大船':[4,0],'藤沢':[6,0],'辻堂':[10,0],'茅ヶ崎':[14,0],'平塚':[20,0],'小田原':[40,0],
+    '横浜':[10,0],'保土ヶ谷':[8,0],'東戸塚':[3,0],'本郷台':[11,1],'港南台':[14,1],'根岸':[22,1],
+    '鶴見':[18,1],'大口':[20,1],'菊名':[17,1],'武蔵小杉':[20,0],'日吉':[24,1],'綱島':[25,1],
+    '妙蓮寺':[22,1],'反町':[20,1],'新子安':[20,1],'子安':[22,2],'生麦':[25,2],'花月園前':[25,2],
+    '二俣川':[24,1],'希望ヶ丘':[28,1],'鶴ヶ峰':[27,1],'西谷':[24,1],'大和':[34,1],
+    '弘明寺':[14,0],'井土ヶ谷':[18,1],'岸根公園':[28,0],'センター北':[38,0],'あざみ野':[40,0],
+    '青葉台':[45,1],'市ヶ尾':[44,1],'長津田':[40,1],'つくし野':[45,2],'十日市場':[38,1],'鴨居':[30,1],
+    '矢部':[52,2],'原当麻':[60,2],'相模大野':[48,2],'小田急相模原':[52,2],'中央林間':[42,2],'南林間':[45,2],
+    '柿生':[55,2],'栗平':[60,3],'読売ランド前':[55,2],'愛甲石田':[55,2],'松田':[60,2],'新松田':[60,2],
+    '強羅':[90,3],'逗子':[12,1],'新逗子':[15,2],'逗子・葉山':[15,2],'北鎌倉':[8,0],
+    '汐入':[33,2],'横須賀':[30,1],'北久里浜':[42,2],'横須賀中央':[36,2],'衣笠':[38,1],
+    '追浜':[30,2],'金沢八景':[27,2],'能見台':[30,2],'柳小路':[14,1],'藤沢本町':[12,1],
+    '善行':[14,1],'六会日大前':[18,1]
+  };
+  var o={};
+  for(var k in seed) o[k]={min:seed[k][0], tr:seed[k][1], ok:false, note:''};
+  return o;
+}
+/* 版に出てくる駅を駅マスタに登録（未知の駅は空で作る） */
+function syncStations(rows){
+  var changed=false;
+  rows.forEach(function(r){
+    parseAccess(cellOf(r,'交通')).forEach(function(rt){
+      if(!S.stations[rt.station]){ S.stations[rt.station]={min:null,tr:0,ok:false,note:''}; changed=true; }
+    });
+  });
+  if(changed) lsSet(K.sta,S.stations);
+}
+
+/* ==========================================================
+   6. 行の派生情報（キャッシュ）
+   ========================================================== */
+var CACHE={verId:'', editStamp:'', rows:[]};
+function editStamp(){ return Object.keys(S.edits).length+':'+JSON.stringify(S.edits).length; }
+function rows(){
+  var v=curVersion(); if(!v) return [];
+  var st=editStamp();
+  if(CACHE.verId===v.id && CACHE.editStamp===st) return CACHE.rows;
+  var out=v.rows.map(function(r,i){
+    var o={_i:i, _r:r};
+    COLS.forEach(function(c){ o[c]=cellOf(r,c); });
+    o['__page']=r['__page']||'';
+    o._cri={};
+    KINDS.forEach(function(k){ o._cri[k]=parseCriteria(o[k]); });
+    /* 「推薦基準同様」と書かれている欄は、単願推薦の基準をそのまま当てる */
+    KINDS.forEach(function(k){
+      if(o._cri[k].status!=='same') return;
+      var src=o._cri['単願推薦基準'];
+      if(src.status==='ok'){ o._cri[k]={raw:o._cri[k].raw, alts:src.alts, status:'ok', borrowed:true}; }
+      else if(src.status==='free'){ o._cri[k]={raw:o._cri[k].raw, alts:[], status:'free', borrowed:true}; }
+      else o._cri[k].status='unknown';
+    });
+    o._tok=parseTokutai(o['特待内容']);
+    o._acc=parseAccess(o['交通']);
+    o._min=bestRoute(o._acc);
+    o._need = KINDS.some(function(k){ return o._cri[k].status==='unknown'; });
+    return o;
+  });
+  CACHE={verId:v.id, editStamp:st, rows:out};
+  return out;
+}
+function invalidate(){ CACHE.verId=''; }
+
+
+/* ==========================================================
+   7. 画面のたね
+   ========================================================== */
+function $(id){ return document.getElementById(id); }
+function el(tag,cls,html){ var e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e; }
+function fmtDate(ts){ var d=new Date(ts); var p=function(n){return (n<10?'0':'')+n;};
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes()); }
+
+var CURPANE='suggest';
+function showPane(k){
+  CURPANE=k;
+  [].forEach.call(document.querySelectorAll('.tab'),function(b){ b.classList.toggle('on', b.dataset.p===k); });
+  [].forEach.call(document.querySelectorAll('.pane'),function(p){ p.classList.toggle('on', p.id==='p-'+k); });
+  render();
+}
+[].forEach.call(document.querySelectorAll('.tab'),function(b){ b.onclick=function(){ showPane(b.dataset.p); }; });
+
+function openModal(title, html){
+  $('modalNm').textContent=title;
+  $('modalbd').innerHTML=html;
+  $('modal').classList.add('on');
+}
+$('modalX').onclick=function(){ $('modal').classList.remove('on'); };
+$('modal').onclick=function(e){ if(e.target===$('modal')) $('modal').classList.remove('on'); };
+
+function render(){
+  var v=curVersion();
+  $('verLabel').textContent = v ? (v.label+'（'+v.rows.length+'コース／'+new Set(v.rows.map(function(r){return r['校名'];})).size+'校）')
+                                : 'データ未取込 — 「取込・版」タブでPDFを読み込んでください';
+  if(CURPANE==='suggest')  renderSuggest();
+  if(CURPANE==='schools')  renderSchools();
+  if(CURPANE==='access')   renderAccess();
+  if(CURPANE==='import')   renderVersions();
+  if(CURPANE==='settings') renderSettings();
+}
+
+/* ==========================================================
+   8. 生徒
+   ========================================================== */
+var curStu=null;
+var STUF=[
+  ['g3_9','3年 9科 (45)'],['g3_5','3年 5科 (25)'],['g3_3','3年 3科 (15)'],['g3_4','3年 実技4科 (20)'],
+  ['g2_9','2年学年末 9科'],['g2_5','2年学年末 5科'],['bonus','加点の見込み (+)']
+];
+function newStudent(name){
+  return {id:'s'+Date.now()+Math.floor(Math.random()*900), name:name||'', grade:'中3',
+          g3_9:'', g3_5:'', g3_3:'', g3_4:'', g2_9:'', g2_5:'', bonus:0, memo:''};
+}
+function saveStudents(){ lsSet(K.stu,S.students); }
+
+function renderStuChips(){
+  var box=$('stuChips'); box.innerHTML='';
+  if(!S.students.length){ box.innerHTML='<span class="muted small">生徒がまだいません。「＋ 新規」か「名簿から選ぶ」で追加してください。</span>'; return; }
+  S.students.forEach(function(s){
+    var c=el('button','chip'+(curStu&&curStu.id===s.id?' on':''), esc(s.name||'(名前なし)'));
+    c.onclick=function(){ curStu=s; renderSuggest(); };
+    box.appendChild(c);
+  });
+}
+function renderStuEdit(){
+  var box=$('stuEdit');
+  if(!curStu){ box.innerHTML='<div class="hint">生徒を選ぶと内申を入力できます。</div>'; return; }
+  var h='<div class="row" style="margin-bottom:8px;">'+
+    '<label>氏名</label><input type="text" id="suName" value="'+esc(curStu.name)+'" style="width:150px;">'+
+    '<label>学年</label><input type="text" id="suGrade" value="'+esc(curStu.grade||'')+'" style="width:70px;">'+
+    '<span class="grow"></span><span class="small muted">数値は空欄でも構いません（その基準は「要確認」になります）</span></div>';
+  h+='<div class="gridin">';
+  STUF.forEach(function(f){
+    h+='<div class="fld"><label>'+esc(f[1])+'</label><input type="number" class="num" data-f="'+f[0]+'" value="'+esc(curStu[f[0]]===0?0:(curStu[f[0]]||''))+'"></div>';
+  });
+  h+='</div>';
+  h+='<div class="hint" style="margin-top:8px;">'+
+     '2年の内申は <b>50/75/90/135点満点</b> の基準（湘南工科・立花・相洋・平塚など）で使います。'+
+     '「加点の見込み」は検定や生徒会などで自分が見込む点数を手で入れる欄です（自動計算はしません）。</div>';
+  box.innerHTML=h;
+  $('suName').oninput=function(){ curStu.name=this.value; saveStudents(); renderStuChips(); };
+  $('suGrade').oninput=function(){ curStu.grade=this.value; saveStudents(); };
+  [].forEach.call(box.querySelectorAll('input[data-f]'),function(i){
+    i.oninput=function(){ curStu[i.dataset.f]= this.value===''? '' : +this.value; saveStudents(); renderSgTable(); };
+  });
+}
+$('btnStuNew').onclick=function(){
+  var s=newStudent(''); S.students.push(s); curStu=s; saveStudents(); renderSuggest();
+  setTimeout(function(){ var n=$('suName'); if(n) n.focus(); },0);
+};
+$('btnStuDel').onclick=function(){
+  if(!curStu) return;
+  if(!confirm('「'+(curStu.name||'名前なし')+'」を削除します。よろしいですか？')) return;
+  S.students=S.students.filter(function(x){ return x.id!==curStu.id; });
+  curStu=S.students[0]||null; saveStudents(); renderSuggest();
+};
+$('btnStuFromRoster').onclick=function(){
+  var names=lsGet('gradeTracker_names_v1',{})||{}, grades=lsGet('gradeTracker_rosterGrade_v1',{})||{};
+  var list=Object.keys(names).map(function(no){ return {no:no, name:names[no], grade:grades[no]||''}; });
+  if(!list.length){
+    openModal('名簿から選ぶ','<div class="warnbox">成績ツールの生徒名簿が見つかりませんでした。<br>'+
+      '成績ツール（📈 成績タブ）で名簿を取り込むと、ここから選べるようになります。<br>'+
+      'それまでは「＋ 新規」で氏名を手入力してください。</div>');
+    return;
+  }
+  list.sort(function(a,b){ return (a.grade||'').localeCompare(b.grade||'')||a.name.localeCompare(b.name); });
+  var h='<div class="row" style="margin-bottom:8px;"><input type="text" id="rsWord" placeholder="氏名で絞る" style="width:200px;">'+
+        '<span class="small muted">中3の生徒を選んでください（'+list.length+'名）</span></div><div id="rsList"></div>';
+  openModal('名簿から選ぶ',h);
+  function draw(){
+    var w=($('rsWord').value||'').trim();
+    var f=list.filter(function(x){ return !w || x.name.indexOf(w)>=0; });
+    $('rsList').innerHTML='<div class="stu">'+f.slice(0,400).map(function(x,i){
+      return '<button class="chip" data-i="'+i+'">'+esc(x.name)+(x.grade?' <span class="small muted">'+esc(x.grade)+'</span>':'')+'</button>';
+    }).join('')+'</div>';
+    [].forEach.call($('rsList').querySelectorAll('.chip'),function(b){
+      b.onclick=function(){
+        var x=f[+b.dataset.i];
+        var ex=S.students.filter(function(s){ return s.name===x.name; })[0];
+        if(ex){ curStu=ex; }
+        else { var s=newStudent(x.name); s.grade=x.grade||'中3'; S.students.push(s); curStu=s; saveStudents(); }
+        $('modal').classList.remove('on'); renderSuggest();
+      };
+    });
+  }
+  $('rsWord').oninput=draw; draw();
+};
+
+/* ==========================================================
+   9. 提案
+   ========================================================== */
+function renderSuggest(){ renderStuChips(); renderStuEdit(); renderSgTable(); }
+['fKind','fTime','fSex','fNear','fUnk','fTokutai','fSort'].forEach(function(id){ $(id).onchange=renderSgTable; });
+$('fWord').oninput=renderSgTable;
+
+function renderSgTable(){
+  var t=$('sgTbl'), v=curVersion();
+  if(!v){ t.innerHTML='<tbody><tr><td class="muted">まだデータがありません。「取込・版」タブでPDFを読み込んでください。</td></tr></tbody>'; $('sgCount').textContent=''; return; }
+  var kind=$('fKind').value, maxMin=+$('fTime').value, sex=$('fSex').value;
+  var wantNear=$('fNear').checked, wantUnk=$('fUnk').checked, onlyTok=$('fTokutai').checked;
+  var sortBy=$('fSort').value;
+  var word=($('fWord').value||'').trim();
+  var st=curStu, bonus=curStu? (+curStu.bonus||0) : 0;
+
+  var list=rows().map(function(r){
+    var j=judge(r._cri[kind], st, bonus);
+    var tok=st? bestTokutai(r._tok, st, bonus) : null;
+    return {r:r, j:j, tok:tok};
+  });
+
+  list=list.filter(function(x){
+    if(sex && x.r['形']!==sex) return false;
+    if(word && (x.r['校名']+x.r['コース']).indexOf(word)<0) return false;
+    if(maxMin){ if(!x.r._min || x.r._min.min>maxMin) return false; }
+    if(onlyTok && !x.tok) return false;
+    var s=x.j.status;
+    if(s==='ok'||s==='free') return true;
+    if(s==='near') return wantNear;
+    if(s==='unknown') return wantUnk;
+    if(s==='ng') return false;
+    return wantUnk;                                  /* na / none */
+  });
+
+  var ord={ok:0,free:1,near:2,unknown:3,na:4,none:5};
+  list.sort(function(a,b){
+    /* ord は 0 を含むので || は使えない（届く=0 が 9 に化ける） */
+    var oa=(ord[a.j.status]===undefined?9:ord[a.j.status]), ob=(ord[b.j.status]===undefined?9:ord[b.j.status]);
+    var d=oa-ob; if(d) return d;
+    var am=a.r._min? a.r._min.min:9999, bm=b.r._min? b.r._min.min:9999;
+    if(sortBy==='time') return am-bm || (a.r['校名']>b.r['校名']?1:-1);
+    var an=a.j.norm, bn=b.j.norm;
+    if(an!=null && bn!=null && an!==bn) return sortBy==='loose'? (bn-an) : (an-bn);
+    if(an==null && bn!=null) return 1;
+    if(bn==null && an!=null) return -1;
+    return am-bm;
+  });
+
+  $('sgCount').textContent = (st? ('『'+(st.name||'名前なし')+'』／') : '生徒未選択／') +
+      KINDLABEL[kind]+'：'+list.length+'件';
+
+  var h='<thead><tr><th style="width:120px;">学校</th><th style="width:110px;">コース</th>'+
+        '<th style="width:96px;">判定</th><th style="width:120px;">基準</th>'+
+        '<th style="width:150px;">通学</th><th style="width:52px;">確約</th>'+
+        '<th style="width:120px;">特待</th><th>基準の原文</th></tr></thead><tbody>';
+  if(!list.length) h+='<tr><td colspan="8" class="muted">条件に合う学校がありません。通学時間や「あと少し」の条件をゆるめてみてください。</td></tr>';
+  list.forEach(function(x,i){
+    var r=x.r, j=x.j;
+    var kk = kind.indexOf('推薦')>=0 ? '推薦確約' : '一般確約';
+    var basis = j.best? (BASIS[j.basis].label+' '+j.need+'/'+j.best.max) : '';
+    var scoreTxt = j.score!=null? ('<span class="small muted">本人 '+j.score+'</span>') : '';
+    h+='<tr data-i="'+r._i+'">'+
+       '<td class="nowrap"><a href="#" class="lnk" data-i="'+r._i+'">'+esc(r['校名'])+'</a></td>'+
+       '<td>'+esc(r['コース']||'-')+'</td>'+
+       '<td class="c">'+judgeTag(j)+'</td>'+
+       '<td class="small">'+esc(basis)+' '+scoreTxt+'</td>'+
+       '<td>'+accessText(r._acc)+'</td>'+
+       '<td class="c">'+esc(r[kk]||'')+'</td>'+
+       '<td class="small">'+((x.tok && /有/.test(r['特待有無']||''))? ('<span class="tag t-info">'+esc(x.tok.item.label)+'</span> '+x.tok.item.need+'/'+x.tok.item.max) : (r._tok.length? '<span class="muted">-</span>':''))+'</td>'+
+       '<td class="small clip2">'+esc((r[kind]||'').slice(0,120))+'</td>'+
+       '</tr>';
+  });
+  h+='</tbody>';
+  t.innerHTML=h;
+  [].forEach.call(t.querySelectorAll('.lnk'),function(a){
+    a.onclick=function(e){ e.preventDefault(); openDetail(+a.dataset.i); };
+  });
+}
+
+/* ==========================================================
+   10. 学校一覧
+   ========================================================== */
+['scWord','scSex','scSort','scNeed'].forEach(function(id){
+  var e=$(id); e[(id==='scWord'?'oninput':'onchange')]=renderSchools;
+});
+function renderSchools(){
+  var t=$('scTbl'), v=curVersion();
+  if(!v){ t.innerHTML='<tbody><tr><td class="muted">まだデータがありません。</td></tr></tbody>'; $('scCount').textContent=''; return; }
+  var w=($('scWord').value||'').trim(), sex=$('scSex').value, sort=$('scSort').value, onlyNeed=$('scNeed').checked;
+  var list=rows().filter(function(r){
+    if(sex && r['形']!==sex) return false;
+    if(onlyNeed && !r._need) return false;
+    if(w && (r['校名']+r['コース']+r['交通']).indexOf(w)<0) return false;
+    return true;
+  });
+  function lowest(r,k){ var c=r._cri[k]; if(c.status!=='ok') return 9999;
+    var m=9999; c.alts.forEach(function(a){ var p=a.need/a.max; if(p<m) m=p; }); return m; }
+  if(sort==='time') list.sort(function(a,b){ return (a._min?a._min.min:9999)-(b._min?b._min.min:9999); });
+  else if(sort==='tan') list.sort(function(a,b){ return lowest(a,'単願推薦基準')-lowest(b,'単願推薦基準'); });
+  else if(sort==='ippan') list.sort(function(a,b){ return lowest(a,'一般併願基準')-lowest(b,'一般併願基準'); });
+  else list.sort(function(a,b){ return a['校名'].localeCompare(b['校名'],'ja')|| (a._i-b._i); });
+
+  $('scCount').textContent=list.length+'コース／'+new Set(list.map(function(r){return r['校名'];})).size+'校';
+
+  function briefs(r,k){
+    var c=r._cri[k];
+    if(c.status==='free') return '<span class="tag t-ok">基準なし</span>';
+    if(c.status==='na')   return '<span class="muted">実施なし</span>';
+    if(c.status==='none') return '<span class="muted">-</span>';
+    if(c.status==='unknown') return '<span class="tag t-warn">要確認</span>';
+    return c.alts.map(function(a){ return '<span class="nowrap mono">'+a.need+'/'+a.max+'</span>'; }).join(' or ');
+  }
+  var h='<thead><tr><th style="width:120px;">学校</th><th style="width:110px;">コース</th><th style="width:36px;">形</th>'+
+        '<th style="width:140px;">通学</th><th style="width:100px;">単願推薦</th><th style="width:100px;">併願推薦</th>'+
+        '<th style="width:100px;">一般専願</th><th style="width:100px;">一般併願</th><th style="width:60px;">特待</th><th>交通</th></tr></thead><tbody>';
+  list.forEach(function(r){
+    h+='<tr><td class="nowrap"><a href="#" class="lnk" data-i="'+r._i+'">'+esc(r['校名'])+'</a>'+(r._need?' <span class="tag t-warn" title="読み取れない基準があります">!</span>':'')+'</td>'+
+       '<td>'+esc(r['コース']||'-')+'</td><td class="c">'+esc(r['形']||'')+'</td>'+
+       '<td>'+accessText(r._acc)+'</td>'+
+       '<td class="small">'+briefs(r,'単願推薦基準')+'</td>'+
+       '<td class="small">'+briefs(r,'併願推薦基準')+'</td>'+
+       '<td class="small">'+briefs(r,'一般専願基準')+'</td>'+
+       '<td class="small">'+briefs(r,'一般併願基準')+'</td>'+
+       '<td class="c small">'+esc(r['特待有無']||'')+'</td>'+
+       '<td class="small clip2">'+esc(r['交通'])+'</td></tr>';
+  });
+  h+='</tbody>';
+  t.innerHTML=h;
+  [].forEach.call(t.querySelectorAll('.lnk'),function(a){
+    a.onclick=function(e){ e.preventDefault(); openDetail(+a.dataset.i); };
+  });
+}
+
+/* ---- 詳細（原文と手直し） ---- */
+function openDetail(i){
+  var r=rows().filter(function(x){ return x._i===i; })[0]; if(!r) return;
+  var h='';
+  h+='<div class="row" style="margin-bottom:10px;">'+
+     accessText(r._acc)+'<span class="grow"></span>'+
+     '<span class="small muted">'+esc(r['所在地'])+'／'+esc(r['形'])+'／'+esc(r['情報'])+'年度 ／ PDF '+r['__page']+'ページ目</span></div>';
+
+  h+='<h4 style="margin:6px 0;font-size:12.5px;">読み取った基準</h4><table class="tbl"><thead><tr>'+
+     '<th style="width:90px;">選考</th><th style="width:170px;">読み取り</th><th>原文（クリックで直せます）</th></tr></thead><tbody>';
+  KINDS.forEach(function(k){
+    var c=r._cri[k], j=curStu? judge(c,curStu,+curStu.bonus||0) : null;
+    var read;
+    if(c.status==='ok') read=c.alts.map(function(a){ return a.need+'/'+a.max+'<span class="small muted">('+BASIS[a.basis].label+')</span>'; }).join('<br>');
+    else if(c.status==='free') read='<span class="tag t-ok">基準なし</span>';
+    else if(c.status==='na') read='<span class="muted">実施なし</span>';
+    else if(c.status==='none') read='<span class="muted">記載なし</span>';
+    else read='<span class="tag t-warn">読み取れませんでした</span>';
+    h+='<tr><td class="nowrap">'+KINDLABEL[k]+(j?'<br>'+judgeTag(j):'')+'</td><td class="small">'+read+'</td>'+
+       '<td class="small"><div class="ed" data-col="'+k+'" style="white-space:pre-wrap;cursor:text;">'+
+       (esc(r[k])||'<span class="muted">（空）</span>')+'</div>'+
+       (isEdited(r._r,k)?'<div class="small"><span class="tag t-info">手で直した内容</span> <a href="#" class="undo" data-col="'+k+'">元に戻す</a></div>':'')+
+       '</td></tr>';
+  });
+  h+='</tbody></table>';
+
+  h+='<h4 style="margin:12px 0 6px;font-size:12.5px;">特待</h4>';
+  if(r._tok.length){
+    h+='<div class="small" style="margin-bottom:6px;">'+r._tok.map(function(x){
+      return '<span class="tag t-info">'+esc(x.label)+' '+x.need+'/'+x.max+'</span>'; }).join(' ')+'</div>';
+  }
+  h+='<div class="small ed" data-col="特待内容" style="white-space:pre-wrap;cursor:text;">'+(esc(r['特待内容'])||'<span class="muted">（空）</span>')+'</div>';
+
+  h+='<h4 style="margin:12px 0 6px;font-size:12.5px;">PDFの全項目</h4><dl class="kv">';
+  COLS.forEach(function(c){
+    if(KINDS.indexOf(c)>=0||c==='特待内容') return;
+    h+='<dt>'+esc(c)+'</dt><dd class="ed" data-col="'+esc(c)+'">'+(esc(r[c])||'<span class="muted">（空）</span>')+'</dd>';
+  });
+  h+='</dl>';
+
+  openModal(r['校名']+'　'+(r['コース']||''), h);
+
+  [].forEach.call($('modalbd').querySelectorAll('.ed'),function(d){
+    d.onclick=function(){
+      if(d.querySelector('textarea')) return;
+      var col=d.dataset.col, cur=r[col]||'';
+      d.innerHTML='<textarea>'+esc(cur)+'</textarea><div class="row" style="margin-top:4px;">'+
+        '<button class="btn sm pri okb">保存</button><button class="btn sm cab">やめる</button></div>';
+      var ta=d.querySelector('textarea'); ta.focus();
+      d.querySelector('.cab').onclick=function(e){ e.stopPropagation(); openDetail(i); };
+      d.querySelector('.okb').onclick=function(e){
+        e.stopPropagation();
+        var val=ta.value;
+        if(val===(r._r[col]||'')) delete S.edits[editKey(r._r,col)];
+        else S.edits[editKey(r._r,col)]=val;
+        lsSet(K.edit,S.edits); invalidate(); syncStations(curVersion().rows); openDetail(i); render();
+      };
+    };
+  });
+  [].forEach.call($('modalbd').querySelectorAll('.undo'),function(a){
+    a.onclick=function(e){ e.preventDefault(); e.stopPropagation();
+      delete S.edits[editKey(r._r,a.dataset.col)]; lsSet(K.edit,S.edits); invalidate(); openDetail(i); render(); };
+  });
+}
+
+/* ==========================================================
+   11. 通学時間（駅マスタ）
+   ========================================================== */
+$('acSave').onclick=function(){
+  S.settings.origin=$('acOrigin').value.trim()||'戸塚';
+  S.settings.transferMin=Math.max(0,+$('acTransfer').value||0);
+  lsSet(K.set,S.settings); invalidate(); render();
+};
+$('acWord').oninput=renderAccess;
+$('acOnlyBlank').onchange=renderAccess;
+$('acAdd').onclick=function(){
+  var n=prompt('追加する駅名を入れてください（「駅」は付けなくて構いません）');
+  if(!n) return; n=n.replace(/駅$/,'').trim(); if(!n) return;
+  if(!S.stations[n]) S.stations[n]={min:null,tr:0,ok:false,note:''};
+  lsSet(K.sta,S.stations); invalidate(); renderAccess();
+};
+function renderAccess(){
+  $('acOrigin').value=S.settings.origin;
+  $('acTransfer').value=S.settings.transferMin;
+  /* 使われている駅を数える */
+  var used={};
+  rows().forEach(function(r){ r._acc.forEach(function(x){ used[x.station]=(used[x.station]||0)+1; }); });
+  var names=Object.keys(S.stations);
+  var nSet=names.filter(function(n){ var s=S.stations[n]; return s.min!=null&&s.min!==''; }).length;
+  var nOk =names.filter(function(n){ return S.stations[n].ok; }).length;
+  var miss=Object.keys(used).filter(function(n){ var s=S.stations[n]; return !s||s.min==null||s.min===''; });
+  $('acStat').innerHTML='登録 '+names.length+'駅／時間あり '+nSet+'／確認済 '+nOk+
+     (miss.length? ' <span class="tag t-warn">未設定 '+miss.length+'駅</span>':'');
+
+  var w=($('acWord').value||'').trim(), onlyBlank=$('acOnlyBlank').checked;
+  var list=names.filter(function(n){
+    if(w && n.indexOf(w)<0) return false;
+    if(onlyBlank){ var s=S.stations[n]; if(!(s.min==null||s.min==='')) return false; }
+    return true;
+  });
+  list.sort(function(a,b){
+    var ua=used[a]||0, ub=used[b]||0;
+    if(ua!==ub) return ub-ua;
+    var sa=S.stations[a].min, sb=S.stations[b].min;
+    if(sa==null) return -1; if(sb==null) return 1;
+    return sa-sb;
+  });
+  var h='<thead><tr><th style="width:150px;">駅</th><th style="width:96px;">'+esc(S.settings.origin)+'から電車</th>'+
+        '<th style="width:78px;">乗換</th><th style="width:80px;">確認済</th><th style="width:70px;">使用校数</th><th>メモ</th></tr></thead><tbody>';
+  list.forEach(function(n){
+    var s=S.stations[n];
+    h+='<tr data-n="'+esc(n)+'"><td class="nowrap">'+esc(n)+(used[n]?'':' <span class="small muted">(未使用)</span>')+'</td>'+
+       '<td><input type="number" class="num k-min" min="0" max="300" value="'+(s.min==null?'':s.min)+'"> 分</td>'+
+       '<td><input type="number" class="num k-tr" min="0" max="6" value="'+(+s.tr||0)+'"> 回</td>'+
+       '<td class="c"><input type="checkbox" class="k-ok"'+(s.ok?' checked':'')+'></td>'+
+       '<td class="c mono">'+(used[n]||0)+'</td>'+
+       '<td><input type="text" class="k-note" value="'+esc(s.note||'')+'" style="width:98%;"></td></tr>';
+  });
+  h+='</tbody>';
+  $('acTbl').innerHTML=h;
+  [].forEach.call($('acTbl').querySelectorAll('tbody tr'),function(tr){
+    var n=tr.dataset.n;
+    function upd(){
+      var mi=tr.querySelector('.k-min').value;
+      S.stations[n]={ min: mi===''? null : +mi,
+                      tr:+tr.querySelector('.k-tr').value||0,
+                      ok:tr.querySelector('.k-ok').checked,
+                      note:tr.querySelector('.k-note').value };
+      lsSet(K.sta,S.stations); invalidate();
+    }
+    ['.k-min','.k-tr','.k-note'].forEach(function(sel){ tr.querySelector(sel).onchange=upd; });
+    tr.querySelector('.k-ok').onchange=function(){ upd(); };
+  });
+}
+
+/* ==========================================================
+   12. PDF取込・版
+   ========================================================== */
+async function inflate(u8, mode){
+  if(typeof DecompressionStream==='undefined') throw new Error('このブラウザはPDFの展開に対応していません（Chrome/Edge/Safariの新しい版で開いてください）');
+  var ds=new DecompressionStream(mode);
+  var rs=new Blob([u8]).stream().pipeThrough(ds);
+  var buf=await new Response(rs).arrayBuffer();
+  return new Uint8Array(buf);
+}
+
+var PENDING=null;
+function impLog(html){ $('impLog').innerHTML=html; }
+
+$('drop').onclick=function(){ $('file').click(); };
+$('file').onchange=function(){ if(this.files&&this.files[0]) handleFile(this.files[0]); this.value=''; };
+['dragenter','dragover'].forEach(function(ev){
+  $('drop').addEventListener(ev,function(e){ e.preventDefault(); $('drop').classList.add('hot'); });
+});
+['dragleave','drop'].forEach(function(ev){
+  $('drop').addEventListener(ev,function(e){ e.preventDefault(); $('drop').classList.remove('hot'); });
+});
+$('drop').addEventListener('drop',function(e){
+  var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+  if(f) handleFile(f);
+});
+
+async function handleFile(file){
+  PENDING=null; $('impActions').style.display='none';
+  impLog('<div class="okbox">解析しています… '+esc(file.name)+'</div>');
+  try{
+    var ab=await file.arrayBuffer();
+    var res=await DashinPdf.parsePdf(ab, inflate);
+    var chk=validate(res);
+    var li=chk.msgs.map(function(m){ return '<li class="'+m[0]+'">'+m[1]+'</li>'; }).join('');
+    impLog('<div class="'+(chk.ok?'okbox':'errbox')+'"><b>'+esc(file.name)+'</b><ul class="loglist">'+li+'</ul></div>'+
+           (chk.ok? '' : '<div class="hint" style="margin-top:6px;">この形のPDFはうまく読めませんでした。表形式の「打診値一覧」PDFか確認してください。</div>'));
+    if(!chk.ok) return;
+    PENDING={rows:res.rows, fileName:file.name};
+    $('impLabel').value=file.name.replace(/\.pdf$/i,'');
+    $('impAsOf').value=new Date().toISOString().slice(0,10);
+    $('impActions').style.display='';
+  }catch(e){
+    impLog('<div class="errbox">読み込めませんでした：'+esc(e.message||e)+'</div>');
+  }
+}
+function validate(res){
+  var msgs=[], ok=true, rs=res.rows;
+  msgs.push(['ok', 'ページ '+res.pages.length+' ／ 行 '+rs.length+' ／ 学校 '+new Set(rs.map(function(r){return r['校名'];})).size]);
+  if(rs.length<10){ msgs.push(['ng','表の行が取れませんでした（'+rs.length+'行）。']); ok=false; }
+  var bad=0;
+  rs.forEach(function(r){ COLS.forEach(function(c){ if(typeof r[c]==='string'&&r[c].indexOf('〓')>=0) bad++; }); });
+  if(bad){ msgs.push(['ng','文字を復元できないセルが '+bad+' 個あります。']); ok=false; }
+  else msgs.push(['ok','文字はすべて復元できました。']);
+  ['校名','形','所在地'].forEach(function(c){
+    var n=rs.filter(function(r){ return r[c]&&r[c].length; }).length;
+    var pct=rs.length? Math.round(n/rs.length*100):0;
+    if(pct<90){ msgs.push(['ng',c+'が埋まっているのは '+n+'/'+rs.length+'行（'+pct+'%）です。列がずれている可能性があります。']); ok=false; }
+    else msgs.push(['ok',c+' '+n+'/'+rs.length+'行']);
+  });
+  var nCri=rs.filter(function(r){ return KINDS.some(function(k){ return parseCriteria(r[k]).status==='ok'; }); }).length;
+  msgs.push([nCri>rs.length*0.5?'ok':'ng', '打診値を数値として読めた行 '+nCri+'/'+rs.length]);
+  res.warnings.forEach(function(w){ msgs.push(['ng',w]); });
+  return {ok:ok, msgs:msgs};
+}
+$('impCancel').onclick=function(){ PENDING=null; $('impActions').style.display='none'; impLog(''); };
+$('impSave').onclick=function(){
+  if(!PENDING) return;
+  var v={ id:'v'+Date.now(), label:$('impLabel').value.trim()||PENDING.fileName,
+          fileName:PENDING.fileName, asOf:$('impAsOf').value.trim(),
+          importedAt:Date.now(), rows:PENDING.rows };
+  S.versions.push(v);
+  if(!lsSet(K.ver,S.versions)){ S.versions.pop(); return; }
+  S.curId=v.id; lsSet(K.cur,S.curId);
+  PENDING=null; $('impActions').style.display='none'; impLog('<div class="okbox">保存しました。</div>');
+  invalidate(); syncStations(v.rows); render();
+};
+
+function renderVersions(){
+  var t=$('verTbl');
+  if(!S.versions.length){ t.innerHTML='<tbody><tr><td class="muted">まだ版がありません。</td></tr></tbody>'; $('diffCard').style.display='none'; return; }
+  var h='<thead><tr><th style="width:60px;">表示</th><th>版</th><th style="width:100px;">基準日</th>'+
+        '<th style="width:130px;">取込日時</th><th style="width:110px;">件数</th><th style="width:150px;"></th></tr></thead><tbody>';
+  S.versions.slice().reverse().forEach(function(v){
+    h+='<tr><td class="c"><input type="radio" name="vsel" data-id="'+v.id+'"'+(v.id===S.curId?' checked':'')+'></td>'+
+       '<td>'+esc(v.label)+'<div class="small muted">'+esc(v.fileName)+'</div></td>'+
+       '<td class="small">'+esc(v.asOf||'-')+'</td>'+
+       '<td class="small">'+fmtDate(v.importedAt)+'</td>'+
+       '<td class="small mono">'+v.rows.length+'コース／'+new Set(v.rows.map(function(r){return r['校名'];})).size+'校</td>'+
+       '<td class="nowrap"><button class="btn sm dbtn" data-id="'+v.id+'">前版との違い</button> '+
+       '<button class="btn sm dan xbtn" data-id="'+v.id+'">削除</button></td></tr>';
+  });
+  h+='</tbody>'; t.innerHTML=h;
+  [].forEach.call(t.querySelectorAll('input[name=vsel]'),function(r){
+    r.onchange=function(){ S.curId=r.dataset.id; lsSet(K.cur,S.curId); invalidate(); syncStations(curVersion().rows); render(); };
+  });
+  [].forEach.call(t.querySelectorAll('.xbtn'),function(b){
+    b.onclick=function(){
+      var v=S.versions.filter(function(x){return x.id===b.dataset.id;})[0];
+      if(!confirm('版「'+v.label+'」を削除します。よろしいですか？')) return;
+      S.versions=S.versions.filter(function(x){ return x.id!==b.dataset.id; });
+      lsSet(K.ver,S.versions);
+      if(S.curId===b.dataset.id){ S.curId=S.versions.length? S.versions[S.versions.length-1].id:''; lsSet(K.cur,S.curId); }
+      invalidate(); render();
+    };
+  });
+  [].forEach.call(t.querySelectorAll('.dbtn'),function(b){ b.onclick=function(){ showDiff(b.dataset.id); }; });
+}
+
+function rowKey(r){ return (r['校名']||'')+'／'+(r['コース']||''); }
+function showDiff(id){
+  var i=-1; for(var n=0;n<S.versions.length;n++) if(S.versions[n].id===id) i=n;
+  if(i<0) return;
+  var cur=S.versions[i], prev=i>0? S.versions[i-1] : null;
+  $('diffCard').style.display='';
+  if(!prev){ $('diffSub').textContent=''; $('diffBody').innerHTML='<div class="hint">これが最初の版です。比べる相手がありません。</div>'; return; }
+  $('diffSub').textContent='「'+prev.label+'」→「'+cur.label+'」';
+  var A={}, B={};
+  prev.rows.forEach(function(r){ A[rowKey(r)]=r; });
+  cur.rows.forEach(function(r){ B[rowKey(r)]=r; });
+  var added=Object.keys(B).filter(function(k){ return !A[k]; });
+  var gone =Object.keys(A).filter(function(k){ return !B[k]; });
+  var chg=[];
+  Object.keys(B).forEach(function(k){
+    if(!A[k]) return;
+    var diffs=[];
+    COLS.forEach(function(c){
+      if(c==='情報') return;
+      var a=(A[k][c]||'').trim(), b=(B[k][c]||'').trim();
+      if(a!==b) diffs.push({col:c, a:a, b:b, edited:S.edits[editKey(B[k],c)]!==undefined});
+    });
+    if(diffs.length) chg.push({key:k, diffs:diffs});
+  });
+  var h='<div class="row" style="margin-bottom:8px;">'+
+    '<span class="tag t-ok">追加 '+added.length+'</span>'+
+    '<span class="tag t-ng">消えた '+gone.length+'</span>'+
+    '<span class="tag t-warn">変わった '+chg.length+'</span></div>';
+  if(added.length) h+='<div class="small" style="margin-bottom:6px;"><b>追加：</b>'+added.map(esc).join('、')+'</div>';
+  if(gone.length)  h+='<div class="small" style="margin-bottom:6px;"><b>消えた：</b>'+gone.map(esc).join('、')+'</div>';
+  if(chg.length){
+    h+='<div class="scroller" style="max-height:420px;"><table class="tbl"><thead><tr><th style="width:180px;">学校／コース</th>'+
+       '<th style="width:110px;">項目</th><th>前の版</th><th>この版</th></tr></thead><tbody>';
+    chg.forEach(function(c){
+      c.diffs.forEach(function(d,j){
+        h+='<tr>'+(j===0?'<td rowspan="'+c.diffs.length+'" class="nowrap">'+esc(c.key)+'</td>':'')+
+           '<td class="small nowrap">'+esc(d.col)+
+             (d.edited? '<br><span class="tag t-warn" title="この欄は手で直してあるため、新しい値が画面に出ません。設定タブで元に戻せます">手直しが優先</span>':'')+'</td>'+
+           '<td class="small clip2">'+(esc(d.a)||'<span class="muted">（空）</span>')+'</td>'+
+           '<td class="small clip2">'+(esc(d.b)||'<span class="muted">（空）</span>')+'</td></tr>';
+      });
+    });
+    h+='</tbody></table></div>';
+  }
+  $('diffBody').innerHTML=h;
+}
+
+/* ==========================================================
+   13. 設定
+   ========================================================== */
+function renderSettings(){
+  var bytes=0;
+  Object.keys(K).forEach(function(k){ try{ var v=localStorage.getItem(K[k]); if(v) bytes+=v.length; }catch(e){} });
+  $('stStorage').innerHTML=
+    '<table class="tbl"><tbody>'+
+    '<tr><th style="width:150px;">版</th><td>'+S.versions.length+'件</td></tr>'+
+    '<tr><th>生徒</th><td>'+S.students.length+'人</td></tr>'+
+    '<tr><th>駅</th><td>'+Object.keys(S.stations).length+'駅</td></tr>'+
+    '<tr><th>手直し</th><td>'+Object.keys(S.edits).length+'箇所</td></tr>'+
+    '<tr><th>使用量のめやす</th><td class="mono">'+Math.round(bytes/1024)+' KB'+
+      (bytes>2500000? ' <span class="tag t-warn">そろそろ上限です。古い版を消してください</span>':'')+'</td></tr>'+
+    '</tbody></table>'+
+    '<div class="hint" style="margin-top:6px;">保存先はこの端末のブラウザだけです。サーバーには何も送っていません。</div>';
+
+  var ks=Object.keys(S.edits);
+  if(!ks.length){ $('stEdits').innerHTML='<div class="muted small">手で直した箇所はありません。</div>'; }
+  else{
+    var h='<table class="tbl"><thead><tr><th style="width:180px;">学校／コース</th><th style="width:110px;">項目</th><th>直した内容</th><th style="width:80px;"></th></tr></thead><tbody>';
+    ks.forEach(function(k){
+      var p=k.split('|#|');
+      h+='<tr><td class="small">'+esc(p[0])+'／'+esc(p[1]||'-')+'</td><td class="small">'+esc(p[2])+'</td>'+
+         '<td class="small clip2">'+esc(S.edits[k])+'</td>'+
+         '<td><button class="btn sm undoe" data-k="'+esc(k)+'">元に戻す</button></td></tr>';
+    });
+    h+='</tbody></table>';
+    $('stEdits').innerHTML=h;
+    [].forEach.call($('stEdits').querySelectorAll('.undoe'),function(b){
+      b.onclick=function(){ delete S.edits[b.dataset.k]; lsSet(K.edit,S.edits); invalidate(); render(); };
+    });
+  }
+}
+$('stExport').onclick=function(){
+  var data={_type:'shinro-backup', at:Date.now(), versions:S.versions, curId:S.curId,
+            edits:S.edits, stations:S.stations, students:S.students, settings:S.settings};
+  var blob=new Blob([JSON.stringify(data)],{type:'application/json'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='shinro-backup-'+new Date().toISOString().slice(0,10)+'.json';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(a.href); },1000);
+};
+$('stImport').onclick=function(){ $('stFile').click(); };
+$('stFile').onchange=function(){
+  var f=this.files&&this.files[0]; this.value='';
+  if(!f) return;
+  var fr=new FileReader();
+  fr.onload=function(){
+    try{
+      var d=JSON.parse(fr.result);
+      if(d._type!=='shinro-backup') throw new Error('このツールのバックアップではありません。');
+      if(!confirm('今の内容を、このバックアップで置き換えます。よろしいですか？')) return;
+      S.versions=d.versions||[]; S.curId=d.curId||''; S.edits=d.edits||{};
+      S.stations=d.stations||seedStations(); S.students=d.students||[];
+      S.settings=Object.assign({},DEF_SET,d.settings||{});
+      lsSet(K.ver,S.versions); lsSet(K.cur,S.curId); lsSet(K.edit,S.edits);
+      lsSet(K.sta,S.stations); lsSet(K.stu,S.students); lsSet(K.set,S.settings);
+      curStu=S.students[0]||null; invalidate(); render();
+      alert('読み込みました。');
+    }catch(e){ alert('読み込めませんでした：'+(e.message||e)); }
+  };
+  fr.readAsText(f);
+};
+$('stClear').onclick=function(){
+  if(!confirm('この端末の進路データを全部消します。取り消せません。よろしいですか？')) return;
+  if(!confirm('本当に消してよいですか？（版・生徒・駅・手直しがすべて消えます）')) return;
+  Object.keys(K).forEach(function(k){ try{ localStorage.removeItem(K[k]); }catch(e){} });
+  S={versions:[],curId:'',edits:{},stations:seedStations(),students:[],settings:Object.assign({},DEF_SET)};
+  lsSet(K.sta,S.stations);
+  curStu=null; invalidate(); render();
+};
+
+/* ==========================================================
+   14. 起動
+   ========================================================== */
+loadAll();
+curStu=S.students[0]||null;
+var v0=curVersion(); if(v0) syncStations(v0.rows);
+render();
+
+</script>
+</body>
+</html>
