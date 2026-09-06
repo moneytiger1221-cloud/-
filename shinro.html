@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>進路（私立打診値）</title>
+<title>進路（打診値・公立）</title>
 <style>
 /* ==========================================================
-   進路ツール（私立高校 打診値）
-   ・打診値は機密情報。データはこの端末のブラウザ内（localStorage）だけに置く。
-   ・PDFはブラウザの中だけで解析する。外部への通信は一切しない。
+   進路ツール（私立の打診値 ＋ 神奈川県公立）
+   ・打診値は機密情報。データはこの端末とスプレッドシートだけに置く。
+   ・PDFはブラウザの中だけで解析する（外部の変換サービスは使わない）。
    ========================================================== */
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;height:100%;font-family:"Segoe UI","Hiragino Kaku Gothic ProN","Meiryo",sans-serif;
@@ -17,14 +17,12 @@ body{display:flex;flex-direction:column;}
 button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit;}
 a{color:#2b6fe0;}
 
-/* ---- ヘッダ ---- */
 #top{flex:0 0 auto;background:#22303f;color:#fff;display:flex;align-items:center;gap:10px;padding:8px 12px;}
 #top .ttl{font-weight:800;font-size:14px;letter-spacing:.5px;white-space:nowrap;}
 #top .ver{font-size:11px;color:#9db2c6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 #top .sp{margin-left:auto;}
 #top .lock{font-size:11px;color:#8fd0a8;border:1px solid #3c5a49;background:#233a2d;border-radius:5px;padding:3px 8px;white-space:nowrap;}
 
-/* ---- タブ ---- */
 #tabs{flex:0 0 auto;display:flex;background:#2c3e50;overflow-x:auto;scrollbar-width:none;}
 #tabs::-webkit-scrollbar{display:none;}
 .tab{flex:0 0 auto;border:none;background:transparent;color:#a8b8c8;font-weight:700;font-size:13px;
@@ -32,13 +30,12 @@ a{color:#2b6fe0;}
 .tab:hover{background:#374d63;color:#e2ecf5;}
 .tab.on{color:#fff;border-bottom-color:#4a9df0;background:#37506a;}
 
-/* ---- 本体 ---- */
 #body{flex:1 1 auto;overflow:auto;padding:12px;}
 .pane{display:none;}
 .pane.on{display:block;}
 .card{background:#fff;border:1px solid #dde3ea;border-radius:8px;padding:12px;margin-bottom:12px;
   box-shadow:0 1px 3px rgba(0,0,0,.04);}
-.card>h3{margin:0 0 10px;font-size:13.5px;color:#33465a;display:flex;align-items:center;gap:8px;}
+.card>h3{margin:0 0 10px;font-size:13.5px;color:#33465a;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .card>h3 .sub{font-weight:400;font-size:11.5px;color:#7a8b9c;}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
 .row>label{font-size:12px;color:#5a6b7d;}
@@ -47,7 +44,6 @@ a{color:#2b6fe0;}
 .small{font-size:11.5px;}
 .mono{font-variant-numeric:tabular-nums;}
 
-/* ---- 部品 ---- */
 .btn{border:1px solid #c3cfdb;background:#fff;border-radius:6px;padding:6px 12px;font-size:12.5px;
   font-weight:700;cursor:pointer;}
 .btn:hover{background:#eef3f8;}
@@ -69,7 +65,6 @@ textarea{width:100%;min-height:60px;}
 .t-info{background:#e8f0fb;color:#2559a8;border:1px solid #bed4f0;}
 .t-warn{background:#fdf0e3;color:#9a5b12;border:1px solid #edcfa8;}
 
-/* ---- 表 ---- */
 table.tbl{border-collapse:collapse;width:100%;font-size:12px;}
 table.tbl th,table.tbl td{border:1px solid #dde3ea;padding:5px 7px;text-align:left;vertical-align:top;}
 table.tbl th{background:#eef2f7;font-weight:700;color:#44566a;position:sticky;top:0;z-index:2;white-space:nowrap;}
@@ -82,7 +77,6 @@ table.tbl td.r{text-align:right;}
 .nowrap{white-space:nowrap;}
 .clip2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 
-/* ---- 詳細モーダル ---- */
 #modal{position:fixed;inset:0;background:rgba(20,30,40,.45);display:none;z-index:60;padding:20px;}
 #modal.on{display:flex;align-items:flex-start;justify-content:center;}
 #modalbox{background:#fff;border-radius:10px;max-width:960px;width:100%;max-height:calc(100vh - 40px);
@@ -95,24 +89,42 @@ dl.kv{margin:0;display:grid;grid-template-columns:120px 1fr;gap:1px;background:#
 dl.kv dt{background:#f4f7fa;padding:6px 9px;font-weight:700;font-size:11.5px;color:#4a5c6e;}
 dl.kv dd{background:#fff;margin:0;padding:6px 9px;font-size:12px;white-space:pre-wrap;word-break:break-word;}
 
-/* ---- 取込 ---- */
 #drop{border:2px dashed #b9c8d8;border-radius:10px;padding:26px;text-align:center;color:#6a7c8e;background:#fbfdff;cursor:pointer;}
 #drop.hot{border-color:#2b6fe0;background:#eef5ff;color:#2559a8;}
 .loglist{font-size:12px;line-height:1.8;margin:0;padding-left:18px;}
 .loglist li.ng{color:#b83b34;}
 .loglist li.ok{color:#2b7a45;}
 
-/* ---- 生徒 ---- */
 .stu{display:flex;flex-wrap:wrap;gap:6px;}
 .stu .chip{border:1px solid #c3cfdb;border-radius:16px;padding:4px 12px;cursor:pointer;background:#fff;font-size:12px;}
 .stu .chip.on{background:#2b6fe0;border-color:#2b6fe0;color:#fff;font-weight:700;}
-.gridin{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;}
-.gridin .fld{display:flex;flex-direction:column;gap:3px;}
-.gridin .fld label{font-size:11px;color:#5a6b7d;}
 .hint{font-size:11.5px;color:#7a8b9c;line-height:1.7;}
 .warnbox{background:#fdf6e8;border:1px solid #ecd8a8;border-radius:6px;padding:9px 11px;font-size:12px;color:#7a5a12;line-height:1.7;}
 .okbox{background:#eef7f0;border:1px solid #bfdfc8;border-radius:6px;padding:9px 11px;font-size:12px;color:#2b6b42;line-height:1.7;}
 .errbox{background:#fbeceb;border:1px solid #e8bfbb;border-radius:6px;padding:9px 11px;font-size:12px;color:#96372f;line-height:1.7;}
+
+/* ---- 内申入力（面談中に打ちやすい大きさ） ---- */
+.naishin{display:flex;flex-wrap:wrap;gap:10px;}
+.naishin .nb{border:1px solid #cfd9e4;border-radius:8px;padding:7px 10px;background:#f8fbfe;min-width:118px;}
+.naishin .nb label{display:block;font-size:11px;color:#5a6b7d;margin-bottom:3px;white-space:nowrap;}
+.naishin .nb input{width:100%;font-size:20px;font-weight:700;text-align:center;padding:3px 4px;
+  border:1px solid #c3cfdb;border-radius:6px;}
+.naishin .nb .mx{font-size:10.5px;color:#93a3b3;text-align:right;margin-top:2px;}
+.naishin .nb.calc{background:#eef4fb;border-color:#c3d6ec;}
+.naishin .nb.calc .v{font-size:17px;font-weight:800;text-align:center;padding:5px 0;color:#2559a8;}
+
+/* ---- 加点 ---- */
+.katen{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:6px 10px;}
+.katen .ki{display:flex;align-items:center;gap:6px;font-size:12px;}
+.katen .ki select{padding:3px 5px;font-size:11.5px;}
+.katen .ki label{cursor:pointer;}
+
+details.fold{border:1px solid #e3e9f0;border-radius:7px;padding:0;margin-top:8px;background:#fbfdff;}
+details.fold>summary{cursor:pointer;padding:7px 10px;font-size:12px;font-weight:700;color:#44566a;}
+details.fold>div{padding:0 10px 10px;}
+
+.grp{margin:14px 0 6px;font-weight:800;font-size:12.5px;color:#33465a;display:flex;align-items:center;gap:8px;}
+.grp .cnt{font-weight:400;font-size:11.5px;color:#7a8b9c;}
 
 @media (max-width:820px){
   #body{padding:8px;}
@@ -120,39 +132,52 @@ dl.kv dd{background:#fff;margin:0;padding:6px 9px;font-size:12px;white-space:pre
   .tab{padding:8px 11px;font-size:12px;}
   dl.kv{grid-template-columns:82px 1fr;}
   .scroller{max-height:none;}
+  .naishin .nb{min-width:calc(50% - 5px);}
 }
 </style>
 </head>
 <body>
 
 <div id="top">
-  <span class="ttl">🎓 進路（私立打診値）</span>
+  <span class="ttl">🎓 進路</span>
   <span class="ver" id="verLabel">データ未取込</span>
   <span class="sp"></span>
-  <span class="lock" title="打診値はこの端末のブラウザ内だけに保存されます。外部には一切送信しません。">🔒 端末内のみ</span>
+  <span class="lock" id="lockNote" title="打診値はこの端末とご自身のスプレッドシートだけに保存されます。">🔒 端末内のみ</span>
 </div>
 
 <div id="tabs">
-  <button class="tab on" data-p="suggest">提案</button>
-  <button class="tab" data-p="schools">学校一覧</button>
+  <button class="tab on" data-p="suggest">私立の提案</button>
+  <button class="tab" data-p="public">公立の提案</button>
+  <button class="tab" data-p="schools">私立一覧</button>
   <button class="tab" data-p="access">通学時間</button>
   <button class="tab" data-p="import">取込・版</button>
-  <button class="tab" data-p="settings">設定</button>
+  <button class="tab" data-p="settings">設定・同期</button>
 </div>
 
 <div id="body">
 
-  <!-- ============ 提案 ============ -->
+  <!-- ============ 生徒（提案・公立で共用） ============ -->
+  <template id="tplStudent"></template>
+
+  <!-- ============ 私立の提案 ============ -->
   <div class="pane on" id="p-suggest">
     <div class="card">
-      <h3>生徒 <span class="sub">内申を入れると、届く学校が出ます</span></h3>
+      <h3>生徒 <span class="sub">内申を入れるだけで絞れます</span></h3>
       <div class="row" style="margin-bottom:8px;">
         <div class="stu grow" id="stuChips"></div>
         <button class="btn sm" id="btnStuNew">＋ 新規</button>
         <button class="btn sm" id="btnStuFromRoster">名簿から選ぶ</button>
-        <button class="btn sm dan" id="btnStuDel">この生徒を削除</button>
+        <button class="btn sm dan" id="btnStuDel">削除</button>
       </div>
       <div id="stuEdit"></div>
+    </div>
+
+    <div class="card" id="katenCard">
+      <h3>加点の材料 <span class="sub">チェックすると、学校ごとの加点ルールに当てはめて自動で加算します</span></h3>
+      <div class="katen" id="katenBox"></div>
+      <div class="hint" style="margin-top:8px;">
+        点数の付け方は学校ごとにバラバラなので<b>目安</b>です。各行の「加点」をクリックすると、その学校の加点欄の原文が見られます。
+      </div>
     </div>
 
     <div class="card">
@@ -166,22 +191,19 @@ dl.kv dd{background:#fff;margin:0;padding:6px 9px;font-size:12px;white-space:pre
           <option value="一般併願基準">一般併願</option>
         </select>
         <label>通学</label>
-        <select id="fTime">
-          <option value="0">指定なし</option>
-          <option value="30">30分以内</option>
-          <option value="45">45分以内</option>
-          <option value="60" selected>60分以内</option>
-          <option value="75">75分以内</option>
-          <option value="90">90分以内</option>
-        </select>
+        <input type="number" id="fTime" min="0" max="180" step="5" value="60" style="width:64px;"> 分以内
+        <span class="small muted">(0＝指定なし)</span>
+        <label>共学形態</label>
+        <select id="fSex"><option value="">すべて</option><option value="共">共学</option><option value="男">男子</option><option value="女">女子</option></select>
         <label>並び</label>
         <select id="fSort">
           <option value="tight">おすすめ順（ぎりぎり届く学校から）</option>
           <option value="loose">余裕が大きい順</option>
           <option value="time">通学が近い順</option>
         </select>
-        <label>共学形態</label>
-        <select id="fSex"><option value="">すべて</option><option value="共">共学</option><option value="男">男子</option><option value="女">女子</option></select>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <label><input type="checkbox" id="fKaten" checked> 加点を含めて判定</label>
         <label><input type="checkbox" id="fNear" checked> あと少し（-3まで）も出す</label>
         <label><input type="checkbox" id="fUnk"> 判定できない学校も出す</label>
         <label><input type="checkbox" id="fTokutai"> 特待が狙える学校だけ</label>
@@ -192,11 +214,63 @@ dl.kv dd{background:#fff;margin:0;padding:6px 9px;font-size:12px;white-space:pre
 
     <div class="card">
       <h3>結果 <span class="sub" id="sgCount"></span></h3>
-      <div class="scroller"><table class="tbl" id="sgTbl"></table></div>
+      <div id="sgBody"></div>
     </div>
   </div>
 
-  <!-- ============ 学校一覧 ============ -->
+  <!-- ============ 公立の提案 ============ -->
+  <div class="pane" id="p-public">
+    <div class="card">
+      <h3>生徒 <span class="sub">私立タブと同じ生徒を使います</span></h3>
+      <div class="row" style="margin-bottom:8px;">
+        <div class="stu grow" id="pubChips"></div>
+      </div>
+      <div id="pubStu"></div>
+    </div>
+
+    <div class="card">
+      <h3>条件</h3>
+      <div class="row">
+        <label>通学</label>
+        <input type="number" id="pTime" min="0" max="180" step="5" value="60" style="width:64px;"> 分以内
+        <label>判定</label>
+        <select id="pJudge">
+          <option value="all">すべて</option>
+          <option value="reach">届きそうな学校だけ</option>
+          <option value="near">届く＋あと少し</option>
+        </select>
+        <label>並び</label>
+        <select id="pSort">
+          <option value="tight">おすすめ順（ぎりぎり届く学校から）</option>
+          <option value="loose">余裕が大きい順</option>
+          <option value="time">通学が近い順</option>
+          <option value="hensachi">偏差値が高い順</option>
+        </select>
+        <span class="grow"></span>
+        <input type="text" id="pWord" placeholder="校名・学区で絞る" style="width:170px;">
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>結果 <span class="sub" id="pCount"></span></h3>
+      <div class="scroller"><table class="tbl" id="pTbl"></table></div>
+    </div>
+
+    <div class="card">
+      <h3>公立の学校マスタ <span class="sub">校名・最寄駅・比率・ボーダーを入れる場所</span></h3>
+      <div class="row" style="margin-bottom:8px;">
+        <button class="btn pri" id="pPaste">表を貼り付けて取り込む</button>
+        <button class="btn" id="pAdd">＋ 1校ずつ追加</button>
+        <button class="btn" id="pEditTbl">一覧を編集</button>
+        <button class="btn" id="pCsv">CSVに書き出す</button>
+        <span class="grow"></span>
+        <span class="small muted" id="pStat"></span>
+      </div>
+      <div class="warnbox" id="pFormulaNote"></div>
+    </div>
+  </div>
+
+  <!-- ============ 私立一覧 ============ -->
   <div class="pane" id="p-schools">
     <div class="card">
       <div class="row">
@@ -221,7 +295,7 @@ dl.kv dd{background:#fff;margin:0;padding:6px 9px;font-size:12px;white-space:pre
   <!-- ============ 通学時間 ============ -->
   <div class="pane" id="p-access">
     <div class="card">
-      <h3>起点と乗換 <span class="sub">校舎から通う前提の設定。一度入れれば以後ずっと使えます</span></h3>
+      <h3>起点と乗換</h3>
       <div class="row">
         <label>起点の駅</label><input type="text" id="acOrigin" style="width:120px;">
         <label>乗換1回あたり</label><input type="number" id="acTransfer" min="0" max="30"> 分
@@ -230,8 +304,9 @@ dl.kv dd{background:#fff;margin:0;padding:6px 9px;font-size:12px;white-space:pre
         <span class="small muted" id="acStat"></span>
       </div>
       <div class="hint" style="margin-top:8px;">
-        初期値は<b>目安（未確認）</b>です。実際に調べた駅は「確認済」にチェックを入れてください。
-        チェックの無い駅は結果に「〜」を付けて表示します。
+        時間は<b>こちらで入れた初期値（目安）</b>です。ぜんぶ確認する必要はありません。
+        結果を見ていて「その学校そんなに遠くない／近くない」と思った駅だけ、ここで直してください。
+        直した駅は<b>自分で設定</b>と表示され、以後そちらが使われます。
       </div>
     </div>
     <div class="card">
@@ -248,7 +323,7 @@ dl.kv dd{background:#fff;margin:0;padding:6px 9px;font-size:12px;white-space:pre
   <!-- ============ 取込・版 ============ -->
   <div class="pane" id="p-import">
     <div class="card">
-      <h3>PDFを取り込む <span class="sub">解析はこの画面の中だけで行われます（外部送信なし）</span></h3>
+      <h3>打診値のPDFを取り込む <span class="sub">解析はこの画面の中だけで行われます</span></h3>
       <div id="drop">
         ここに打診値一覧のPDFをドラッグ＆ドロップ<br>
         <span class="small">またはクリックしてファイルを選ぶ</span>
@@ -274,8 +349,29 @@ dl.kv dd{background:#fff;margin:0;padding:6px 9px;font-size:12px;white-space:pre
     </div>
   </div>
 
-  <!-- ============ 設定 ============ -->
+  <!-- ============ 設定・同期 ============ -->
   <div class="pane" id="p-settings">
+    <div class="card">
+      <h3>🔄 スプレッドシート同期 <span class="sub">他のツールと同じ仕組み（同じURL・同じ合言葉が使えます）</span></h3>
+      <div class="row" style="margin-bottom:6px;">
+        <label style="width:100%;font-size:11px;">接続先URL（Apps Scriptのウェブアプリ URL）</label>
+        <input type="text" id="syncUrl" placeholder="https://script.google.com/macros/s/.../exec" style="width:100%;">
+      </div>
+      <div class="row" style="margin-bottom:8px;">
+        <label style="width:100%;font-size:11px;">合言葉</label>
+        <input type="text" id="syncKey" placeholder="合言葉" style="width:100%;">
+      </div>
+      <div class="row">
+        <button class="btn" id="syncLoadBtn">⬇️ スプシから読込</button>
+        <button class="btn pri" id="syncSaveBtn">⬆️ スプシに保存</button>
+        <span class="grow"></span>
+        <span class="small" id="syncMsg"></span>
+      </div>
+      <div class="warnbox" style="margin-top:8px;">
+        保存すると<b>打診値と生徒の内申がご自身のスプレッドシートに入ります</b>。
+        共有設定を「自分だけ」にしたまま使ってください。合言葉は教室の鍵と同じ扱いで。
+      </div>
+    </div>
     <div class="card">
       <h3>この端末に保存されているもの</h3>
       <div id="stStorage"></div>
@@ -285,7 +381,7 @@ dl.kv dd{background:#fff;margin:0;padding:6px 9px;font-size:12px;white-space:pre
       <div id="stEdits"></div>
     </div>
     <div class="card">
-      <h3>バックアップ</h3>
+      <h3>バックアップ（ファイル）</h3>
       <div class="row">
         <button class="btn" id="stExport">JSONに書き出す</button>
         <button class="btn" id="stImport">JSONから読み込む</button>
@@ -300,7 +396,7 @@ dl.kv dd{background:#fff;margin:0;padding:6px 9px;font-size:12px;white-space:pre
       <div class="row">
         <button class="btn dan" id="stClear">この端末の進路データを全部消す</button>
       </div>
-      <div class="hint" style="margin-top:6px;">版・生徒・駅・手直しのすべてが消えます。取り消せません。</div>
+      <div class="hint" style="margin-top:6px;">版・生徒・駅・手直し・公立マスタのすべてが消えます。取り消せません。</div>
     </div>
   </div>
 
@@ -720,7 +816,8 @@ root.DashinPdf={ parsePdf:parsePdf, COLDEF:COLDEF };
 var K={
   ver:'shinro_versions_v1',    cur:'shinro_current_v1',
   edit:'shinro_edits_v1',      sta:'shinro_stations_v1',
-  stu:'shinro_students_v1',    set:'shinro_settings_v1'
+  stu:'shinro_students_v1',    set:'shinro_settings_v1',
+  pub:'shinro_pub_v1',         sync:'shinro_sync_v1'
 };
 function lsGet(k,d){ try{ var v=localStorage.getItem(k); return v==null? d : JSON.parse(v); }catch(e){ return d; } }
 function lsSet(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); return true; }
@@ -988,7 +1085,7 @@ function accessText(routes){
   if(+s.tr) parts.push('乗換'+s.tr+'回');
   if(b.rt.bus) parts.push((b.rt.schoolBus?'ｽｸｰﾙﾊﾞｽ':'バス')+b.rt.bus+'分'+(b.rt.busGuess?'?':''));
   if(b.rt.walk) parts.push('徒歩'+b.rt.walk+'分');
-  return '<b class="mono">'+(b.ok?'':'〜')+b.min+'分</b> <span class="small muted">'+esc(b.rt.station)+'／'+parts.join('＋')+'</span>';
+  return '<b class="mono">'+b.min+'分</b> <span class="small muted">'+esc(b.rt.station)+'／'+parts.join('＋')+'</span>';
 }
 
 /* 駅マスタの初期値（戸塚起点・すべて「目安」＝未確認） */
@@ -1047,6 +1144,13 @@ function rows(){
       else o._cri[k].status='unknown';
     });
     o._tok=parseTokutai(o['特待内容']);
+    o._kt={};
+    KINDS.forEach(function(k){
+      var kt=parseKaten([o[k]]);
+      /* その欄に加点の記載が無ければ、他の欄の書き方を借りる */
+      if(!kt.rules.length && !kt.none) kt=parseKaten([o['単願推薦基準'],o['一般併願基準'],o['一般専願基準']]);
+      o._kt[k]=kt;
+    });
     o._acc=parseAccess(o['交通']);
     o._min=bestRoute(o._acc);
     o._need = KINDS.some(function(k){ return o._cri[k].status==='unknown'; });
@@ -1059,21 +1163,321 @@ function invalidate(){ CACHE.verId=''; }
 
 
 /* ==========================================================
+   加点
+   ------------------------------------------------------------
+   PDFの【加点】欄を読み、生徒が持っている項目に応じて
+   「その学校で何点つきそうか」を見積もる。
+   点数の書き方が学校ごとにバラバラなので、あくまで目安。
+   画面には必ず原文を出し、手で上書きできるようにしてある。
+   ========================================================== */
+
+/* 生徒側のチェック項目。PDFの全校の加点欄から拾った共通項目。 */
+var KATEN_ITEMS=[
+  {k:'eiken',   label:'英検',        type:'grade', re:/英検|実用英語技能検定|英語検定|英語技能検定/},
+  {k:'kanken',  label:'漢検',        type:'grade', re:/漢検|漢字能力検定|漢字検定/},
+  {k:'suken',   label:'数検',        type:'grade', re:/数検|数学技能検定|数学検定/},
+  {k:'kaikin',  label:'出欠',        type:'zeki'},
+  {k:'seitokai',label:'生徒会役員',   type:'bool',  re:/生徒会/},
+  {k:'iinchou', label:'委員長・学級委員',type:'bool',re:/委員長|委員会|学級委員/},
+  {k:'buchou',  label:'部長・副部長', type:'bool',  re:/部長|キャプテン/},
+  {k:'bukatsu3',label:'部活3年継続',  type:'bool',  re:/部活動を?3年間|3年間継続|部活3年継続|3年間同一の?部活|中学校3年間.{0,6}部活|部活動.{0,10}3年間所属|3年間.{0,4}部活動/},
+  {k:'taikai',  label:'大会実績',     type:'level', re:/県大会|関東大会|全国大会|中体連|中文連|コンクール|ブロック大会|地区大会/},
+  {k:'volun',   label:'ボランティア', type:'bool',  re:/ボランティア|社会貢献|福祉活動/},
+  {k:'kazoku',  label:'家族が卒業生・在校生',type:'bool',re:/卒業生|在校生|兄姉|姉妹|親族|父母兄姉|祖母/},
+  {k:'setsumei',label:'説明会・見学会に参加',type:'bool',re:/説明会|見学会|オープンスクール|オープンキャンパス/},
+  {k:'hyoutei5',label:'主要教科に評定5',type:'bool',re:/評定が5|評価が5|評価5|評定「5」|評定5|評価が５|に評価5の教科/}
+];
+/* 検定の級（数字が大きいほど上位） */
+var KYU=[['1級',6],['準1級',5],['2級プラス',4.5],['準2級プラス',3.5],['準2プラス',3.5],['2級',4],['準2級',3],['3級',2],['4級',1],['5級',0.5]];
+var KYU_OPT=[['','なし'],['1','1級'],['0.9','準1級'],['0.8','2級'],['0.7','準2級プラス'],['0.6','準2級'],['0.5','3級'],['0.4','4級']];
+var KYU_VAL={'1':6,'0.9':5,'0.8':4,'0.7':3.5,'0.6':3,'0.5':2,'0.4':1};
+var ZEKI_OPT=[['','なし'],['kaikin','3年間皆勤'],['3','欠席3日以内'],['5','欠席5日以内'],['10','欠席10日以内']];
+var ZEKI_VAL={'kaikin':0,'3':3,'5':5,'10':10};
+var TAIKAI_OPT=[['','なし'],['1','市・地区大会'],['2','県大会'],['3','関東大会'],['4','全国大会']];
+
+/* 「加点なし」と書いてある学校 */
+var RE_KATEN_NONE=/【加点】\s*なし|加点\s*なし|加点無し|加点は行わ|加点はありません/;
+
+/* テキストを「点数の目印」で区切り、各区切りに点数を割り当てる */
+function katenSegments(t){
+  var marks=[], m;
+  var re=/[＋+]\s*(\d)(?!\d)|\((?:[＋+])?(\d)\)|（(?:[＋+])?(\d)）|(\d)\s*点/g;
+  while((m=re.exec(t))){
+    var v=+(m[1]||m[2]||m[3]||m[4]);
+    if(v>=1 && v<=9) marks.push({at:m.index, end:re.lastIndex, pt:v});
+  }
+  return marks;
+}
+/* ある位置の項目に、いちばん近い点数の目印を当てる */
+function pointNear(marks, pos, len){
+  var best=null;
+  for(var i=0;i<marks.length;i++){
+    var mk=marks[i];
+    var d = (mk.at>=pos+len) ? (mk.at-(pos+len)) : (pos-mk.end);
+    if(d<0) d=0;
+    /* 「＋1：英検、漢検、数検」のように前に書く形が多いので、前を広めに見る */
+    var limit = (mk.at>=pos+len) ? 14 : 60;
+    if(d>limit) continue;
+    if(!best || d<best.d) best={d:d, pt:mk.pt};
+  }
+  return best? best.pt : 1;
+}
+function katenCap(t){
+  if(/上限は?ありません|上限なし|上限は無し/.test(t)) return 99;
+  var caps=[], m;
+  var res=[/最大[^。]{0,12}?[＋+]?\s*(\d)/g, /上限[^。]{0,12}?[＋+]?\s*(\d)/g,
+           /(\d)\s*点を上限/g, /[＋+](\d)\s*まで/g, /(\d)\s*点まで/g];
+  res.forEach(function(re){ while((m=re.exec(t))){ var v=+m[1]; if(v>=1&&v<=9) caps.push(v); } });
+  if(!caps.length) return null;
+  return Math.min.apply(null, caps);      /* 迷ったら少なく見積もる */
+}
+
+/* 窓の中の級を、出てくる順にすべて拾う（長い表記を優先して重なりを避ける） */
+function kyuInWindow(win){
+  var hits=[];
+  KYU.forEach(function(p){
+    var i=0;
+    while((i=win.indexOf(p[0], i))>=0){ hits.push({at:i, len:p[0].length, lvl:p[1], label:p[0]}); i+=p[0].length; }
+  });
+  hits.sort(function(a,b){ return a.at-b.at || b.len-a.len; });
+  var out=[], used=[];
+  hits.forEach(function(h){
+    for(var i=0;i<used.length;i++){ if(h.at<used[i][1] && h.at+h.len>used[i][0]) return; }
+    used.push([h.at,h.at+h.len]); out.push(h);
+  });
+  /* 同じ級が何度も出たら、点が高いものだけ後で残るので重複はそのままでよい */
+  return out.slice(0,4);
+}
+
+/* 学校1コースぶんの加点ルールを読む */
+function parseKaten(rawList){
+  var raw=(rawList||[]).filter(Boolean).join(' ');
+  var out={raw:raw, none:false, cap:null, rules:[]};
+  if(!raw) return out;
+  var t=toHalf(raw);
+  var i=t.indexOf('【加点】');
+  if(i>=0) t=t.slice(i);
+  if(RE_KATEN_NONE.test(t)){ out.none=true; return out; }
+  out.cap=katenCap(t);
+  var marks=katenSegments(t);
+
+  KATEN_ITEMS.forEach(function(it){
+    if(it.type==='zeki'){
+      /* 出欠は「3年間皆勤」「欠席が5日以内」など、条件がバラバラ */
+      var re=/(?:3年間|３年間|1カ年間|各学年)?\s*皆勤|欠席(?:日数)?が?\s*(\d{1,2})\s*日以内|欠席がない|無欠席|欠席が?合計\s*(\d{1,2})\s*日以内/g, m;
+      while((m=re.exec(t))){
+        var need = m[0].indexOf('皆勤')>=0 || m[0].indexOf('欠席がない')>=0 || m[0].indexOf('無欠席')>=0
+                 ? 0 : +(m[1]||m[2]||0);
+        out.rules.push({k:'kaikin', need:need, pt:pointNear(marks,m.index,m[0].length), src:m[0]});
+      }
+      return;
+    }
+    if(it.type==='grade'){
+      var re2=new RegExp(it.re.source,'g'), mm;
+      while((mm=re2.exec(t))){
+        /* キーワードの後ろを見て、出てくる級を全部ひろう（段階で書かれることが多い） */
+        var win=t.slice(mm.index, mm.index+70);
+        var found=kyuInWindow(win);
+        if(!found.length) continue;
+        found.forEach(function(f){
+          out.rules.push({k:it.k, need:f.lvl,
+                          pt:pointNear(marks, mm.index+f.at, f.len),
+                          src:win.substr(Math.max(0,f.at-8), 26)});
+        });
+      }
+      return;
+    }
+    if(it.type==='level'){
+      var lv=[[/全国大会/g,4],[/関東大会|ブロック大会/g,3],[/県大会|都県大会/g,2],[/市.{0,3}大会|地区大会|市・地区/g,1]];
+      lv.forEach(function(p){
+        var re3=new RegExp(p[0].source,'g'), m3;
+        while((m3=re3.exec(t))) out.rules.push({k:it.k, need:p[1], pt:pointNear(marks,m3.index,m3[0].length), src:m3[0]});
+      });
+      return;
+    }
+    var re4=new RegExp(it.re.source,'g'), m4;
+    while((m4=re4.exec(t))){
+      out.rules.push({k:it.k, need:0, pt:pointNear(marks,m4.index,m4[0].length), src:t.substr(m4.index,20)});
+    }
+  });
+  /* 「英・数・漢検」とまとめて書いてある場合、1つしか拾えないことがあるので補う */
+  ['eiken','kanken','suken'].forEach(function(k){
+    if(out.rules.some(function(r){return r.k===k;})) return;
+    if(!/英[・･、]?数[・･、]?漢検|漢[・･、]?数検|英[・･、]数[・･、]漢|検定（英[・･、]数[・･、]漢検）|各検定/.test(t)) return;
+    var src=out.rules.filter(function(r){ return ['eiken','kanken','suken'].indexOf(r.k)>=0; });
+    src.forEach(function(r){ out.rules.push({k:k, need:r.need, pt:r.pt, src:r.src+'（まとめ書きから）'}); });
+  });
+  return out;
+}
+
+/* 生徒の持ち物（st.katen）で、その学校の加点が何点になるか */
+function katenFor(kt, st){
+  if(!kt || kt.none || !kt.rules.length) return {pt:0, hit:[], cap:kt?kt.cap:null, none:kt?kt.none:false};
+  var have=(st&&st.katen)||{};
+  var per={}, hit=[];
+  kt.rules.forEach(function(r){
+    var ok=false, myLabel='';
+    var it=KATEN_ITEMS.filter(function(x){return x.k===r.k;})[0]; if(!it) return;
+    if(it.type==='grade'){
+      var mine=KYU_VAL[have[r.k]];
+      if(mine!=null && mine>=r.need){ ok=true; myLabel=it.label; }
+    } else if(it.type==='zeki'){
+      var v=have.kaikin; if(v==null||v==='') return;
+      var mineDays = ZEKI_VAL[v];
+      if(mineDays!=null && mineDays<=r.need){ ok=true; myLabel='出欠'; }
+    } else if(it.type==='level'){
+      var lv=+have.taikai||0;
+      if(lv>=r.need && lv>0){ ok=true; myLabel='大会実績'; }
+    } else {
+      if(have[r.k]){ ok=true; myLabel=it.label; }
+    }
+    if(!ok) return;
+    if(per[r.k]==null || r.pt>per[r.k]){ per[r.k]=r.pt; }
+    if(hit.indexOf(myLabel)<0) hit.push(myLabel);
+  });
+  var sum=0; for(var k in per) sum+=per[k];
+  var cap=(kt.cap==null? null : kt.cap);
+  var pt=(cap==null? sum : Math.min(sum,cap));
+  return {pt:pt, raw:sum, hit:hit, cap:cap, none:false};
+}
+
+
+/* ==========================================================
+   神奈川県公立高校
+   ------------------------------------------------------------
+   S値 = a値×f(a) ＋ b値×f(b) ＋ d値×f(d)
+     a値 = 調査書（中2の9科 ＋ 中3の9科×2 ＝135点満点）を100点満点に換算
+     b値 = 学力検査（5科500点満点）を100点満点に換算
+     d値 = 特色検査（100点満点に換算）
+     f(a)+f(b)=10、f(d)は0〜5。比率は学校ごとに違う。
+   ★この式と比率は学校マスタで直せるようにしてある。
+     手元の資料と合っているか、最初に1校で必ず確かめること。
+   ========================================================== */
+var PUBK='shinro_pub_v1';
+var PUB={schools:[], memo:''};
+
+var PUB_COLS=[
+  ['name','校名'],['area','学区・地区'],['station','最寄駅'],['walk','駅から徒歩(分)'],['bus','駅からバス(分)'],
+  ['fa','f(a) 内申'],['fb','f(b) 学力'],['fd','f(d) 特色'],
+  ['borderS','合格目安S値'],['hensachi','目安偏差値'],['note','メモ']
+];
+
+function loadPub(){
+  var v=lsGet(PUBK,null);
+  PUB = v && v.schools ? v : {schools:[], memo:''};
+}
+function savePub(){ lsSet(PUBK,PUB); }
+
+/* --- 生徒の値から a値 / b値 / S値 --- */
+function aValue(st){
+  if(!st) return null;
+  var g2=st.g2_9, g3=st.g3_9;
+  if(g2===''||g2==null||g3===''||g3==null) return null;
+  var pts=(+g2)+(+g3)*2;                    /* 135点満点 */
+  return Math.round(pts/135*100*10)/10;     /* 100点満点 */
+}
+function bValue(st){
+  if(!st) return null;
+  if(st.mo_score!==''&&st.mo_score!=null) return Math.round((+st.mo_score)/500*100*10)/10;
+  return null;
+}
+function dValue(st){
+  if(!st) return null;
+  if(st.mo_tokushoku!==''&&st.mo_tokushoku!=null) return +st.mo_tokushoku;
+  return null;
+}
+function sValue(sc, st){
+  var a=aValue(st), b=bValue(st);
+  if(a==null||b==null) return null;
+  var fa=+sc.fa||0, fb=+sc.fb||0, fd=+sc.fd||0;
+  if(!fa&&!fb) return null;
+  var s=a*fa + b*fb;
+  if(fd){ var d=dValue(st); if(d!=null) s+=d*fd; }
+  return Math.round(s*10)/10;
+}
+function sMax(sc){
+  var fa=+sc.fa||0, fb=+sc.fb||0, fd=+sc.fd||0;
+  return 100*(fa+fb+fd);
+}
+
+/* --- 通学時間（私立と同じ駅マスタを使う） --- */
+function pubAccess(sc){
+  if(!sc.station) return null;
+  var st=S.stations[String(sc.station).replace(/駅$/,'').trim()];
+  if(!st || st.min==null || st.min==='') return null;
+  return (+st.min)+(+st.tr||0)*(+S.settings.transferMin||0)+(+sc.bus||0)+(+sc.walk||0);
+}
+
+/* --- 貼り付け取込（TSV/CSV）--- */
+function splitPasted(text){
+  var lines=String(text||'').replace(/\r/g,'').split('\n').filter(function(l){ return l.trim()!==''; });
+  if(!lines.length) return [];
+  var tab=lines[0].indexOf('\t')>=0;
+  return lines.map(function(l){
+    if(tab) return l.split('\t');
+    var out=[],cur='',q=false;
+    for(var i=0;i<l.length;i++){
+      var ch=l[i];
+      if(ch==='"'){ q=!q; continue; }
+      if(ch===','&&!q){ out.push(cur); cur=''; continue; }
+      cur+=ch;
+    }
+    out.push(cur);
+    return out;
+  });
+}
+/* 見出し行から列を推測する */
+function guessPubCols(head){
+  var map={};
+  var hints={
+    name:/校名|学校名|高校名|学校/, area:/学区|地区|エリア|地域/,
+    station:/最寄|駅/, walk:/徒歩/, bus:/バス/,
+    fa:/f\(a\)|内申.*比|比率.*内申|a値|調査書/, fb:/f\(b\)|学力.*比|比率.*学力|b値|学力検査/,
+    fd:/f\(d\)|特色/, borderS:/S値|ボーダー|合格.*目安|目安.*S/, hensachi:/偏差値/, note:/備考|メモ/
+  };
+  head.forEach(function(h,i){
+    var s=String(h||'').trim();
+    for(var k in hints){ if(map[k]==null && hints[k].test(s)){ map[k]=i; return; } }
+  });
+  return map;
+}
+function pubRowsFrom(rows, map){
+  var out=[];
+  rows.forEach(function(r){
+    var name=(map.name!=null? r[map.name] : r[0])||'';
+    name=String(name).trim();
+    if(!name || /校名|学校名/.test(name)) return;
+    var g=function(k,d){ var i=map[k]; if(i==null) return d; var v=String(r[i]==null?'':r[i]).trim(); return v===''? d : v; };
+    var num=function(k,d){ var v=g(k,''); var m=String(v).match(/-?\d+(\.\d+)?/); return m? +m[0] : d; };
+    out.push({
+      id:'p'+Math.random().toString(36).slice(2,9),
+      name:name, area:g('area',''), station:String(g('station','')).replace(/駅$/,'').trim(),
+      walk:num('walk',0), bus:num('bus',0),
+      fa:num('fa',4), fb:num('fb',6), fd:num('fd',0),
+      borderS:num('borderS',null), hensachi:num('hensachi',null), note:g('note','')
+    });
+  });
+  return out;
+}
+
+
+/* ==========================================================
    7. 画面のたね
    ========================================================== */
 function $(id){ return document.getElementById(id); }
 function el(tag,cls,html){ var e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e; }
 function fmtDate(ts){ var d=new Date(ts); var p=function(n){return (n<10?'0':'')+n;};
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes()); }
+function each(sel,fn,root){ [].forEach.call((root||document).querySelectorAll(sel),fn); }
 
 var CURPANE='suggest';
 function showPane(k){
   CURPANE=k;
-  [].forEach.call(document.querySelectorAll('.tab'),function(b){ b.classList.toggle('on', b.dataset.p===k); });
-  [].forEach.call(document.querySelectorAll('.pane'),function(p){ p.classList.toggle('on', p.id==='p-'+k); });
+  each('.tab',function(b){ b.classList.toggle('on', b.dataset.p===k); });
+  each('.pane',function(p){ p.classList.toggle('on', p.id==='p-'+k); });
   render();
 }
-[].forEach.call(document.querySelectorAll('.tab'),function(b){ b.onclick=function(){ showPane(b.dataset.p); }; });
+each('.tab',function(b){ b.onclick=function(){ showPane(b.dataset.p); }; });
 
 function openModal(title, html){
   $('modalNm').textContent=title;
@@ -1088,6 +1492,7 @@ function render(){
   $('verLabel').textContent = v ? (v.label+'（'+v.rows.length+'コース／'+new Set(v.rows.map(function(r){return r['校名'];})).size+'校）')
                                 : 'データ未取込 — 「取込・版」タブでPDFを読み込んでください';
   if(CURPANE==='suggest')  renderSuggest();
+  if(CURPANE==='public')   renderPublic();
   if(CURPANE==='schools')  renderSchools();
   if(CURPANE==='access')   renderAccess();
   if(CURPANE==='import')   renderVersions();
@@ -1098,24 +1503,53 @@ function render(){
    8. 生徒
    ========================================================== */
 var curStu=null;
-var STUF=[
-  ['g3_9','3年 9科 (45)'],['g3_5','3年 5科 (25)'],['g3_3','3年 3科 (15)'],['g3_4','3年 実技4科 (20)'],
-  ['g2_9','2年学年末 9科'],['g2_5','2年学年末 5科'],['bonus','加点の見込み (+)']
-];
 function newStudent(name){
   return {id:'s'+Date.now()+Math.floor(Math.random()*900), name:name||'', grade:'中3',
-          g3_9:'', g3_5:'', g3_3:'', g3_4:'', g2_9:'', g2_5:'', bonus:0, memo:''};
+          g2_5:'', g2_9:'', g3_5:'', g3_9:'', g3_3:'', g3_4:'',
+          mo_score:'', mo_hensachi:'', mo_tokushoku:'',
+          katen:{}, bonus:0, memo:''};
 }
 function saveStudents(){ lsSet(K.stu,S.students); }
+function stuNum(k){ var v=curStu? curStu[k] : ''; return (v===''||v==null)? null : +v; }
 
-function renderStuChips(){
-  var box=$('stuChips'); box.innerHTML='';
+function renderStuChips(boxId){
+  var box=$(boxId); if(!box) return;
+  box.innerHTML='';
   if(!S.students.length){ box.innerHTML='<span class="muted small">生徒がまだいません。「＋ 新規」か「名簿から選ぶ」で追加してください。</span>'; return; }
   S.students.forEach(function(s){
     var c=el('button','chip'+(curStu&&curStu.id===s.id?' on':''), esc(s.name||'(名前なし)'));
-    c.onclick=function(){ curStu=s; renderSuggest(); };
+    c.onclick=function(){ curStu=s; render(); };
     box.appendChild(c);
   });
+}
+
+var NAISHIN=[['g2_5','2年 5科',25],['g2_9','2年 9科',45],['g3_5','3年 5科',25],['g3_9','3年 9科',45]];
+function naishinHtml(){
+  var h='<div class="naishin">';
+  NAISHIN.forEach(function(f){
+    h+='<div class="nb"><label>'+esc(f[1])+'</label>'+
+       '<input type="number" data-f="'+f[0]+'" min="0" max="'+f[2]+'" value="'+esc(curStu[f[0]]===0?0:(curStu[f[0]]||''))+'">'+
+       '<div class="mx">/'+f[2]+'</div></div>';
+  });
+  /* 学校ごとの満点に合わせた合計をその場で出す */
+  var g25=stuNum('g2_5'), g29=stuNum('g2_9'), g35=stuNum('g3_5'), g39=stuNum('g3_9');
+  [['50点',  (g25!=null&&g35!=null)? g25+g35 : null],
+   ['75点',  (g25!=null&&g35!=null)? g25+g35*2 : null],
+   ['90点',  (g29!=null&&g39!=null)? g29+g39 : null],
+   ['135点', (g29!=null&&g39!=null)? g29+g39*2 : null]
+  ].forEach(function(c){
+    h+='<div class="nb calc"><label>'+c[0]+'満点</label><div class="v">'+(c[1]==null?'—':c[1])+'</div><div class="mx">自動</div></div>';
+  });
+  h+='</div>';
+  return h;
+}
+function bindStuInputs(box){
+  each('input[data-f]',function(i){
+    var k=i.dataset.f;
+    if(i.value==='' && curStu[k]!==''&&curStu[k]!=null) i.value=curStu[k];
+    i.onchange=function(){ curStu[k]= this.value===''? '' : +this.value; saveStudents(); render(); };
+    i.oninput=function(){ curStu[k]= this.value===''? '' : +this.value; saveStudents(); };
+  }, box);
 }
 function renderStuEdit(){
   var box=$('stuEdit');
@@ -1123,21 +1557,20 @@ function renderStuEdit(){
   var h='<div class="row" style="margin-bottom:8px;">'+
     '<label>氏名</label><input type="text" id="suName" value="'+esc(curStu.name)+'" style="width:150px;">'+
     '<label>学年</label><input type="text" id="suGrade" value="'+esc(curStu.grade||'')+'" style="width:70px;">'+
-    '<span class="grow"></span><span class="small muted">数値は空欄でも構いません（その基準は「要確認」になります）</span></div>';
-  h+='<div class="gridin">';
-  STUF.forEach(function(f){
-    h+='<div class="fld"><label>'+esc(f[1])+'</label><input type="number" class="num" data-f="'+f[0]+'" value="'+esc(curStu[f[0]]===0?0:(curStu[f[0]]||''))+'"></div>';
-  });
-  h+='</div>';
-  h+='<div class="hint" style="margin-top:8px;">'+
-     '2年の内申は <b>50/75/90/135点満点</b> の基準（湘南工科・立花・相洋・平塚など）で使います。'+
-     '「加点の見込み」は検定や生徒会などで自分が見込む点数を手で入れる欄です（自動計算はしません）。</div>';
+    '<span class="grow"></span><span class="small muted">4つ入れれば 50/75/90/135点満点の学校も判定できます</span></div>';
+  h+=naishinHtml();
+  h+='<details class="fold"><summary>そのほか（3科・実技4科・模試の点数・手動の加点）</summary><div class="row" style="padding-top:6px;">'+
+     '<label>3年 3科(15)</label><input type="number" class="num" data-f="g3_3">'+
+     '<label>3年 実技4科(20)</label><input type="number" class="num" data-f="g3_4">'+
+     '<label>模試 5科得点(500)</label><input type="number" class="num" data-f="mo_score">'+
+     '<label>模試 5科偏差値</label><input type="number" class="num" data-f="mo_hensachi">'+
+     '<label>特色検査(100)</label><input type="number" class="num" data-f="mo_tokushoku">'+
+     '<label>加点を手で足す</label><input type="number" class="num" data-f="bonus">'+
+     '</div></details>';
   box.innerHTML=h;
-  $('suName').oninput=function(){ curStu.name=this.value; saveStudents(); renderStuChips(); };
+  $('suName').oninput=function(){ curStu.name=this.value; saveStudents(); renderStuChips('stuChips'); };
   $('suGrade').oninput=function(){ curStu.grade=this.value; saveStudents(); };
-  [].forEach.call(box.querySelectorAll('input[data-f]'),function(i){
-    i.oninput=function(){ curStu[i.dataset.f]= this.value===''? '' : +this.value; saveStudents(); renderSgTable(); };
-  });
+  bindStuInputs(box);
 }
 $('btnStuNew').onclick=function(){
   var s=newStudent(''); S.students.push(s); curStu=s; saveStudents(); renderSuggest();
@@ -1147,7 +1580,7 @@ $('btnStuDel').onclick=function(){
   if(!curStu) return;
   if(!confirm('「'+(curStu.name||'名前なし')+'」を削除します。よろしいですか？')) return;
   S.students=S.students.filter(function(x){ return x.id!==curStu.id; });
-  curStu=S.students[0]||null; saveStudents(); renderSuggest();
+  curStu=S.students[0]||null; saveStudents(); render();
 };
 $('btnStuFromRoster').onclick=function(){
   var names=lsGet('gradeTracker_names_v1',{})||{}, grades=lsGet('gradeTracker_rosterGrade_v1',{})||{};
@@ -1159,50 +1592,81 @@ $('btnStuFromRoster').onclick=function(){
     return;
   }
   list.sort(function(a,b){ return (a.grade||'').localeCompare(b.grade||'')||a.name.localeCompare(b.name); });
-  var h='<div class="row" style="margin-bottom:8px;"><input type="text" id="rsWord" placeholder="氏名で絞る" style="width:200px;">'+
-        '<span class="small muted">中3の生徒を選んでください（'+list.length+'名）</span></div><div id="rsList"></div>';
-  openModal('名簿から選ぶ',h);
+  openModal('名簿から選ぶ',
+    '<div class="row" style="margin-bottom:8px;"><input type="text" id="rsWord" placeholder="氏名で絞る" style="width:200px;">'+
+    '<span class="small muted">'+list.length+'名</span></div><div id="rsList"></div>');
   function draw(){
     var w=($('rsWord').value||'').trim();
     var f=list.filter(function(x){ return !w || x.name.indexOf(w)>=0; });
     $('rsList').innerHTML='<div class="stu">'+f.slice(0,400).map(function(x,i){
       return '<button class="chip" data-i="'+i+'">'+esc(x.name)+(x.grade?' <span class="small muted">'+esc(x.grade)+'</span>':'')+'</button>';
     }).join('')+'</div>';
-    [].forEach.call($('rsList').querySelectorAll('.chip'),function(b){
+    each('.chip',function(b){
       b.onclick=function(){
         var x=f[+b.dataset.i];
         var ex=S.students.filter(function(s){ return s.name===x.name; })[0];
         if(ex){ curStu=ex; }
         else { var s=newStudent(x.name); s.grade=x.grade||'中3'; S.students.push(s); curStu=s; saveStudents(); }
-        $('modal').classList.remove('on'); renderSuggest();
+        $('modal').classList.remove('on'); render();
       };
-    });
+    }, $('rsList'));
   }
   $('rsWord').oninput=draw; draw();
 };
 
 /* ==========================================================
-   9. 提案
+   9. 加点のチェック欄
    ========================================================== */
-function renderSuggest(){ renderStuChips(); renderStuEdit(); renderSgTable(); }
-['fKind','fTime','fSex','fNear','fUnk','fTokutai','fSort'].forEach(function(id){ $(id).onchange=renderSgTable; });
-$('fWord').oninput=renderSgTable;
+function renderKaten(){
+  var box=$('katenBox');
+  if(!curStu){ box.innerHTML='<div class="hint">生徒を選ぶと入力できます。</div>'; return; }
+  if(!curStu.katen) curStu.katen={};
+  var kt=curStu.katen, h='';
+  function sel(k,opts){
+    return '<select data-kt="'+k+'">'+opts.map(function(o){
+      return '<option value="'+o[0]+'"'+((kt[k]||'')===o[0]?' selected':'')+'>'+esc(o[1])+'</option>'; }).join('')+'</select>';
+  }
+  KATEN_ITEMS.forEach(function(it){
+    h+='<div class="ki">';
+    if(it.type==='grade')      h+='<span>'+esc(it.label)+'</span>'+sel(it.k,KYU_OPT);
+    else if(it.type==='zeki')  h+='<span>出欠</span>'+sel('kaikin',ZEKI_OPT);
+    else if(it.type==='level') h+='<span>大会実績</span>'+sel('taikai',TAIKAI_OPT);
+    else h+='<label><input type="checkbox" data-ktb="'+it.k+'"'+(kt[it.k]?' checked':'')+'> '+esc(it.label)+'</label>';
+    h+='</div>';
+  });
+  box.innerHTML=h;
+  each('select[data-kt]',function(s){ s.onchange=function(){ curStu.katen[s.dataset.kt]=s.value; saveStudents(); renderSgTable(); }; }, box);
+  each('input[data-ktb]',function(c){ c.onchange=function(){ curStu.katen[c.dataset.ktb]=c.checked; saveStudents(); renderSgTable(); }; }, box);
+}
 
+/* ==========================================================
+   10. 私立の提案
+   ========================================================== */
+function renderSuggest(){ renderStuChips('stuChips'); renderStuEdit(); renderKaten(); renderSgTable(); }
+['fKind','fSex','fSort','fKaten','fNear','fUnk','fTokutai'].forEach(function(id){ $(id).onchange=renderSgTable; });
+$('fWord').oninput=renderSgTable;
+$('fTime').oninput=renderSgTable;
+
+function katenOf(r,kind){
+  if(!curStu || !$('fKaten').checked) return {pt:0,hit:[],cap:null,none:false,raw:0};
+  var res=katenFor(r._kt&&r._kt[kind], curStu);
+  res.pt += (+curStu.bonus||0);
+  return res;
+}
 function renderSgTable(){
-  var t=$('sgTbl'), v=curVersion();
-  if(!v){ t.innerHTML='<tbody><tr><td class="muted">まだデータがありません。「取込・版」タブでPDFを読み込んでください。</td></tr></tbody>'; $('sgCount').textContent=''; return; }
-  var kind=$('fKind').value, maxMin=+$('fTime').value, sex=$('fSex').value;
+  var box=$('sgBody'), v=curVersion();
+  if(!v){ box.innerHTML='<div class="hint">まだデータがありません。「取込・版」タブでPDFを読み込んでください。</div>'; $('sgCount').textContent=''; return; }
+  var kind=$('fKind').value, maxMin=+$('fTime').value||0, sex=$('fSex').value;
   var wantNear=$('fNear').checked, wantUnk=$('fUnk').checked, onlyTok=$('fTokutai').checked;
-  var sortBy=$('fSort').value;
-  var word=($('fWord').value||'').trim();
-  var st=curStu, bonus=curStu? (+curStu.bonus||0) : 0;
+  var sortBy=$('fSort').value, word=($('fWord').value||'').trim();
+  var st=curStu;
 
   var list=rows().map(function(r){
-    var j=judge(r._cri[kind], st, bonus);
-    var tok=st? bestTokutai(r._tok, st, bonus) : null;
-    return {r:r, j:j, tok:tok};
+    var kt=katenOf(r,kind);
+    var j=judge(r._cri[kind], st, kt.pt);
+    var tok=st? bestTokutai(r._tok, st, kt.pt) : null;
+    return {r:r, j:j, tok:tok, kt:kt};
   });
-
   list=list.filter(function(x){
     if(sex && x.r['形']!==sex) return false;
     if(word && (x.r['校名']+x.r['コース']).indexOf(word)<0) return false;
@@ -1211,18 +1675,16 @@ function renderSgTable(){
     var s=x.j.status;
     if(s==='ok'||s==='free') return true;
     if(s==='near') return wantNear;
-    if(s==='unknown') return wantUnk;
     if(s==='ng') return false;
-    return wantUnk;                                  /* na / none */
+    return wantUnk;
   });
 
   var ord={ok:0,free:1,near:2,unknown:3,na:4,none:5};
   list.sort(function(a,b){
-    /* ord は 0 を含むので || は使えない（届く=0 が 9 に化ける） */
     var oa=(ord[a.j.status]===undefined?9:ord[a.j.status]), ob=(ord[b.j.status]===undefined?9:ord[b.j.status]);
-    var d=oa-ob; if(d) return d;
+    if(oa!==ob) return oa-ob;
     var am=a.r._min? a.r._min.min:9999, bm=b.r._min? b.r._min.min:9999;
-    if(sortBy==='time') return am-bm || (a.r['校名']>b.r['校名']?1:-1);
+    if(sortBy==='time') return am-bm;
     var an=a.j.norm, bn=b.j.norm;
     if(an!=null && bn!=null && an!==bn) return sortBy==='loose'? (bn-an) : (an-bn);
     if(an==null && bn!=null) return 1;
@@ -1231,38 +1693,81 @@ function renderSgTable(){
   });
 
   $('sgCount').textContent = (st? ('『'+(st.name||'名前なし')+'』／') : '生徒未選択／') +
-      KINDLABEL[kind]+'：'+list.length+'件';
+      KINDLABEL[kind]+'：'+list.length+'件'+(maxMin? '（通学'+maxMin+'分以内）':'');
 
-  var h='<thead><tr><th style="width:120px;">学校</th><th style="width:110px;">コース</th>'+
-        '<th style="width:96px;">判定</th><th style="width:120px;">基準</th>'+
-        '<th style="width:150px;">通学</th><th style="width:52px;">確約</th>'+
-        '<th style="width:120px;">特待</th><th>基準の原文</th></tr></thead><tbody>';
-  if(!list.length) h+='<tr><td colspan="8" class="muted">条件に合う学校がありません。通学時間や「あと少し」の条件をゆるめてみてください。</td></tr>';
-  list.forEach(function(x,i){
-    var r=x.r, j=x.j;
-    var kk = kind.indexOf('推薦')>=0 ? '推薦確約' : '一般確約';
-    var basis = j.best? (BASIS[j.basis].label+' '+j.need+'/'+j.best.max) : '';
-    var scoreTxt = j.score!=null? ('<span class="small muted">本人 '+j.score+'</span>') : '';
-    h+='<tr data-i="'+r._i+'">'+
-       '<td class="nowrap"><a href="#" class="lnk" data-i="'+r._i+'">'+esc(r['校名'])+'</a></td>'+
-       '<td>'+esc(r['コース']||'-')+'</td>'+
-       '<td class="c">'+judgeTag(j)+'</td>'+
-       '<td class="small">'+esc(basis)+' '+scoreTxt+'</td>'+
-       '<td>'+accessText(r._acc)+'</td>'+
-       '<td class="c">'+esc(r[kk]||'')+'</td>'+
-       '<td class="small">'+((x.tok && /有/.test(r['特待有無']||''))? ('<span class="tag t-info">'+esc(x.tok.item.label)+'</span> '+x.tok.item.need+'/'+x.tok.item.max) : (r._tok.length? '<span class="muted">-</span>':''))+'</td>'+
-       '<td class="small clip2">'+esc((r[kind]||'').slice(0,120))+'</td>'+
-       '</tr>';
+  var groups=[['ok','届く'],['free','基準なし（誰でも出願可）'],['near','あと少し'],
+              ['unknown','判定できない（原文を確認）'],['na','この選考は実施なし'],['none','記載なし']];
+  var html='';
+  groups.forEach(function(g){
+    var part=list.filter(function(x){ return x.j.status===g[0]; });
+    if(!part.length) return;
+    html+='<div class="grp">'+esc(g[1])+'<span class="cnt">'+part.length+'件</span></div>';
+    html+='<div class="scroller" style="max-height:none;"><table class="tbl">'+
+      '<thead><tr><th style="width:118px;">学校</th><th style="width:105px;">コース</th>'+
+      '<th style="width:88px;">判定</th><th style="width:132px;">基準／本人</th>'+
+      '<th style="width:62px;">加点</th><th style="width:140px;">通学</th><th style="width:44px;">確約</th>'+
+      '<th style="width:112px;">特待</th><th>基準の原文</th></tr></thead><tbody>';
+    part.forEach(function(x){
+      var r=x.r, j=x.j;
+      var kk = kind.indexOf('推薦')>=0 ? '推薦確約' : '一般確約';
+      var basis = j.best? (BASIS[j.basis].label+' '+j.need+'/'+j.best.max) : '';
+      var mine  = j.score!=null? ('<br><span class="small muted">本人 '+j.score+'</span>') : '';
+      var ktTxt = x.kt.none? '<span class="small muted">なし</span>'
+                : '<a href="#" class="ktl'+(x.kt.pt?'':' muted small')+'" data-i="'+r._i+'" data-k="'+kind+'">'+(x.kt.pt?'+'+x.kt.pt:'0')+'</a>';
+      html+='<tr>'+
+        '<td class="nowrap"><a href="#" class="lnk" data-i="'+r._i+'">'+esc(r['校名'])+'</a></td>'+
+        '<td>'+esc(r['コース']||'-')+'</td>'+
+        '<td class="c">'+judgeTag(j)+'</td>'+
+        '<td class="small">'+esc(basis)+mine+'</td>'+
+        '<td class="c small">'+ktTxt+'</td>'+
+        '<td>'+accessText(r._acc)+'</td>'+
+        '<td class="c">'+esc(r[kk]||'')+'</td>'+
+        '<td class="small">'+((x.tok && /有/.test(r['特待有無']||''))? ('<span class="tag t-info">'+esc(x.tok.item.label)+'</span> '+x.tok.item.need+'/'+x.tok.item.max) : '')+'</td>'+
+        '<td class="small clip2">'+esc((r[kind]||'').slice(0,120))+'</td>'+
+        '</tr>';
+    });
+    html+='</tbody></table></div>';
   });
-  h+='</tbody>';
-  t.innerHTML=h;
-  [].forEach.call(t.querySelectorAll('.lnk'),function(a){
-    a.onclick=function(e){ e.preventDefault(); openDetail(+a.dataset.i); };
-  });
+  if(!html) html='<div class="hint">条件に合う学校がありません。通学時間をのばすか、「あと少し」も出すにチェックしてください。</div>';
+  box.innerHTML=html;
+  each('.lnk',function(a){ a.onclick=function(e){ e.preventDefault(); openDetail(+a.dataset.i); }; }, box);
+  each('.ktl',function(a){ a.onclick=function(e){ e.preventDefault(); openKaten(+a.dataset.i, a.dataset.k); }; }, box);
+}
+
+function openKaten(i,kind){
+  var r=rows().filter(function(x){ return x._i===i; })[0]; if(!r) return;
+  var kt=r._kt[kind], res=katenFor(kt,curStu);
+  var h='';
+  if(kt.none) h+='<div class="okbox">この学校は<b>加点なし</b>と書かれています。</div>';
+  else{
+    h+='<div class="okbox">この生徒の加点の見積り：<b>+'+res.pt+'</b>'+
+       (res.cap!=null&&res.cap<90? '（この学校の上限 +'+res.cap+'）':'')+
+       (res.raw>res.pt? ' <span class="small muted">／上限がなければ +'+res.raw+'</span>':'')+
+       (res.hit.length? '<br>当てはまった項目：'+esc(res.hit.join('、')) : '<br>当てはまる項目がありません')+'</div>';
+    if(kt.rules.length){
+      h+='<div style="margin-top:10px;"><b class="small">読み取ったルール（目安）</b></div>'+
+         '<table class="tbl"><thead><tr><th style="width:170px;">項目</th><th style="width:56px;">点</th><th>読み取り元</th></tr></thead><tbody>';
+      kt.rules.forEach(function(rl){
+        var it=KATEN_ITEMS.filter(function(x){return x.k===rl.k;})[0];
+        var need='';
+        if(it&&it.type==='grade'){ var kk=KYU.filter(function(q){return q[1]===rl.need;})[0]; need=kk? '（'+kk[0]+'以上）':''; }
+        if(it&&it.type==='zeki')  need=rl.need===0? '（皆勤）':'（'+rl.need+'日以内）';
+        if(it&&it.type==='level'){ var lo=TAIKAI_OPT.filter(function(o){return o[0]==String(rl.need);})[0]; need='（'+(lo?lo[1]:'?')+'以上）'; }
+        h+='<tr><td class="small">'+esc((it?it.label:rl.k)+need)+'</td><td class="c small">+'+rl.pt+'</td>'+
+           '<td class="small">'+esc(rl.src)+'</td></tr>';
+      });
+      h+='</tbody></table>';
+    }
+  }
+  h+='<div style="margin-top:12px;"><b class="small">加点欄の原文</b></div>'+
+     '<div class="small" style="white-space:pre-wrap;background:#f8fafc;border:1px solid #e3e9f0;border-radius:6px;padding:8px;margin-top:4px;">'+
+     (esc(kt.raw)||'<span class="muted">（記載なし）</span>')+'</div>'+
+     '<div class="hint" style="margin-top:8px;">点数の付け方は学校ごとにバラバラです。見積りと原文が食い違っていたら、原文を正としてください。</div>';
+  openModal(r['校名']+'　'+(r['コース']||'')+'　加点', h);
 }
 
 /* ==========================================================
-   10. 学校一覧
+   11. 私立一覧
    ========================================================== */
 ['scWord','scSex','scSort','scNeed'].forEach(function(id){
   var e=$(id); e[(id==='scWord'?'oninput':'onchange')]=renderSchools;
@@ -1310,54 +1815,50 @@ function renderSchools(){
   });
   h+='</tbody>';
   t.innerHTML=h;
-  [].forEach.call(t.querySelectorAll('.lnk'),function(a){
-    a.onclick=function(e){ e.preventDefault(); openDetail(+a.dataset.i); };
-  });
+  each('.lnk',function(a){ a.onclick=function(e){ e.preventDefault(); openDetail(+a.dataset.i); }; }, t);
 }
 
-/* ---- 詳細（原文と手直し） ---- */
 function openDetail(i){
   var r=rows().filter(function(x){ return x._i===i; })[0]; if(!r) return;
   var h='';
   h+='<div class="row" style="margin-bottom:10px;">'+
      accessText(r._acc)+'<span class="grow"></span>'+
      '<span class="small muted">'+esc(r['所在地'])+'／'+esc(r['形'])+'／'+esc(r['情報'])+'年度 ／ PDF '+r['__page']+'ページ目</span></div>';
-
   h+='<h4 style="margin:6px 0;font-size:12.5px;">読み取った基準</h4><table class="tbl"><thead><tr>'+
-     '<th style="width:90px;">選考</th><th style="width:170px;">読み取り</th><th>原文（クリックで直せます）</th></tr></thead><tbody>';
+     '<th style="width:100px;">選考</th><th style="width:170px;">読み取り</th><th>原文（クリックで直せます）</th></tr></thead><tbody>';
   KINDS.forEach(function(k){
-    var c=r._cri[k], j=curStu? judge(c,curStu,+curStu.bonus||0) : null;
+    var c=r._cri[k];
+    var kt=curStu? katenFor(r._kt[k],curStu) : {pt:0};
+    var j=curStu? judge(c,curStu,kt.pt+(+curStu.bonus||0)) : null;
     var read;
     if(c.status==='ok') read=c.alts.map(function(a){ return a.need+'/'+a.max+'<span class="small muted">('+BASIS[a.basis].label+')</span>'; }).join('<br>');
     else if(c.status==='free') read='<span class="tag t-ok">基準なし</span>';
     else if(c.status==='na') read='<span class="muted">実施なし</span>';
     else if(c.status==='none') read='<span class="muted">記載なし</span>';
     else read='<span class="tag t-warn">読み取れませんでした</span>';
-    h+='<tr><td class="nowrap">'+KINDLABEL[k]+(j?'<br>'+judgeTag(j):'')+'</td><td class="small">'+read+'</td>'+
+    h+='<tr><td class="nowrap">'+KINDLABEL[k]+(j?'<br>'+judgeTag(j):'')+(kt.pt?'<br><span class="small muted">加点+'+kt.pt+'</span>':'')+'</td>'+
+       '<td class="small">'+read+'</td>'+
        '<td class="small"><div class="ed" data-col="'+k+'" style="white-space:pre-wrap;cursor:text;">'+
        (esc(r[k])||'<span class="muted">（空）</span>')+'</div>'+
        (isEdited(r._r,k)?'<div class="small"><span class="tag t-info">手で直した内容</span> <a href="#" class="undo" data-col="'+k+'">元に戻す</a></div>':'')+
        '</td></tr>';
   });
   h+='</tbody></table>';
-
   h+='<h4 style="margin:12px 0 6px;font-size:12.5px;">特待</h4>';
   if(r._tok.length){
     h+='<div class="small" style="margin-bottom:6px;">'+r._tok.map(function(x){
       return '<span class="tag t-info">'+esc(x.label)+' '+x.need+'/'+x.max+'</span>'; }).join(' ')+'</div>';
   }
   h+='<div class="small ed" data-col="特待内容" style="white-space:pre-wrap;cursor:text;">'+(esc(r['特待内容'])||'<span class="muted">（空）</span>')+'</div>';
-
   h+='<h4 style="margin:12px 0 6px;font-size:12.5px;">PDFの全項目</h4><dl class="kv">';
   COLS.forEach(function(c){
     if(KINDS.indexOf(c)>=0||c==='特待内容') return;
     h+='<dt>'+esc(c)+'</dt><dd class="ed" data-col="'+esc(c)+'">'+(esc(r[c])||'<span class="muted">（空）</span>')+'</dd>';
   });
   h+='</dl>';
-
   openModal(r['校名']+'　'+(r['コース']||''), h);
 
-  [].forEach.call($('modalbd').querySelectorAll('.ed'),function(d){
+  each('.ed',function(d){
     d.onclick=function(){
       if(d.querySelector('textarea')) return;
       var col=d.dataset.col, cur=r[col]||'';
@@ -1370,18 +1871,20 @@ function openDetail(i){
         var val=ta.value;
         if(val===(r._r[col]||'')) delete S.edits[editKey(r._r,col)];
         else S.edits[editKey(r._r,col)]=val;
-        lsSet(K.edit,S.edits); invalidate(); syncStations(curVersion().rows); openDetail(i); render();
+        lsSet(K.edit,S.edits); invalidate();
+        var cv=curVersion(); if(cv) syncStations(cv.rows);
+        openDetail(i); render();
       };
     };
-  });
-  [].forEach.call($('modalbd').querySelectorAll('.undo'),function(a){
+  }, $('modalbd'));
+  each('.undo',function(a){
     a.onclick=function(e){ e.preventDefault(); e.stopPropagation();
       delete S.edits[editKey(r._r,a.dataset.col)]; lsSet(K.edit,S.edits); invalidate(); openDetail(i); render(); };
-  });
+  }, $('modalbd'));
 }
 
 /* ==========================================================
-   11. 通学時間（駅マスタ）
+   12. 通学時間（駅マスタ）
    ========================================================== */
 $('acSave').onclick=function(){
   S.settings.origin=$('acOrigin').value.trim()||'戸塚';
@@ -1399,14 +1902,13 @@ $('acAdd').onclick=function(){
 function renderAccess(){
   $('acOrigin').value=S.settings.origin;
   $('acTransfer').value=S.settings.transferMin;
-  /* 使われている駅を数える */
   var used={};
   rows().forEach(function(r){ r._acc.forEach(function(x){ used[x.station]=(used[x.station]||0)+1; }); });
+  PUB.schools.forEach(function(sc){ if(sc.station) used[sc.station]=(used[sc.station]||0)+1; });
   var names=Object.keys(S.stations);
-  var nSet=names.filter(function(n){ var s=S.stations[n]; return s.min!=null&&s.min!==''; }).length;
-  var nOk =names.filter(function(n){ return S.stations[n].ok; }).length;
   var miss=Object.keys(used).filter(function(n){ var s=S.stations[n]; return !s||s.min==null||s.min===''; });
-  $('acStat').innerHTML='登録 '+names.length+'駅／時間あり '+nSet+'／確認済 '+nOk+
+  var mine=names.filter(function(n){ return S.stations[n].ok; }).length;
+  $('acStat').innerHTML='登録 '+names.length+'駅／自分で設定 '+mine+
      (miss.length? ' <span class="tag t-warn">未設定 '+miss.length+'駅</span>':'');
 
   var w=($('acWord').value||'').trim(), onlyBlank=$('acOnlyBlank').checked;
@@ -1423,35 +1925,266 @@ function renderAccess(){
     return sa-sb;
   });
   var h='<thead><tr><th style="width:150px;">駅</th><th style="width:96px;">'+esc(S.settings.origin)+'から電車</th>'+
-        '<th style="width:78px;">乗換</th><th style="width:80px;">確認済</th><th style="width:70px;">使用校数</th><th>メモ</th></tr></thead><tbody>';
+        '<th style="width:78px;">乗換</th><th style="width:100px;">状態</th><th style="width:70px;">使用校数</th><th>メモ</th></tr></thead><tbody>';
   list.forEach(function(n){
     var s=S.stations[n];
     h+='<tr data-n="'+esc(n)+'"><td class="nowrap">'+esc(n)+(used[n]?'':' <span class="small muted">(未使用)</span>')+'</td>'+
        '<td><input type="number" class="num k-min" min="0" max="300" value="'+(s.min==null?'':s.min)+'"> 分</td>'+
        '<td><input type="number" class="num k-tr" min="0" max="6" value="'+(+s.tr||0)+'"> 回</td>'+
-       '<td class="c"><input type="checkbox" class="k-ok"'+(s.ok?' checked':'')+'></td>'+
+       '<td class="c small">'+(s.ok? '<span class="tag t-ok">自分で設定</span>' : '<span class="muted">初期値（目安）</span>')+'</td>'+
        '<td class="c mono">'+(used[n]||0)+'</td>'+
        '<td><input type="text" class="k-note" value="'+esc(s.note||'')+'" style="width:98%;"></td></tr>';
   });
   h+='</tbody>';
   $('acTbl').innerHTML=h;
-  [].forEach.call($('acTbl').querySelectorAll('tbody tr'),function(tr){
+  each('tbody tr',function(tr){
     var n=tr.dataset.n;
     function upd(){
       var mi=tr.querySelector('.k-min').value;
       S.stations[n]={ min: mi===''? null : +mi,
                       tr:+tr.querySelector('.k-tr').value||0,
-                      ok:tr.querySelector('.k-ok').checked,
+                      ok:true,                       /* 触った＝自分で設定した、とみなす */
                       note:tr.querySelector('.k-note').value };
-      lsSet(K.sta,S.stations); invalidate();
+      lsSet(K.sta,S.stations); invalidate(); renderAccess();
     }
     ['.k-min','.k-tr','.k-note'].forEach(function(sel){ tr.querySelector(sel).onchange=upd; });
-    tr.querySelector('.k-ok').onchange=function(){ upd(); };
-  });
+  }, $('acTbl'));
 }
 
+
 /* ==========================================================
-   12. PDF取込・版
+   13. 公立の提案
+   ========================================================== */
+function pubStuHtml(){
+  if(!curStu) return '<div class="hint">私立タブで生徒を選ぶか、追加してください。</div>';
+  var a=aValue(curStu), b=bValue(curStu), d=dValue(curStu);
+  var h='<div class="naishin">';
+  [['g2_9','2年 9科',45],['g3_9','3年 9科',45]].forEach(function(f){
+    h+='<div class="nb"><label>'+esc(f[1])+'</label>'+
+       '<input type="number" data-f="'+f[0]+'" min="0" max="'+f[2]+'" value="'+esc(curStu[f[0]]===0?0:(curStu[f[0]]||''))+'">'+
+       '<div class="mx">/'+f[2]+'</div></div>';
+  });
+  h+='<div class="nb"><label>模試 5科得点</label>'+
+     '<input type="number" data-f="mo_score" min="0" max="500" value="'+esc(curStu.mo_score===0?0:(curStu.mo_score||''))+'">'+
+     '<div class="mx">/500</div></div>';
+  h+='<div class="nb"><label>模試 5科偏差値</label>'+
+     '<input type="number" data-f="mo_hensachi" min="20" max="80" value="'+esc(curStu.mo_hensachi===0?0:(curStu.mo_hensachi||''))+'">'+
+     '<div class="mx">目安の絞り込み用</div></div>';
+  h+='<div class="nb"><label>特色検査</label>'+
+     '<input type="number" data-f="mo_tokushoku" min="0" max="100" value="'+esc(curStu.mo_tokushoku===0?0:(curStu.mo_tokushoku||''))+'">'+
+     '<div class="mx">/100・任意</div></div>';
+  h+='<div class="nb calc"><label>a値（調査書）</label><div class="v">'+(a==null?'—':a)+'</div><div class="mx">'+
+     ((curStu.g2_9!==''&&curStu.g3_9!=='')? ((+curStu.g2_9)+(+curStu.g3_9)*2)+'/135':'2年9科+3年9科×2')+'</div></div>';
+  h+='<div class="nb calc"><label>b値（学力検査）</label><div class="v">'+(b==null?'—':b)+'</div><div class="mx">得点/500</div></div>';
+  h+='</div>';
+  h+='<div class="hint" style="margin-top:8px;">'+
+     'S値 ＝ a値×f(a) ＋ b値×f(b)'+(d!=null?' ＋ 特色×f(d)':'')+'。f(a)+f(b)=10 が基本で、比率は学校ごとに違います。'+
+     '<b>比率とボーダーは学校マスタで直せます。</b>手元の資料と1校で必ず突き合わせてください。</div>';
+  return h;
+}
+function renderPublic(){
+  renderStuChips('pubChips');
+  var box=$('pubStu');
+  box.innerHTML=pubStuHtml();
+  if(curStu) bindStuInputs(box);
+  $('pFormulaNote').innerHTML=
+    '計算式：<b>S値 ＝ a値×f(a) ＋ b値×f(b) ＋ 特色×f(d)</b>　'+
+    '（a値＝(2年9科＋3年9科×2)÷135×100、b値＝学力検査÷500×100、特色＝÷100×100）<br>'+
+    'この式と各校の比率は<b>こちらで確かめたものではありません</b>。全研模試の資料や県の選考基準と突き合わせて、'+
+    '最初に1校だけ手計算で合っているか確認してください。合っていなければ比率を直せば全校に効きます。';
+  $('pStat').textContent=PUB.schools.length+'校 登録';
+  renderPubTable();
+}
+['pTime','pJudge','pSort'].forEach(function(id){ $(id).onchange=renderPubTable; });
+$('pTime').oninput=renderPubTable;
+$('pWord').oninput=renderPubTable;
+
+function renderPubTable(){
+  var t=$('pTbl');
+  if(!PUB.schools.length){
+    t.innerHTML='<tbody><tr><td class="muted">公立の学校がまだ登録されていません。下の「表を貼り付けて取り込む」から入れてください。</td></tr></tbody>';
+    $('pCount').textContent=''; return;
+  }
+  var maxMin=+$('pTime').value||0, mode=$('pJudge').value, sortBy=$('pSort').value;
+  var w=($('pWord').value||'').trim();
+  var st=curStu;
+
+  var list=PUB.schools.map(function(sc){
+    var s=sValue(sc,st), mins=pubAccess(sc);
+    var diff=(s!=null && sc.borderS!=null)? Math.round((s-sc.borderS)*10)/10 : null;
+    var hDiff=(st && st.mo_hensachi!=='' && st.mo_hensachi!=null && sc.hensachi!=null)
+              ? Math.round(((+st.mo_hensachi)-sc.hensachi)*10)/10 : null;
+    var d = diff!=null? diff : (hDiff!=null? hDiff*10 : null);   /* S値が無ければ偏差値差で代用 */
+    var stt = d==null? 'unknown' : (d>=0? 'ok' : (d>=-20? 'near':'ng'));
+    return {sc:sc, s:s, mins:mins, diff:diff, hDiff:hDiff, ord:d, status:stt};
+  });
+  list=list.filter(function(x){
+    if(w && ((x.sc.name||'')+(x.sc.area||'')).indexOf(w)<0) return false;
+    if(maxMin){ if(x.mins==null || x.mins>maxMin) return false; }
+    if(mode==='reach' && x.status!=='ok') return false;
+    if(mode==='near' && !(x.status==='ok'||x.status==='near')) return false;
+    return true;
+  });
+  var ord={ok:0,near:1,unknown:2,ng:3};
+  list.sort(function(a,b){
+    if(sortBy==='time') return (a.mins==null?9999:a.mins)-(b.mins==null?9999:b.mins);
+    if(sortBy==='hensachi') return (b.sc.hensachi==null?-99:b.sc.hensachi)-(a.sc.hensachi==null?-99:a.sc.hensachi);
+    var oa=ord[a.status], ob=ord[b.status];
+    if(oa!==ob) return oa-ob;
+    if(a.ord==null) return 1; if(b.ord==null) return -1;
+    return sortBy==='loose'? (b.ord-a.ord) : (a.ord-b.ord);
+  });
+  $('pCount').textContent=(st? ('『'+(st.name||'名前なし')+'』／'):'生徒未選択／')+list.length+'校'+(maxMin?'（通学'+maxMin+'分以内）':'');
+
+  var h='<thead><tr><th style="width:150px;">学校</th><th style="width:80px;">学区</th>'+
+        '<th style="width:96px;">判定</th><th style="width:120px;">S値／ボーダー</th>'+
+        '<th style="width:88px;">偏差値</th><th style="width:120px;">通学</th>'+
+        '<th style="width:96px;">比率 a:b:d</th><th style="width:100px;"></th></tr></thead><tbody>';
+  list.forEach(function(x,i){
+    var sc=x.sc;
+    var tag;
+    if(x.status==='unknown') tag='<span class="tag t-unk">判定不可</span>';
+    else{
+      var lab=x.diff!=null? (x.diff>0? 'S値 +'+x.diff : (x.diff===0? 'ちょうど':'S値 '+x.diff))
+                          : (x.hDiff>0? '偏差値 +'+x.hDiff : '偏差値 '+x.hDiff);
+      tag='<span class="tag '+(x.status==='ok'?'t-ok':(x.status==='near'?'t-near':'t-ng'))+'">'+lab+'</span>';
+    }
+    var idx=PUB.schools.indexOf(sc);
+    h+='<tr><td class="nowrap">'+esc(sc.name)+'</td><td class="small">'+esc(sc.area||'')+'</td>'+
+       '<td class="c">'+tag+'</td>'+
+       '<td class="small mono">'+(x.s==null?'—':x.s)+(sc.borderS!=null? ' / '+sc.borderS : ' / <span class="muted">未設定</span>')+'</td>'+
+       '<td class="small mono">'+(sc.hensachi==null?'<span class="muted">—</span>':sc.hensachi)+'</td>'+
+       '<td class="small">'+(x.mins==null? '<span class="tag t-warn">駅未設定</span>'
+            : ('<b class="mono">'+x.mins+'分</b> <span class="small muted">'+esc(sc.station||'')+'</span>'))+'</td>'+
+       '<td class="c small mono">'+(+sc.fa||0)+':'+(+sc.fb||0)+(+sc.fd? ':'+sc.fd:'')+'</td>'+
+       '<td><button class="btn sm pedit" data-i="'+idx+'">編集</button></td></tr>';
+  });
+  h+='</tbody>';
+  t.innerHTML=h;
+  each('.pedit',function(b){ b.onclick=function(){ editPubSchool(+b.dataset.i); }; }, t);
+}
+
+function editPubSchool(i){
+  var sc = i<0? {id:'p'+Math.random().toString(36).slice(2,9),name:'',area:'',station:'',walk:0,bus:0,fa:4,fb:6,fd:0,borderS:null,hensachi:null,note:''}
+              : PUB.schools[i];
+  var h='<div class="row" style="flex-direction:column;align-items:stretch;gap:8px;">';
+  PUB_COLS.forEach(function(c){
+    var v=sc[c[0]]; v=(v==null?'':v);
+    h+='<div class="row"><label style="width:120px;">'+esc(c[1])+'</label>'+
+       '<input type="'+(['walk','bus','fa','fb','fd','borderS','hensachi'].indexOf(c[0])>=0?'number':'text')+
+       '" data-p="'+c[0]+'" value="'+esc(v)+'" style="flex:1 1 auto;'+(c[0]==='name'?'font-weight:700;':'')+'"></div>';
+  });
+  h+='</div><div class="row" style="margin-top:12px;">'+
+     '<button class="btn pri" id="pSaveOne">保存</button>'+
+     (i>=0? '<button class="btn dan" id="pDelOne">この学校を削除</button>':'')+
+     '<span class="grow"></span><span class="small muted">f(a)+f(b)=10 が基本。特色検査が無い学校は f(d)=0</span></div>';
+  openModal(i<0? '公立高校を追加' : sc.name, h);
+  $('pSaveOne').onclick=function(){
+    each('input[data-p]',function(inp){
+      var k=inp.dataset.p, v=inp.value.trim();
+      if(['walk','bus','fa','fb','fd','borderS','hensachi'].indexOf(k)>=0) sc[k]= v===''? (k==='borderS'||k==='hensachi'? null : 0) : +v;
+      else sc[k]=v;
+    }, $('modalbd'));
+    sc.station=String(sc.station||'').replace(/駅$/,'').trim();
+    if(!sc.name){ alert('校名を入れてください'); return; }
+    if(i<0) PUB.schools.push(sc);
+    if(sc.station && !S.stations[sc.station]){ S.stations[sc.station]={min:null,tr:0,ok:false,note:''}; lsSet(K.sta,S.stations); }
+    savePub(); $('modal').classList.remove('on'); renderPublic();
+  };
+  if(i>=0) $('pDelOne').onclick=function(){
+    if(!confirm('「'+sc.name+'」を削除します。よろしいですか？')) return;
+    PUB.schools.splice(i,1); savePub(); $('modal').classList.remove('on'); renderPublic();
+  };
+}
+$('pAdd').onclick=function(){ editPubSchool(-1); };
+
+$('pPaste').onclick=function(){
+  openModal('公立高校の表を貼り付ける',
+    '<div class="hint" style="margin-bottom:8px;">'+
+    '模試のマイページや県の資料の表を、そのままコピーしてここに貼り付けてください。'+
+    'ExcelからのコピーもCSVも読めます。1行目が見出しなら列を自動で見分けます。</div>'+
+    '<textarea id="pText" style="min-height:180px;" placeholder="校名&#9;学区&#9;最寄駅&#9;徒歩&#9;f(a)&#9;f(b)&#9;f(d)&#9;ボーダーS値&#9;偏差値"></textarea>'+
+    '<div class="row" style="margin-top:8px;"><button class="btn pri" id="pParse">読み取る</button>'+
+    '<label><input type="checkbox" id="pReplace"> 今の学校マスタを消してから入れる</label></div>'+
+    '<div id="pPrev" style="margin-top:10px;"></div>');
+  $('pParse').onclick=function(){
+    var rowsIn=splitPasted($('pText').value);
+    if(!rowsIn.length){ $('pPrev').innerHTML='<div class="errbox">読み取れませんでした。</div>'; return; }
+    var head=rowsIn[0], map=guessPubCols(head);
+    var body=(Object.keys(map).length? rowsIn.slice(1) : rowsIn);
+    if(!Object.keys(map).length) map={name:0};
+    var got=pubRowsFrom(body,map);
+    if(!got.length){ $('pPrev').innerHTML='<div class="errbox">校名らしい列が見つかりませんでした。1列目を校名にしてみてください。</div>'; return; }
+    var mapTxt=Object.keys(map).map(function(k){
+      var c=PUB_COLS.filter(function(x){return x[0]===k;})[0];
+      return (c?c[1]:k)+'←「'+esc(String(head[map[k]]||'').trim())+'」';
+    }).join('　');
+    var h='<div class="okbox">'+got.length+'校を読み取りました。<br><span class="small">'+mapTxt+'</span></div>'+
+      '<div class="scroller" style="max-height:260px;margin-top:8px;"><table class="tbl"><thead><tr>'+
+      PUB_COLS.map(function(c){return '<th>'+esc(c[1])+'</th>';}).join('')+'</tr></thead><tbody>'+
+      got.slice(0,50).map(function(r){ return '<tr>'+PUB_COLS.map(function(c){
+        return '<td class="small">'+esc(r[c[0]]==null?'':r[c[0]])+'</td>'; }).join('')+'</tr>'; }).join('')+
+      '</tbody></table></div>'+
+      '<div class="row" style="margin-top:8px;"><button class="btn pri" id="pCommit">この内容で登録する</button>'+
+      '<span class="small muted">見出しが違う列に入っていたら、貼り付ける表の見出しを直すか、登録後に「一覧を編集」で直せます</span></div>';
+    $('pPrev').innerHTML=h;
+    $('pCommit').onclick=function(){
+      if($('pReplace').checked) PUB.schools=[];
+      var byName={}; PUB.schools.forEach(function(s){ byName[s.name]=s; });
+      got.forEach(function(g){
+        if(byName[g.name]){ var o=byName[g.name]; Object.keys(g).forEach(function(k){ if(k!=='id') o[k]=g[k]; }); }
+        else PUB.schools.push(g);
+        if(g.station && !S.stations[g.station]) S.stations[g.station]={min:null,tr:0,ok:false,note:''};
+      });
+      lsSet(K.sta,S.stations); savePub();
+      $('modal').classList.remove('on'); renderPublic();
+    };
+  };
+};
+$('pEditTbl').onclick=function(){
+  var h='<div class="scroller" style="max-height:60vh;"><table class="tbl"><thead><tr>'+
+    PUB_COLS.map(function(c){return '<th>'+esc(c[1])+'</th>';}).join('')+'<th></th></tr></thead><tbody>';
+  PUB.schools.forEach(function(sc,i){
+    h+='<tr data-i="'+i+'">'+PUB_COLS.map(function(c){
+      var num=['walk','bus','fa','fb','fd','borderS','hensachi'].indexOf(c[0])>=0;
+      return '<td><input type="'+(num?'number':'text')+'" data-p="'+c[0]+'" value="'+esc(sc[c[0]]==null?'':sc[c[0]])+
+             '" style="width:'+(c[0]==='name'?'130px':(num?'62px':'90px'))+';"></td>';
+    }).join('')+'<td><button class="btn sm dan pdel">削除</button></td></tr>';
+  });
+  h+='</tbody></table></div><div class="row" style="margin-top:8px;"><button class="btn pri" id="pSaveAll">保存</button></div>';
+  openModal('公立の学校マスタ（'+PUB.schools.length+'校）',h);
+  each('.pdel',function(b){ b.onclick=function(){ b.closest('tr').style.display='none'; b.closest('tr').dataset.del='1'; }; }, $('modalbd'));
+  $('pSaveAll').onclick=function(){
+    var next=[];
+    each('tbody tr',function(tr){
+      if(tr.dataset.del) return;
+      var sc=PUB.schools[+tr.dataset.i]||{};
+      each('input[data-p]',function(inp){
+        var k=inp.dataset.p, v=inp.value.trim();
+        if(['walk','bus','fa','fb','fd','borderS','hensachi'].indexOf(k)>=0) sc[k]= v===''? (k==='borderS'||k==='hensachi'? null:0) : +v;
+        else sc[k]=v;
+      }, tr);
+      sc.station=String(sc.station||'').replace(/駅$/,'').trim();
+      if(sc.station && !S.stations[sc.station]) S.stations[sc.station]={min:null,tr:0,ok:false,note:''};
+      if(sc.name) next.push(sc);
+    }, $('modalbd'));
+    PUB.schools=next; lsSet(K.sta,S.stations); savePub();
+    $('modal').classList.remove('on'); renderPublic();
+  };
+};
+$('pCsv').onclick=function(){
+  var head=PUB_COLS.map(function(c){return c[1];}).join(',');
+  var body=PUB.schools.map(function(s){ return PUB_COLS.map(function(c){
+    var v=s[c[0]]==null?'':String(s[c[0]]);
+    return /[",\n]/.test(v)? '"'+v.replace(/"/g,'""')+'"' : v; }).join(','); }).join('\n');
+  var blob=new Blob(['﻿'+head+'\n'+body],{type:'text/csv'});
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='公立高校マスタ.csv'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(a.href); },1000);
+};
+
+/* ==========================================================
+   14. PDF取込・版
    ========================================================== */
 async function inflate(u8, mode){
   if(typeof DecompressionStream==='undefined') throw new Error('このブラウザはPDFの展開に対応していません（Chrome/Edge/Safariの新しい版で開いてください）');
@@ -1460,10 +2193,8 @@ async function inflate(u8, mode){
   var buf=await new Response(rs).arrayBuffer();
   return new Uint8Array(buf);
 }
-
 var PENDING=null;
 function impLog(html){ $('impLog').innerHTML=html; }
-
 $('drop').onclick=function(){ $('file').click(); };
 $('file').onchange=function(){ if(this.files&&this.files[0]) handleFile(this.files[0]); this.value=''; };
 ['dragenter','dragover'].forEach(function(ev){
@@ -1476,7 +2207,6 @@ $('drop').addEventListener('drop',function(e){
   var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
   if(f) handleFile(f);
 });
-
 async function handleFile(file){
   PENDING=null; $('impActions').style.display='none';
   impLog('<div class="okbox">解析しています… '+esc(file.name)+'</div>');
@@ -1527,7 +2257,6 @@ $('impSave').onclick=function(){
   PENDING=null; $('impActions').style.display='none'; impLog('<div class="okbox">保存しました。</div>');
   invalidate(); syncStations(v.rows); render();
 };
-
 function renderVersions(){
   var t=$('verTbl');
   if(!S.versions.length){ t.innerHTML='<tbody><tr><td class="muted">まだ版がありません。</td></tr></tbody>'; $('diffCard').style.display='none'; return; }
@@ -1543,10 +2272,11 @@ function renderVersions(){
        '<button class="btn sm dan xbtn" data-id="'+v.id+'">削除</button></td></tr>';
   });
   h+='</tbody>'; t.innerHTML=h;
-  [].forEach.call(t.querySelectorAll('input[name=vsel]'),function(r){
-    r.onchange=function(){ S.curId=r.dataset.id; lsSet(K.cur,S.curId); invalidate(); syncStations(curVersion().rows); render(); };
-  });
-  [].forEach.call(t.querySelectorAll('.xbtn'),function(b){
+  each('input[name=vsel]',function(r){
+    r.onchange=function(){ S.curId=r.dataset.id; lsSet(K.cur,S.curId); invalidate();
+      var cv=curVersion(); if(cv) syncStations(cv.rows); render(); };
+  }, t);
+  each('.xbtn',function(b){
     b.onclick=function(){
       var v=S.versions.filter(function(x){return x.id===b.dataset.id;})[0];
       if(!confirm('版「'+v.label+'」を削除します。よろしいですか？')) return;
@@ -1555,10 +2285,9 @@ function renderVersions(){
       if(S.curId===b.dataset.id){ S.curId=S.versions.length? S.versions[S.versions.length-1].id:''; lsSet(K.cur,S.curId); }
       invalidate(); render();
     };
-  });
-  [].forEach.call(t.querySelectorAll('.dbtn'),function(b){ b.onclick=function(){ showDiff(b.dataset.id); }; });
+  }, t);
+  each('.dbtn',function(b){ b.onclick=function(){ showDiff(b.dataset.id); }; }, t);
 }
-
 function rowKey(r){ return (r['校名']||'')+'／'+(r['コース']||''); }
 function showDiff(id){
   var i=-1; for(var n=0;n<S.versions.length;n++) if(S.versions[n].id===id) i=n;
@@ -1596,7 +2325,7 @@ function showDiff(id){
       c.diffs.forEach(function(d,j){
         h+='<tr>'+(j===0?'<td rowspan="'+c.diffs.length+'" class="nowrap">'+esc(c.key)+'</td>':'')+
            '<td class="small nowrap">'+esc(d.col)+
-             (d.edited? '<br><span class="tag t-warn" title="この欄は手で直してあるため、新しい値が画面に出ません。設定タブで元に戻せます">手直しが優先</span>':'')+'</td>'+
+             (d.edited? '<br><span class="tag t-warn" title="この欄は手で直してあるため、新しい値が画面に出ません">手直しが優先</span>':'')+'</td>'+
            '<td class="small clip2">'+(esc(d.a)||'<span class="muted">（空）</span>')+'</td>'+
            '<td class="small clip2">'+(esc(d.b)||'<span class="muted">（空）</span>')+'</td></tr>';
       });
@@ -1607,21 +2336,73 @@ function showDiff(id){
 }
 
 /* ==========================================================
-   13. 設定
+   15. 設定・スプレッドシート同期
    ========================================================== */
+function syncPayload(){
+  return { versions:S.versions, curId:S.curId, edits:S.edits, stations:S.stations,
+           students:S.students, settings:S.settings, pub:PUB };
+}
+function applySyncPayload(d){
+  if(d.versions){ S.versions=d.versions; lsSet(K.ver,S.versions); }
+  if(d.curId!=null){ S.curId=d.curId; lsSet(K.cur,S.curId); }
+  if(d.edits){ S.edits=d.edits; lsSet(K.edit,S.edits); }
+  if(d.stations){ S.stations=d.stations; lsSet(K.sta,S.stations); }
+  if(d.students){ S.students=d.students; lsSet(K.stu,S.students); }
+  if(d.settings){ S.settings=Object.assign({},DEF_SET,d.settings); lsSet(K.set,S.settings); }
+  if(d.pub){ PUB=d.pub; savePub(); }
+}
+function syncCfg(){ return lsGet(K.sync,{})||{}; }
+function syncMsg(t,color){ var m=$('syncMsg'); m.textContent=t; m.style.color=color||'#7a8b9c'; }
+async function syncPost(body){
+  var url=$('syncUrl').value.trim(), key=$('syncKey').value.trim();
+  if(!url||!key){ syncMsg('接続先URLと合言葉を入れてください','#b83b34'); return null; }
+  lsSet(K.sync,{url:url,key:key});
+  var res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify(Object.assign({key:key,tool:'shinro'},body))});
+  return await res.json();
+}
+$('syncSaveBtn').onclick=async function(){
+  var payload=JSON.stringify(syncPayload());
+  syncMsg('スプシに保存中…（'+Math.round(payload.length/1024)+'KB）');
+  try{
+    var d=await syncPost({data:payload});
+    if(!d) return;
+    if(d.ok) syncMsg('✅ 保存しました（'+new Date().toLocaleTimeString()+'／'+Math.round((d.bytes||0)/1024)+'KB）','#2b7a45');
+    else syncMsg('エラー: '+(d.error||'不明'),'#b83b34');
+  }catch(e){ syncMsg('通信エラー: ネット接続とURLを確認してください','#b83b34'); }
+};
+$('syncLoadBtn').onclick=async function(){
+  if(!confirm('スプシの内容で、この端末の進路データを上書きします。よろしいですか？')) return;
+  syncMsg('スプシから読込中…');
+  try{
+    var d=await syncPost({action:'load'});
+    if(!d) return;
+    if(!d.ok){ syncMsg('エラー: '+(d.error||'不明'),'#b83b34'); return; }
+    if(!d.data){ syncMsg('スプシにまだデータがありません（先に「スプシに保存」してください）','#b83b34'); return; }
+    applySyncPayload(JSON.parse(d.data));
+    curStu=S.students[0]||null; invalidate();
+    var cv=curVersion(); if(cv) syncStations(cv.rows);
+    render(); syncMsg('✅ 読み込みました','#2b7a45');
+  }catch(e){ syncMsg('通信エラー: '+(e.message||e),'#b83b34'); }
+};
+
 function renderSettings(){
+  var cfg=syncCfg();
+  if($('syncUrl').value==='') $('syncUrl').value=cfg.url||'';
+  if($('syncKey').value==='') $('syncKey').value=cfg.key||'';
   var bytes=0;
   Object.keys(K).forEach(function(k){ try{ var v=localStorage.getItem(K[k]); if(v) bytes+=v.length; }catch(e){} });
   $('stStorage').innerHTML=
     '<table class="tbl"><tbody>'+
-    '<tr><th style="width:150px;">版</th><td>'+S.versions.length+'件</td></tr>'+
+    '<tr><th style="width:150px;">私立の版</th><td>'+S.versions.length+'件</td></tr>'+
+    '<tr><th>公立の学校</th><td>'+PUB.schools.length+'校</td></tr>'+
     '<tr><th>生徒</th><td>'+S.students.length+'人</td></tr>'+
     '<tr><th>駅</th><td>'+Object.keys(S.stations).length+'駅</td></tr>'+
     '<tr><th>手直し</th><td>'+Object.keys(S.edits).length+'箇所</td></tr>'+
     '<tr><th>使用量のめやす</th><td class="mono">'+Math.round(bytes/1024)+' KB'+
       (bytes>2500000? ' <span class="tag t-warn">そろそろ上限です。古い版を消してください</span>':'')+'</td></tr>'+
     '</tbody></table>'+
-    '<div class="hint" style="margin-top:6px;">保存先はこの端末のブラウザだけです。サーバーには何も送っていません。</div>';
+    '<div class="hint" style="margin-top:6px;">保存先はこの端末のブラウザと、同期したご自身のスプレッドシートだけです。</div>';
 
   var ks=Object.keys(S.edits);
   if(!ks.length){ $('stEdits').innerHTML='<div class="muted small">手で直した箇所はありません。</div>'; }
@@ -1635,14 +2416,13 @@ function renderSettings(){
     });
     h+='</tbody></table>';
     $('stEdits').innerHTML=h;
-    [].forEach.call($('stEdits').querySelectorAll('.undoe'),function(b){
+    each('.undoe',function(b){
       b.onclick=function(){ delete S.edits[b.dataset.k]; lsSet(K.edit,S.edits); invalidate(); render(); };
-    });
+    }, $('stEdits'));
   }
 }
 $('stExport').onclick=function(){
-  var data={_type:'shinro-backup', at:Date.now(), versions:S.versions, curId:S.curId,
-            edits:S.edits, stations:S.stations, students:S.students, settings:S.settings};
+  var data=Object.assign({_type:'shinro-backup', at:Date.now()}, syncPayload());
   var blob=new Blob([JSON.stringify(data)],{type:'application/json'});
   var a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
@@ -1660,11 +2440,7 @@ $('stFile').onchange=function(){
       var d=JSON.parse(fr.result);
       if(d._type!=='shinro-backup') throw new Error('このツールのバックアップではありません。');
       if(!confirm('今の内容を、このバックアップで置き換えます。よろしいですか？')) return;
-      S.versions=d.versions||[]; S.curId=d.curId||''; S.edits=d.edits||{};
-      S.stations=d.stations||seedStations(); S.students=d.students||[];
-      S.settings=Object.assign({},DEF_SET,d.settings||{});
-      lsSet(K.ver,S.versions); lsSet(K.cur,S.curId); lsSet(K.edit,S.edits);
-      lsSet(K.sta,S.stations); lsSet(K.stu,S.students); lsSet(K.set,S.settings);
+      applySyncPayload(d);
       curStu=S.students[0]||null; invalidate(); render();
       alert('読み込みました。');
     }catch(e){ alert('読み込めませんでした：'+(e.message||e)); }
@@ -1673,17 +2449,19 @@ $('stFile').onchange=function(){
 };
 $('stClear').onclick=function(){
   if(!confirm('この端末の進路データを全部消します。取り消せません。よろしいですか？')) return;
-  if(!confirm('本当に消してよいですか？（版・生徒・駅・手直しがすべて消えます）')) return;
+  if(!confirm('本当に消してよいですか？（版・生徒・駅・手直し・公立マスタがすべて消えます）')) return;
   Object.keys(K).forEach(function(k){ try{ localStorage.removeItem(K[k]); }catch(e){} });
   S={versions:[],curId:'',edits:{},stations:seedStations(),students:[],settings:Object.assign({},DEF_SET)};
+  PUB={schools:[],memo:''};
   lsSet(K.sta,S.stations);
   curStu=null; invalidate(); render();
 };
 
 /* ==========================================================
-   14. 起動
+   16. 起動
    ========================================================== */
 loadAll();
+loadPub();
 curStu=S.students[0]||null;
 var v0=curVersion(); if(v0) syncStations(v0.rows);
 render();
