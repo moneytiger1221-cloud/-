@@ -155,6 +155,7 @@ tr.off td{opacity:.45;}
   <button class="tab" data-p="card">先生カルテ</button>
   <button class="tab" data-p="yurei">夕礼シート</button>
   <button class="tab" data-p="school">校舎の推移</button>
+  <button class="tab" data-p="corr">成績との相関</button>
   <button class="tab" data-p="cfg">設定・取込</button>
 </div>
 
@@ -163,6 +164,7 @@ tr.off td{opacity:.45;}
 <div class="pane" id="p-card"></div>
 <div class="pane" id="p-yurei"></div>
 <div class="pane" id="p-school"></div>
+<div class="pane" id="p-corr"></div>
 <div class="pane" id="p-cfg"></div>
 
 <script>
@@ -1994,6 +1996,18 @@ function renderCfg() {
     noTestNote() +
     '</div>';
 
+  var kk = lsGet(LS_KOUKEN, null);
+  h += '<div class="card"><h3>貢献シートの取り込み <span class="sub">成績との相関に使う</span></h3>' +
+    '<div class="drop" id="kdrop">ここに <b>貢献シートのPDF</b> をドラッグ＆ドロップ<br>' +
+    '<span class="muted">先生ごとの担当（生徒×科目）と、前学期→今学期の点数が取れます。</span><br>' +
+    '<button class="btn sec" id="kpick" style="margin-top:9px">ファイルを選ぶ</button>' +
+    '<input type="file" id="kfin" accept=".pdf" style="display:none"></div>' +
+    '<div class="msg" id="kmsg">' +
+    (kk ? '取込済み: ' + esc(kk.term || '') + '　先生' + (kk.sheets || []).length + '名／' +
+          (kk.sheets || []).reduce(function (a, s) { return a + s.rows.length; }, 0) + '行' +
+          (kk.importedAt ? '（' + esc(String(kk.importedAt).slice(0, 10)) + ' 取込）' : '') : '') + '</div>' +
+    '</div>';
+
   h += '<div class="card"><h3>ダウンロードフォルダの監視 <span class="sub">毎回の取り込みを省く</span></h3>' +
     '<div class="muted">ダウンロードフォルダを一度だけ許可すると、次からはこのツールを開くだけで' +
     '<b>未取込のSSファイルだけ</b>を自動で読み込みます。<br>' +
@@ -2115,6 +2129,565 @@ function sizeKB() {
   try { return Math.round((localStorage.getItem(LS_SNAP) || '').length / 1024); } catch (e) { return '?'; }
 }
 /* ==========================================================================
+   貢献シート(PDF)の読み取り
+   ExcelからのPDFは CIDフォント(Identity-H) なので、文字列の中身はグリフ番号。
+   ToUnicode の CMap を引いて文字に戻す。展開はブラウザ標準の DecompressionStream。
+   ========================================================================== */
+
+/* バイト列を「1バイト＝1文字」の文字列にする。
+   TextDecoder('latin1') は windows-1252 扱いで 0x80〜0x9F がずれるので使えない。 */
+function bytesToLatin1(u8) {
+  var s = '', CH = 8192;
+  for (var i = 0; i < u8.length; i += CH) {
+    s += String.fromCharCode.apply(null, u8.subarray(i, Math.min(i + CH, u8.length)));
+  }
+  return s;
+}
+function latin1ToBytes(s) {
+  var u = new Uint8Array(s.length);
+  for (var i = 0; i < s.length; i++) u[i] = s.charCodeAt(i) & 0xff;
+  return u;
+}
+async function inflateBytes(u8, raw) {
+  var ds = new DecompressionStream(raw ? 'deflate-raw' : 'deflate');
+  var st = new Blob([u8]).stream().pipeThrough(ds);
+  return new Uint8Array(await new Response(st).arrayBuffer());
+}
+
+/* PDFから {page,x,y,t} の並びを取り出す */
+async function pdfExtract(bytes) {
+  var lat = bytesToLatin1(bytes);
+  var objs = {};
+  { var re = /(\d+)\s+(\d+)\s+obj\b/g, m;
+    while ((m = re.exec(lat))) objs[m[1]] = m.index + m[0].length; }
+
+  function dictOf(start) {
+    var i = lat.indexOf('<<', start);
+    if (i < 0 || i > start + 200) return '';
+    var d = 0, j = i;
+    while (j < lat.length) {
+      if (lat.substr(j, 2) === '<<') { d++; j += 2; continue; }
+      if (lat.substr(j, 2) === '>>') { d--; j += 2; if (!d) break; continue; }
+      j++;
+    }
+    return lat.slice(i, j);
+  }
+  function streamOf(start) {
+    var k = lat.indexOf('stream', start);
+    if (k < 0) return null;
+    var s = k + 6;
+    if (lat[s] === '\r') s++;
+    if (lat[s] === '\n') s++;
+    var e = lat.indexOf('endstream', s);
+    if (e < 0) return null;
+    return latin1ToBytes(lat.slice(s, e));
+  }
+  async function dataOf(objNum) {
+    var st = objs[objNum]; if (st === undefined) return '';
+    var d = dictOf(st), raw = streamOf(st);
+    if (!raw) return '';
+    if (!/FlateDecode/.test(d)) return bytesToLatin1(raw);
+    try { return bytesToLatin1(await inflateBytes(raw, false)); }
+    catch (e) {
+      try { return bytesToLatin1(await inflateBytes(raw.subarray(2), true)); }
+      catch (e2) { return ''; }
+    }
+  }
+
+  function parseCMap(txt) {
+    var map = {}, m;
+    var re1 = /beginbfchar([\s\S]*?)endbfchar/g;
+    while ((m = re1.exec(txt))) {
+      var r = /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g, p;
+      while ((p = r.exec(m[1]))) map[parseInt(p[1], 16)] = hexStr(p[2]);
+    }
+    var re2 = /beginbfrange([\s\S]*?)endbfrange/g;
+    while ((m = re2.exec(txt))) {
+      var r2 = /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*(<([0-9A-Fa-f]+)>|\[([\s\S]*?)\])/g, q;
+      while ((q = r2.exec(m[1]))) {
+        var lo = parseInt(q[1], 16), hi = parseInt(q[2], 16);
+        if (q[4]) {
+          var base = parseInt(q[4], 16);
+          for (var c = lo; c <= hi; c++) map[c] = String.fromCharCode(base + (c - lo));
+        } else if (q[5]) {
+          (q[5].match(/<([0-9A-Fa-f]+)>/g) || []).forEach(function (it, i) { map[lo + i] = hexStr(it.slice(1, -1)); });
+        }
+      }
+    }
+    return map;
+  }
+  function hexStr(h) {
+    var s = '';
+    for (var i = 0; i + 4 <= h.length; i += 4) s += String.fromCharCode(parseInt(h.substr(i, 4), 16));
+    return s;
+  }
+
+  var cmaps = {};
+  async function loadCmap(objNum) {
+    if (cmaps[objNum] !== undefined) return;
+    var st = objs[objNum];
+    if (st === undefined) { cmaps[objNum] = null; return; }
+    var tu = dictOf(st).match(/\/ToUnicode\s+(\d+)\s+\d+\s+R/);
+    if (!tu) { cmaps[objNum] = null; return; }
+    var txt = await dataOf(tu[1]);
+    cmaps[objNum] = txt ? parseCMap(txt) : null;
+  }
+
+  // ページを集める（同じContentsを指す重複を落とす）
+  var pages = [], seen = {};
+  Object.keys(objs).forEach(function (n) {
+    var d = dictOf(objs[n]);
+    if (!/\/Type\s*\/Page\b/.test(d)) return;
+    var c = (d.match(/\/Contents\s+(\d+)/) || [])[1] || n;
+    if (seen[c]) return;
+    seen[c] = 1;
+    pages.push({ n: +n, d: d });
+  });
+  pages.sort(function (a, b) { return a.n - b.n; });
+
+  var out = [];
+  for (var pi = 0; pi < pages.length; pi++) {
+    var pg = pages[pi];
+    // フォント名 → フォントのオブジェクト番号
+    var fonts = {}, fdict = '';
+    var fm = pg.d.match(/\/Font\s*<<([\s\S]*?)>>/);
+    if (fm) fdict = fm[1];
+    else {
+      var rr = pg.d.match(/\/Resources\s+(\d+)\s+\d+\s+R/);
+      if (rr && objs[rr[1]] !== undefined) {
+        var f2 = dictOf(objs[rr[1]]).match(/\/Font\s*<<([\s\S]*?)>>/);
+        if (f2) fdict = f2[1];
+      }
+    }
+    { var fr = /\/(\w+)\s+(\d+)\s+\d+\s+R/g, fmm;
+      while ((fmm = fr.exec(fdict))) fonts[fmm[1]] = fmm[2]; }
+    for (var fn in fonts) await loadCmap(fonts[fn]);
+
+    var content = '';
+    var cm = pg.d.match(/\/Contents\s+(\d+)\s+\d+\s+R/);
+    if (cm) content = await dataOf(cm[1]);
+    else {
+      var am = pg.d.match(/\/Contents\s*\[([^\]]*)\]/);
+      if (am) {
+        var refs = am[1].match(/(\d+)\s+\d+\s+R/g) || [];
+        for (var ri = 0; ri < refs.length; ri++) content += await dataOf(refs[ri].match(/(\d+)/)[1]);
+      }
+    }
+    if (!content) continue;
+
+    var curFont = null, x = 0, y = 0;
+    var re = /\/(\w+)\s+[\d.]+\s+Tf|([\d.-]+)\s+([\d.-]+)\s+Td|([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+Tm|\[((?:[^\[\]\\]|\\.)*)\]\s*TJ|\(((?:[^()\\]|\\.)*)\)\s*Tj/g;
+    var mm;
+    while ((mm = re.exec(content))) {
+      if (mm[1]) { curFont = fonts[mm[1]] || null; continue; }
+      if (mm[2] !== undefined) { x += parseFloat(mm[2]); y += parseFloat(mm[3]); continue; }
+      if (mm[8] !== undefined) { x = parseFloat(mm[8]); y = parseFloat(mm[9]); continue; }
+      // TJ は配列の中身、Tj は文字列そのもの
+      var isTJ = mm[10] !== undefined;
+      var body = isTJ ? mm[10] : mm[11];
+      if (body === undefined) continue;
+      var map = curFont ? cmaps[curFont] : null;
+      var parts = [];
+      if (isTJ) { var sr = /\(((?:[^()\\]|\\.)*)\)/g, sm; while ((sm = sr.exec(body))) parts.push(sm[1]); }
+      else parts.push(body);
+      var txt = '';
+      parts.forEach(function (p) {
+        var raw = unescapePdf(p);
+        if (map) {
+          for (var i2 = 0; i2 + 1 < raw.length; i2 += 2) {
+            var code = (raw.charCodeAt(i2) << 8) | raw.charCodeAt(i2 + 1);
+            txt += (map[code] !== undefined ? map[code] : '');
+          }
+        } else txt += raw;
+      });
+      if (txt.trim()) out.push({ page: pi + 1, x: Math.round(x), y: Math.round(y), t: txt });
+    }
+  }
+  return out;
+}
+function unescapePdf(s) {
+  return s.replace(/\\([nrtbf()\\]|[0-7]{1,3})/g, function (a, g) {
+    if (g === 'n') return '\n';
+    if (g === 'r') return '\r';
+    if (g === 't') return '\t';
+    if (g === 'b') return '\b';
+    if (g === 'f') return '\f';
+    if (g === '(' || g === ')' || g === '\\') return g;
+    return String.fromCharCode(parseInt(g, 8));
+  });
+}
+
+/* ---------- 貢献シートの表として読む ---------------------------------- */
+/* 列は x 座標の帯で決める。実データ(2026年度1学期)で確認した位置。
+   ポイント＝ランクの上下 で検算できるので、ズレていれば気づける。 */
+var KCOLS = [
+  { k: 'nyujuku', x: 388, w: 26 },   // 入塾時点数
+  { k: 'p1',      x: 435, w: 26 },   // 前学期 テスト①
+  { k: 'p2',      x: 481, w: 26 },   // 前学期 テスト②
+  { k: 'pAvg',    x: 536, w: 30 },   // 前学期 平均点数
+  { k: 'goal',    x: 590, w: 26 },   // 目標点数
+  { k: 'c1',      x: 636, w: 26 },   // 今学期 テスト①
+  { k: 'c2',      x: 681, w: 26 },   // 今学期 テスト②
+  { k: 'cAvg',    x: 736, w: 30 },   // 今学期 平均点数
+  { k: 'inc1',    x: 790, w: 34 },   // インセンティブポイント（①のみ）
+  { k: 'incT',    x: 855, w: 34 },   // インセンティブポイント（学期合計）
+  { k: 'minus',   x: 935, w: 34 }    // マイナスポイント／理由
+];
+function kColOf(x) {
+  var best = null, bd = 1e9;
+  KCOLS.forEach(function (c) { var d = Math.abs(x - c.x); if (d < c.w && d < bd) { bd = d; best = c.k; } });
+  return best;
+}
+/* ランク ①90以上 ②80-89 ③60-79 ④40-59 ⑤39以下（数字が小さいほど上） */
+function kRank(v) {
+  if (v == null) return null;
+  if (v >= 90) return 1;
+  if (v >= 80) return 2;
+  if (v >= 60) return 3;
+  if (v >= 40) return 4;
+  return 5;
+}
+function kPoint(prev, cur) {
+  var a = kRank(prev), b = kRank(cur);
+  if (a == null || b == null) return null;
+  if (b < a) return a - b;
+  if (b > a) return -(b - a);
+  if (a === 1) return 1;                                   // 90点以上キープ
+  if (a === 5 && prev <= 30 && cur <= 30) return -1;        // 30点以下キープ
+  return 0;
+}
+
+function parseKouken(items) {
+  var byPage = {};
+  items.forEach(function (it) { (byPage[it.page] = byPage[it.page] || []).push(it); });
+  var sheets = [], seen = {};
+  Object.keys(byPage).map(Number).sort(function (a, b) { return a - b; }).forEach(function (pg) {
+    var its = byPage[pg];
+    var line = function (y) { return its.filter(function (i) { return Math.abs(i.y - y) <= 2; }).sort(function (a, b) { return a.x - b.x; }); };
+    var no = '', teacher = '';
+    its.forEach(function (i) { var m = String(i.t).match(/NO:\s*(\d{7,})/); if (m) no = m[1]; });
+    var nameRow = its.filter(function (i) { return /先生名/.test(String(i.t)); });
+    if (nameRow.length) {
+      teacher = line(nameRow[0].y).filter(function (i) { return i.x > nameRow[0].x; })
+        .map(function (i) { return i.t; }).join('').replace(/^[:：\s]*/, '').trim();
+    }
+    var heads = its.filter(function (i) { return i.x >= 150 && i.x <= 200 && /^\d{9}$/.test(String(i.t).trim()); });
+    if (!heads.length) return;
+    var rows = [];
+    heads.forEach(function (h) {
+      var info = line(h.y);
+      var pick = function (lo, hi) { var a = info.filter(function (i) { return i.x >= lo && i.x <= hi; }); return a.map(function (i) { return i.t; }).join('').trim(); };
+      var rec = { no: String(h.t).trim(), school: pick(40, 100), grade: pick(105, 140), subject: pick(300, 380) };
+      its.filter(function (i) { return Math.abs(i.y - h.y) <= 4 && i.x > 380; }).forEach(function (v) {
+        var c = kColOf(v.x); if (!c) return;
+        var t = String(v.t).trim();
+        rec[c] = /^-?\d+(\.\d+)?$/.test(t) ? parseFloat(t) : t;
+      });
+      rows.push(rec);
+    });
+    var key = no + '|' + rows.length + '|' + rows[0].no;
+    if (seen[key]) return;                                   // 同じページを二重に拾わない
+    seen[key] = 1;
+    sheets.push({ teacherNo: no, teacher: teacher, rows: rows });
+  });
+  return sheets;
+}
+/* ==========================================================================
+   成績との相関 — SSの指標が点数を上げているかを見る
+   点数側は「貢献シート」または「成績ツール」、SS側はその期の最終状態を使う。
+   ========================================================================== */
+
+var LS_KOUKEN = 'ss_kouken_v1';
+
+/* ---------- 統計 -------------------------------------------------------- */
+function pearson(xs, ys, ws) {
+  var n = xs.length; if (n < 3) return null;
+  var w = ws || xs.map(function () { return 1; });
+  var W = w.reduce(function (a, b) { return a + b; }, 0);
+  var mx = 0, my = 0;
+  for (var i = 0; i < n; i++) { mx += xs[i] * w[i]; my += ys[i] * w[i]; }
+  mx /= W; my /= W;
+  var sxy = 0, sxx = 0, syy = 0;
+  for (var j = 0; j < n; j++) {
+    var a = xs[j] - mx, b = ys[j] - my;
+    sxy += w[j] * a * b; sxx += w[j] * a * a; syy += w[j] * b * b;
+  }
+  return (sxx === 0 || syy === 0) ? null : sxy / Math.sqrt(sxx * syy);
+}
+function ranks(a) {
+  var idx = a.map(function (v, i) { return [v, i]; }).sort(function (p, q) { return p[0] - q[0]; });
+  var r = new Array(a.length), i = 0;
+  while (i < idx.length) {
+    var j = i;
+    while (j + 1 < idx.length && idx[j + 1][0] === idx[i][0]) j++;
+    var avg = (i + j) / 2 + 1;
+    for (var k = i; k <= j; k++) r[idx[k][1]] = avg;
+    i = j + 1;
+  }
+  return r;
+}
+function spearman(xs, ys) { return pearson(ranks(xs), ranks(ys)); }
+/* 相関係数がどれだけ当てにならないかの目安。人数が少ないと区間が広くなる。 */
+function fisherCI(r, n) {
+  if (r === null || n < 4 || Math.abs(r) >= 1) return null;
+  var z = 0.5 * Math.log((1 + r) / (1 - r)), se = 1 / Math.sqrt(n - 3);
+  return [Math.tanh(z - 1.96 * se), Math.tanh(z + 1.96 * se)];
+}
+
+/* ---------- 点数側のデータ --------------------------------------------- */
+/* 貢献シート: 先生 → [{no, subject, prev, cur}] */
+function koukenDeltas() {
+  var k = lsGet(LS_KOUKEN, null);
+  if (!k || !k.sheets) return null;
+  var out = {};
+  k.sheets.forEach(function (s) {
+    var key = tKey(s.teacher || s.teacherNo);
+    var t = out[key] || (out[key] = { name: s.teacher || s.teacherNo, rows: [] });
+    s.rows.forEach(function (r) {
+      if (typeof r.pAvg === 'number' && typeof r.cAvg === 'number') {
+        t.rows.push({ no: r.no, subject: r.subject, grade: r.grade, prev: r.pAvg, cur: r.cAvg, pt: r.incT });
+      }
+    });
+  });
+  return { label: (k.term || '貢献シート'), byTeacher: out };
+}
+
+/* 成績ツール(localStorage)を読む。同じオリジンなので取り込み不要。 */
+function gradeData() {
+  var st = lsGet('gradeTracker_v1', null);
+  if (!st || !Object.keys(st).length) return null;
+  return {
+    students: st,
+    tantou: lsGet('gradeTracker_tantou_v1', {}) || {},
+    tantouHigh: lsGet('gradeTracker_tantouHigh_v1', {}) || {}
+  };
+}
+function gradeRounds() {
+  var g = gradeData(); if (!g) return [];
+  var set = {};
+  Object.keys(g.students).forEach(function (no) {
+    var sc = g.students[no].scores || {};
+    Object.keys(sc).forEach(function (k) { set[k] = (sc[k].year || 0) * 10 + (sc[k].kai || 0); });
+  });
+  return Object.keys(set).sort(function (a, b) { return set[b] - set[a]; });
+}
+var SUBJ_JP2EN = { '国語': 'kokugo', '数学': 'sugaku', '英語': 'eigo', '理科': 'rika', '社会': 'shakai' };
+
+/* 成績ツールから「担当科目の点数変化」を先生ごとに作る */
+function gradeDeltas(prevRound, curRound) {
+  var g = gradeData(); if (!g || !prevRound || !curRound) return null;
+  var out = {};
+  Object.keys(g.students).forEach(function (no) {
+    var st = g.students[no];
+    var a = (st.scores || {})[prevRound], b = (st.scores || {})[curRound];
+    if (!a || !b) return;
+    var tm = g.tantou[no] || g.tantouHigh[no] || null;
+    if (!tm) return;
+    Object.keys(tm).forEach(function (subj) {
+      var who = tm[subj]; if (!who) return;
+      var col = SUBJ_JP2EN[subj]; if (!col) return;
+      if (a[col] == null || b[col] == null) return;
+      var key = tKey(who);
+      var t = out[key] || (out[key] = { name: who, rows: [] });
+      t.rows.push({ no: no, subject: subj, grade: st.grade || '', prev: a[col], cur: b[col] });
+    });
+  });
+  return Object.keys(out).length ? { label: prevRound + ' → ' + curRound, byTeacher: out } : null;
+}
+
+/* ---------- SS側 -------------------------------------------------------- */
+/* その期のSSが「実際に埋まっている」最後の日を返す。
+   9月のファイルにも上期の枠は残っているが中身が空なので、そこを選ぶと全部空になる。 */
+function lastFilledDate(bk) {
+  var ds = allDates();
+  for (var i = ds.length - 1; i >= 0; i--) {
+    var b = getBlock(ds[i], bk);
+    if (b && b.teachers && b.teachers.some(function (t) { return t.r || t.ct || t.f || t.kwt || t.fin; })) return ds[i];
+  }
+  return null;
+}
+
+/* ---------- 突き合わせ -------------------------------------------------- */
+function buildCorr(scoreSrc, ssDate, bk, minN) {
+  if (!scoreSrc || !ssDate) return null;
+  var rows = [];
+  teachersRaw(ssDate, bk).forEach(function (t) {
+    var k = tKey(t.name), s = scoreSrc.byTeacher[k];
+    if (!s || !s.rows.length) return;
+    var d = s.rows.map(function (r) { return r.cur - r.prev; });
+    var mean = d.reduce(function (a, b) { return a + b; }, 0) / d.length;
+    var row = { name: t.name, key: k, n: d.length, delta: mean, detail: s.rows };
+    METRICS.forEach(function (m) {
+      row[m.k] = rateOf(t[m.cum]);
+      row[m.k + '_n'] = t[m.cum] ? t[m.cum][0] : 0;
+    });
+    rows.push(row);
+  });
+  var used = rows.filter(function (x) { return x.n >= minN; });
+  var stats = METRICS.map(function (m) {
+    var u = used.filter(function (x) { return x[m.k] !== null; });
+    if (u.length < 4) return { m: m, n: u.length, r: null };
+    var xs = u.map(function (x) { return x[m.k]; }), ys = u.map(function (x) { return x.delta; });
+    var ws = u.map(function (x) { return x.n; });
+    var srt = u.slice().sort(function (a, b) { return b[m.k] - a[m.k]; });
+    var h = Math.floor(srt.length / 2);
+    var mn = function (arr) { return arr.reduce(function (s, x) { return s + x.delta; }, 0) / arr.length; };
+    var hi = srt.slice(0, h), lo = srt.slice(-h);
+    var mu = xs.reduce(function (a, b) { return a + b; }, 0) / xs.length;
+    var sd = Math.sqrt(xs.reduce(function (a, b) { return a + (b - mu) * (b - mu); }, 0) / xs.length);
+    var r = pearson(xs, ys);
+    return { m: m, n: u.length, r: r, ci: fisherCI(r, u.length),
+             rw: pearson(xs, ys, ws), rs: spearman(xs, ys),
+             hi: mn(hi), lo: mn(lo), gap: mn(hi) - mn(lo), half: h,
+             sd: sd, mu: mu, ceil: xs.filter(function (v) { return v >= 0.999; }).length };
+  });
+  return { rows: rows, used: used, stats: stats, date: ssDate, block: bk, label: scoreSrc.label };
+}
+
+/* ---------- 散布図 ------------------------------------------------------ */
+function scatter(used, mk, w, h) {
+  var pts = used.filter(function (x) { return x[mk] !== null; });
+  if (pts.length < 2) return '<div class="muted">点が足りません。</div>';
+  var xs = pts.map(function (p) { return p[mk]; }), ys = pts.map(function (p) { return p.delta; });
+  var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
+  var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
+  if (x1 - x0 < 0.02) { x0 -= 0.01; x1 += 0.01; }
+  if (y1 - y0 < 2) { y0 -= 1; y1 += 1; }
+  var pad = 42, W = w, H = h;
+  var X = function (v) { return pad + (v - x0) / (x1 - x0) * (W - pad - 14); };
+  var Y = function (v) { return H - 26 - (v - y0) / (y1 - y0) * (H - 26 - 12); };
+  var maxN = Math.max.apply(null, pts.map(function (p) { return p.n; }));
+  var s = '<svg width="100%" viewBox="0 0 ' + W + ' ' + H + '" style="max-width:' + W + 'px">';
+  // 0点の線
+  if (y0 < 0 && y1 > 0) s += '<line x1="' + pad + '" y1="' + Y(0).toFixed(1) + '" x2="' + (W - 14) + '" y2="' + Y(0).toFixed(1) + '" stroke="#cbd5e0" stroke-dasharray="3 3"/>';
+  // 目盛
+  [x0, (x0 + x1) / 2, x1].forEach(function (v) {
+    s += '<text x="' + X(v).toFixed(1) + '" y="' + (H - 8) + '" font-size="10" fill="#8494a5" text-anchor="middle">' + (v * 100).toFixed(0) + '%</text>';
+  });
+  [y0, 0, y1].forEach(function (v) {
+    if (v < y0 || v > y1) return;
+    s += '<text x="' + (pad - 6) + '" y="' + (Y(v) + 3).toFixed(1) + '" font-size="10" fill="#8494a5" text-anchor="end">' + (v > 0 ? '+' : '') + v.toFixed(0) + '</text>';
+  });
+  pts.forEach(function (p) {
+    var r = 3 + 5 * Math.sqrt(p.n / maxN);
+    var col = p.delta >= 0 ? '#1f9d5b' : '#d1453b';
+    s += '<circle cx="' + X(p[mk]).toFixed(1) + '" cy="' + Y(p.delta).toFixed(1) + '" r="' + r.toFixed(1) +
+      '" fill="' + col + '" fill-opacity="0.55" stroke="' + col + '"/>';
+    s += '<text x="' + (X(p[mk]) + r + 2).toFixed(1) + '" y="' + (Y(p.delta) + 3).toFixed(1) +
+      '" font-size="9.5" fill="#4a5b6d">' + esc(p.name.replace(/\s+/g, '')) + '</text>';
+  });
+  s += '<text x="' + (W / 2) + '" y="' + (H - 8) + '" font-size="10" fill="#66788a" text-anchor="middle" opacity="0"></text>';
+  s += '</svg>';
+  return s;
+}
+
+/* ---------- 画面 -------------------------------------------------------- */
+function renderCorr() {
+  var host = el('p-corr');
+  if (!allDates().length) { host.innerHTML = emptyState(); return; }
+
+  var cfg = DB.ui.corr || (DB.ui.corr = { src: 'kouken', minN: 5, metric: 'ct', bk: '', date: '', pr: '', cr: '' });
+  var bk = cfg.bk && blockKeys(snapAt(latestDate())).indexOf(cfg.bk) >= 0 ? cfg.bk : (VIEW.block || defaultBlock(snapAt(latestDate())));
+  var ssDate = cfg.date && snapAt(cfg.date) ? cfg.date : lastFilledDate(bk);
+
+  var kk = koukenDeltas(), gr = gradeRounds();
+  if (cfg.src === 'kouken' && !kk) cfg.src = 'grade';
+  var src = null;
+  if (cfg.src === 'kouken') src = kk;
+  else {
+    if (!cfg.pr || gr.indexOf(cfg.pr) < 0) cfg.pr = gr[1] || '';
+    if (!cfg.cr || gr.indexOf(cfg.cr) < 0) cfg.cr = gr[0] || '';
+    src = gradeDeltas(cfg.pr, cfg.cr);
+  }
+
+  var h = '<div class="card"><h3>成績との相関 <span class="sub">SSの指標が点数を上げているか</span></h3>' +
+    '<div class="row"><label>点数の出どころ</label><select id="cSrc">' +
+    '<option value="kouken"' + (cfg.src === 'kouken' ? ' selected' : '') + (kk ? '' : ' disabled') + '>貢献シート' + (kk ? '（' + esc(kk.label) + '）' : '（未取込）') + '</option>' +
+    '<option value="grade"' + (cfg.src === 'grade' ? ' selected' : '') + (gr.length >= 2 ? '' : ' disabled') + '>成績ツール' + (gr.length >= 2 ? '' : '（点数データなし）') + '</option>' +
+    '</select>';
+  if (cfg.src === 'grade' && gr.length >= 2) {
+    h += '<label>比べる回</label><select id="cPr">' + gr.map(function (r) { return '<option value="' + esc(r) + '"' + (r === cfg.pr ? ' selected' : '') + '>' + esc(r) + '</option>'; }).join('') + '</select>' +
+      '→<select id="cCr">' + gr.map(function (r) { return '<option value="' + esc(r) + '"' + (r === cfg.cr ? ' selected' : '') + '>' + esc(r) + '</option>'; }).join('') + '</select>';
+  }
+  h += '<label>SSの基準日</label><select id="cDate">' +
+    allDates().slice().reverse().map(function (d) { return '<option value="' + d + '"' + (d === ssDate ? ' selected' : '') + '>' + fmtDate(d) + '</option>'; }).join('') + '</select>' +
+    '<label>担当が</label><select id="cMinN">' +
+    [1, 3, 5, 8].map(function (v) { return '<option value="' + v + '"' + (v === cfg.minN ? ' selected' : '') + '>' + v + '名以上</option>'; }).join('') + '</select>' +
+    '</div>';
+
+  if (!src) {
+    h += '<div class="empty">点数のデータがありません。<br>' +
+      '「設定・取込」タブで貢献シートのPDFを取り込むか、成績ツールに定期テストの点数を入れてください。</div></div>';
+    host.innerHTML = h; wireCorr(); return;
+  }
+
+  var C = buildCorr(src, ssDate, bk, cfg.minN);
+  if (!C || !C.used.length) {
+    h += '<div class="empty">先生を突き合わせられませんでした。<br>' +
+      'SSの基準日（' + fmtDate(ssDate) + '）にその期のデータが入っているか確認してください。</div></div>';
+    host.innerHTML = h; wireCorr(); return;
+  }
+  h += '<div class="muted">点数 <b>' + esc(C.label) + '</b>（担当科目のみ）／SS <b>' + fmtDate(ssDate) + '</b> の' + esc(blockLabel(bk)) +
+    '／突き合わせ <b>' + C.used.length + '名</b>（担当' + cfg.minN + '名以上）</div></div>';
+
+  // 相関の表
+  h += '<div class="card"><h3>指標ごとの関係</h3><div class="tblwrap"><table><thead><tr>' +
+    '<th class="name">指標</th><th>人数</th><th>相関係数</th><th>95%区間</th><th>順位相関</th>' +
+    '<th>担当数で重み付け</th><th>上位半分−下位半分</th><th>先生ごとの差</th></tr></thead><tbody>';
+  C.stats.forEach(function (s) {
+    if (s.r === null) { h += '<tr><td class="name">' + s.m.name + '</td><td colspan="7"><span class="sm">人数不足</span></td></tr>'; return; }
+    var strong = Math.abs(s.r) >= 0.3 && s.ci && (s.ci[0] > 0 || s.ci[1] < 0);
+    h += '<tr><td class="name">' + s.m.name + '</td>' +
+      '<td>' + s.n + '</td>' +
+      '<td class="v ' + (strong ? 'g1' : '') + '">' + (s.r >= 0 ? '+' : '') + s.r.toFixed(2) + '</td>' +
+      '<td><span class="sm">' + (s.ci ? '[' + s.ci[0].toFixed(2) + ', ' + s.ci[1].toFixed(2) + ']' : '—') + '</span></td>' +
+      '<td>' + (s.rs === null ? '—' : (s.rs >= 0 ? '+' : '') + s.rs.toFixed(2)) + '</td>' +
+      '<td>' + (s.rw === null ? '—' : (s.rw >= 0 ? '+' : '') + s.rw.toFixed(2)) + '</td>' +
+      '<td class="v">' + (s.gap >= 0 ? '+' : '') + s.gap.toFixed(1) + '点<span class="sm">（上位' + s.hi.toFixed(1) + ' / 下位' + s.lo.toFixed(1) + '）</span></td>' +
+      '<td><span class="sm">標準偏差 ' + (s.sd * 100).toFixed(1) + 'pt' +
+      (s.ceil ? '／100%が' + s.ceil + '名' : '') + '</span></td></tr>';
+  });
+  h += '</tbody></table></div>' +
+    '<div class="muted">95%区間が0をまたいでいる間は「関係がありそう」までで、断定はできません。' +
+    '<b>先生ごとの差が小さい指標</b>（標準偏差が小さい・100%の先生が多い）は、そもそも差がつかないので相関も出ません。' +
+    '順位相関と担当数で重み付けした値も見て、3つが揃って同じ向きなら確からしさが上がります。</div></div>';
+
+  // 散布図
+  h += '<div class="card"><h3>散布図 <span class="sub">丸の大きさ＝担当数</span></h3>' +
+    '<div class="row"><label>指標</label><select id="cMetric">' +
+    METRICS.map(function (m) { return '<option value="' + m.k + '"' + (m.k === cfg.metric ? ' selected' : '') + '>' + m.name + '</option>'; }).join('') +
+    '</select><span class="muted">横=指標、縦=担当科目の平均点差</span></div>' +
+    scatter(C.used, cfg.metric, 760, 330) + '</div>';
+
+  // 先生別
+  h += '<div class="card"><h3>先生別 <span class="sub">平均点差の高い順</span></h3><div class="tblwrap"><table><thead><tr>' +
+    '<th class="name">先生</th><th>担当</th><th>平均点差</th>' +
+    METRICS.map(function (m) { return '<th>' + m.name + '</th>'; }).join('') + '</tr></thead><tbody>';
+  C.rows.slice().sort(function (a, b) { return b.delta - a.delta; }).forEach(function (x) {
+    h += '<tr class="' + (x.n < cfg.minN ? 'off' : '') + '"><td class="name" data-t="' + esc(x.key) + '">' + esc(x.name) +
+      (x.n < cfg.minN ? '<span class="badge few">対象外</span>' : '') + '</td>' +
+      '<td>' + x.n + '</td>' +
+      '<td class="v ' + (x.delta >= 0 ? 'g2' : 'g4') + '">' + (x.delta >= 0 ? '+' : '') + x.delta.toFixed(1) + '</td>' +
+      METRICS.map(function (m) { return '<td>' + (x[m.k] === null ? '<span class="sm">—</span>' : pct(x[m.k])) + '</td>'; }).join('') +
+      '</tr>';
+  });
+  h += '</tbody></table></div><div class="muted">担当数が少ない先生は平均点差が大きく振れます。' +
+    '上の「担当が◯名以上」で対象を絞れます。</div></div>';
+
+  host.innerHTML = h;
+  bindNames(host);
+  wireCorr();
+}
+function wireCorr() {
+  var cfg = DB.ui.corr;
+  var set = function (id, key, num) {
+    var n = el(id); if (!n || !n.tagName) return;
+    n.onchange = function () { cfg[key] = num ? parseInt(this.value, 10) : this.value; saveUi(); renderCorr(); };
+  };
+  set('cSrc', 'src'); set('cDate', 'date'); set('cMinN', 'minN', true);
+  set('cMetric', 'metric'); set('cPr', 'pr'); set('cCr', 'cr');
+}
+/* ==========================================================================
    SS管理ツール — 取り込み・フォルダ監視・同期・起動
    ========================================================================== */
 
@@ -2164,6 +2737,48 @@ async function importFiles(files, msgId) {
   if (msgId) setMsg(msgId, txt, ng.length ? 'er' : 'ok');
   return { ok: ok, ng: ng.length, added: added };
 }
+
+/* ---------- 貢献シート(PDF)の取り込み ---------------------------------- */
+async function importKouken(file) {
+  if (!file) return;
+  if (!/.pdf$/i.test(file.name)) { setMsg('kmsg', 'PDFファイルを選んでください。', 'er'); return; }
+  setMsg('kmsg', '読み込んでいます…（少し時間がかかります）');
+  try {
+    var bytes = new Uint8Array(await file.arrayBuffer());
+    var items = await pdfExtract(bytes);
+    var sheets = parseKouken(items);
+    if (!sheets.length) throw new Error('先生ごとの表を見つけられませんでした。貢献シートのPDFか確認してください');
+    // 年度・学期を拾う
+    var head = items.filter(function (i) { return i.page === 1; }).map(function (i) { return i.t; }).join(' ');
+    var y = head.match(/(20dd)s*年度/), t = head.match(/([1-3１-３])s*学期/);
+    var term = (y ? y[1] + '年度' : '') + (t ? t[1] + '学期' : '');
+    // ポイントの検算（ランクの上下と合うか）。列がずれていればここで大きく崩れる。
+    var chk = 0, ok = 0;
+    sheets.forEach(function (s) {
+      s.rows.forEach(function (r) {
+        if (typeof r.pAvg !== 'number' || typeof r.cAvg !== 'number' || typeof r.incT !== 'number') return;
+        chk++;
+        var c = kPoint(r.pAvg, r.cAvg);
+        if (c === r.incT || Math.abs(c - r.incT) < 0.5) ok++;   // マイナスポイント分のズレは許す
+      });
+    });
+    var rate = chk ? ok / chk : 0;
+    var rows = sheets.reduce(function (a, s) { return a + s.rows.length; }, 0);
+    if (chk >= 20 && rate < 0.7) {
+      setMsg('kmsg', '読み取れましたが、点数とポイントが合いません（' + Math.round(rate * 100) + '%）。' + nlq() +
+        '列の位置が違うPDFの可能性があります。取り込みは中止しました。', 'er');
+      return;
+    }
+    lsSet(LS_KOUKEN, { term: term, sheets: sheets, importedAt: new Date().toISOString() });
+    bust();
+    setMsg('kmsg', '取り込みました。' + (term ? term + '／' : '') + '先生' + sheets.length + '名・' + rows + '行' + nlq() +
+      'ポイントの検算 ' + ok + '/' + chk + '件が一致（マイナスポイントの分はズレます）', 'ok');
+    refreshAll(); renderCfg();
+  } catch (e) {
+    setMsg('kmsg', '読み込めませんでした: ' + e.message, 'er');
+  }
+}
+function nlq() { return String.fromCharCode(10); }
 
 /* ---------- フォルダ監視（File System Access API） ----------------------- */
 /* 社内システムのリンクからは自動でファイルを取れないので、
@@ -2302,6 +2917,19 @@ function wireCfg() {
   el('pick').onclick = function () { el('fin').click(); };
   el('fin').onchange = async function () { await importFiles(this.files, 'impmsg'); this.value = ''; refreshAll(); };
   el('cbTests').onchange = function () { DB.cfg.tests = this.checked; saveCfg(); renderCfg(); };
+
+  var kdrop = el('kdrop');
+  if (kdrop && kdrop.addEventListener) {
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      kdrop.addEventListener(ev, function (e) { e.preventDefault(); kdrop.classList.add('over'); });
+    });
+    ['dragleave', 'drop'].forEach(function (ev) {
+      kdrop.addEventListener(ev, function (e) { e.preventDefault(); kdrop.classList.remove('over'); });
+    });
+    kdrop.addEventListener('drop', function (e) { importKouken(e.dataTransfer.files[0]); });
+  }
+  el('kpick').onclick = function () { el('kfin').click(); };
+  el('kfin').onchange = function () { importKouken(this.files[0]); this.value = ''; };
   el('cbShowOut').onchange = function () { DB.cfg.showOut = this.checked; saveCfg(); refreshAll(); renderCfg(); };
   el('pruneOut').onclick = function () {
     if (!confirm('在籍外の先生のデータを保存から消します。画面の表示は変わりません（もともと出していないため）。よろしいですか？')) return;
@@ -2382,7 +3010,8 @@ function wireCfg() {
 }
 
 /* ---------- タブ切替と起動 ---------------------------------------------- */
-var PANES = { touch: renderTouch, list: renderList, card: renderCard, yurei: renderYurei, school: renderSchool, cfg: renderCfg };
+var PANES = { touch: renderTouch, list: renderList, card: renderCard, yurei: renderYurei,
+              school: renderSchool, corr: renderCorr, cfg: renderCfg };
 function show(p) {
   Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
     b.classList.toggle('on', b.getAttribute('data-p') === p);
