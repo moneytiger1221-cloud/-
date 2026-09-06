@@ -64,6 +64,30 @@ td.name{cursor:pointer;}
 td.name:hover{color:#1b62c9;text-decoration:underline;}
 tr.sep td{background:#eef2f7;font-weight:800;color:#4a5b6d;text-align:left;}
 tr.off td{opacity:.45;}
+/* 先生一覧は横に長いので、先生名の列と見出しの2行を固定して「誰のどの指標か」を見失わないようにする。
+   border-collapse:collapse のままだと固定したセルの罫線が消えるブラウザがあるので separate に切り替え、
+   罫線はセルの右下＋枠の border で描く。2行目の見出しの top は行の高さを実測してJSで入れる。 */
+.tblwrap.stick{max-height:calc(100vh - 215px);min-height:300px;overflow:auto;
+  border:1px solid #dde4ec;border-radius:7px;}
+.tblwrap.stick table{border-collapse:separate;border-spacing:0;}
+.tblwrap.stick th,.tblwrap.stick td{border:0;border-right:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;}
+.tblwrap.stick thead th{position:sticky;background:#f4f7fa;}
+.tblwrap.stick thead tr:first-child th{top:0;z-index:4;}
+.tblwrap.stick thead tr+tr th{z-index:3;}
+.tblwrap.stick td.name{position:sticky;left:0;z-index:2;background:#fff;
+  box-shadow:1px 0 0 #dbe3ec;}
+.tblwrap.stick thead th.name{position:sticky;left:0;box-shadow:1px 0 0 #dbe3ec;}
+.tblwrap.stick thead tr:first-child th.name{z-index:7;}
+.tblwrap.stick thead tr+tr th.name{z-index:6;}
+.tblwrap.stick .nm{display:inline-block;max-width:78px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;vertical-align:bottom;}
+.tblwrap.stick tr.sep td{z-index:1;}
+.tblwrap.stick td.name,.tblwrap.stick th.name{width:96px;max-width:96px;overflow:hidden;}
+/* 見出し行の td は行いっぱいの幅があって動く余地が無く、そのままでは固定できない。
+   中の span なら td の中で動けるので、こちらを固定する。 */
+.tblwrap.stick tr.sep td>span{position:sticky;left:0;display:inline-block;}
+/* 在籍外は opacity で薄くすると固定した列が透けて下の行が見えるので、色で薄く見せる */
+.tblwrap.stick tr.off td{opacity:1;color:#a3b0bd;}
 .v{font-weight:700;}
 .g1{background:#dff3e6;}
 .g2{background:#eef8f1;}
@@ -128,6 +152,10 @@ tr.off td{opacity:.45;}
   .pane.on{display:block!important;padding:0;}
   .card{break-inside:avoid;box-shadow:none;}
   body{background:#fff;font-size:11.5px;}
+  .tblwrap.stick{max-height:none;overflow:visible;border:0;}
+  .tblwrap.stick thead th,.tblwrap.stick td.name,.tblwrap.stick th.name,
+  .tblwrap.stick tr.sep td>span{position:static;}
+  .tblwrap.stick .nm{max-width:none;}
 }
 @media (max-width:820px){
   .pane{padding:9px;}
@@ -1413,16 +1441,18 @@ function renderList() {
     '<span class="muted">色 = <span class="g1">目標達成</span> / <span class="g2">校舎平均以上</span> / ' +
     '<span class="g3">平均未満</span> / <span class="g4">平均を' + (DB.cfg.lowGap * 100).toFixed(0) + 'pt以上下回る</span></span></div>';
 
-  h += '<div class="tblwrap"><table><thead><tr>' +
+  h += '<div class="tblwrap stick"><table><thead><tr>' +
     '<th class="name">先生</th><th>相対スコア</th>' +
     METRICS.map(function (m) { return '<th colspan="2">' + m.name + '</th>'; }).join('') +
-    '</tr><tr><th class="name sm">名前を押すとカルテへ</th><th class="sm">その日の中の位置</th>' +
+    '</tr><tr><th class="name sm">押すとカルテ</th><th class="sm">その日の中の位置</th>' +
     METRICS.map(function () { return '<th class="sm">率 (分子/分母)</th><th class="sm">前回比</th>'; }).join('') +
     '</tr></thead><tbody>';
 
   rows.forEach(function (T) {
     h += '<tr class="' + (T.out ? 'off' : '') + '">' +
-      '<td class="name" data-t="' + esc(T.key) + '">' + esc(T.name) +
+      // 列を狭くしたので名前が切れることがある。title に full を入れて hover で読めるようにする
+      '<td class="name" data-t="' + esc(T.key) + '" title="' + esc(T.name) + '">' +
+      '<span class="nm">' + esc(T.name) + '</span>' +
       (T.out ? '<span class="badge out">在籍外</span>' : '') + '</td>' +   // 在籍外は既定で teachersOf が除いている
       '<td class="v">' + (T.disp === null ? '—' : T.disp) + '</td>';
     METRICS.forEach(function (m) {
@@ -1437,16 +1467,16 @@ function renderList() {
   });
 
   // 校舎・エリアの行
-  h += '<tr class="sep"><td colspan="' + (2 + METRICS.length * 2) + '">校舎・エリア（比較の基準）</td></tr>';
-  [['戸塚西口（校舎平均）', 'school'], ['中山エリア（エリア平均）', 'area']].forEach(function (pair) {
-    h += '<tr><td class="name">' + pair[0] + '</td><td>—</td>';
+  h += '<tr class="sep"><td colspan="' + (2 + METRICS.length * 2) + '"><span>校舎・エリア（比較の基準）</span></td></tr>';
+  [['校舎平均', '戸塚西口（校舎平均）', 'school'], ['エリア平均', '中山エリア（エリア平均）', 'area']].forEach(function (pair) {
+    h += '<tr><td class="name" title="' + pair[1] + '"><span class="nm">' + pair[0] + '</span></td><td>—</td>';
     METRICS.forEach(function (m) {
-      var v = avgOf(d, bk, m, pair[1]);
+      var v = avgOf(d, bk, m, pair[2]);
       h += '<td class="v">' + (v === null ? '—' : pct(v)) + '</td><td>—</td>';
     });
     h += '</tr>';
   });
-  h += '<tr><td class="name">目標</td><td>—</td>' +
+  h += '<tr><td class="name"><span class="nm">目標</span></td><td>—</td>' +
     METRICS.map(function (m) {
       var g = goalOfMetric(d, bk, m);
       return '<td class="v">' + (g === null ? '—' : pct(g, 0)) + '</td><td>—</td>';
@@ -1454,8 +1484,20 @@ function renderList() {
   h += '</tbody></table></div></div>';
   host.innerHTML = h;
   bindNames(host);
+  stickHead(host);
   el('lsort').onchange = function () { VIEW.sort = this.value; renderList(); };
   el('lsdir').onclick = function () { VIEW.sortDir = -VIEW.sortDir; renderList(); };
+}
+/* 見出しが2行あるので、2行目の top は1行目の高さぶん下げないと重なる。
+   高さはフォントや折り返しで変わるので決め打ちにせず実測する。1px 重ねて隙間が出ないようにする。 */
+function stickHead(host) {
+  if (!host.querySelector) return;
+  var wrap = host.querySelector('.tblwrap.stick');
+  if (!wrap) return;
+  var rows = wrap.querySelectorAll('thead tr');
+  if (rows.length < 2 || !rows[0].getBoundingClientRect) return;
+  var top1 = Math.max(0, Math.round(rows[0].getBoundingClientRect().height) - 1);
+  Array.prototype.forEach.call(rows[1].children, function (th) { th.style.top = top1 + 'px'; });
 }
 function optList(pairs, sel) {
   return pairs.map(function (p) {
