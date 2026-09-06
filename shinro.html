@@ -231,42 +231,54 @@ details.fold>div{padding:0 10px 10px;}
     <div class="card">
       <h3>条件</h3>
       <div class="row">
+        <label>年度</label>
+        <select id="pYear" style="width:96px;"></select>
+        <label>地区・学科</label>
+        <select id="pArea" style="max-width:280px;"><option value="">すべて</option></select>
         <label>通学</label>
-        <input type="number" id="pTime" min="0" max="180" step="5" value="60" style="width:64px;"> 分以内
+        <input type="number" id="pTime" min="0" max="180" step="5" value="0" style="width:64px;"> 分以内
         <label>判定</label>
         <select id="pJudge">
-          <option value="all">すべて</option>
-          <option value="reach">届きそうな学校だけ</option>
           <option value="near">届く＋あと少し</option>
+          <option value="reach">届く学校だけ</option>
+          <option value="all">すべて</option>
         </select>
         <label>並び</label>
         <select id="pSort">
           <option value="tight">おすすめ順（ぎりぎり届く学校から）</option>
           <option value="loose">余裕が大きい順</option>
-          <option value="time">通学が近い順</option>
           <option value="hensachi">偏差値が高い順</option>
+          <option value="time">通学が近い順</option>
         </select>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <label><input type="checkbox" id="pNoStation" checked> 最寄駅を設定していない学校も出す</label>
+        <label><input type="checkbox" id="pHideNoJudge" checked> 判定できない学校（ボーダー0）は隠す</label>
         <span class="grow"></span>
-        <input type="text" id="pWord" placeholder="校名・学区で絞る" style="width:170px;">
+        <input type="text" id="pWord" placeholder="校名・学科で絞る" style="width:170px;">
       </div>
     </div>
 
     <div class="card">
       <h3>結果 <span class="sub" id="pCount"></span></h3>
-      <div class="scroller"><table class="tbl" id="pTbl"></table></div>
+      <div id="pBody"></div>
     </div>
 
     <div class="card">
-      <h3>公立の学校マスタ <span class="sub">校名・最寄駅・比率・ボーダーを入れる場所</span></h3>
-      <div class="row" style="margin-bottom:8px;">
-        <button class="btn pri" id="pPaste">表を貼り付けて取り込む</button>
-        <button class="btn" id="pAdd">＋ 1校ずつ追加</button>
-        <button class="btn" id="pEditTbl">一覧を編集</button>
-        <button class="btn" id="pCsv">CSVに書き出す</button>
-        <span class="grow"></span>
-        <span class="small muted" id="pStat"></span>
+      <h3>学校マスタ <span class="sub" id="pStat"></span></h3>
+      <div id="pDrop" style="border:2px dashed #b9c8d8;border-radius:10px;padding:18px;text-align:center;color:#6a7c8e;background:#fbfdff;cursor:pointer;">
+        「公立高校合格判定用.xlsx」をここにドラッグ＆ドロップ<br>
+        <span class="small">またはクリックしてファイルを選ぶ（CSVも可）</span>
+        <input type="file" id="pFile" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" style="display:none;">
       </div>
-      <div class="warnbox" id="pFormulaNote"></div>
+      <div id="pImpLog" style="margin-top:10px;"></div>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn" id="pPaste">表を貼り付けて取り込む</button>
+        <button class="btn" id="pAdd">＋ 1校ずつ追加</button>
+        <button class="btn" id="pStations">最寄駅をまとめて入れる</button>
+        <button class="btn" id="pCsv">CSVに書き出す</button>
+      </div>
+      <div class="warnbox" id="pFormulaNote" style="margin-top:10px;"></div>
     </div>
   </div>
 
@@ -1345,62 +1357,99 @@ function katenFor(kt, st){
 /* ==========================================================
    神奈川県公立高校
    ------------------------------------------------------------
-   S値 = a値×f(a) ＋ b値×f(b) ＋ d値×f(d)
-     a値 = 調査書（中2の9科 ＋ 中3の9科×2 ＝135点満点）を100点満点に換算
-     b値 = 学力検査（5科500点満点）を100点満点に換算
-     d値 = 特色検査（100点満点に換算）
-     f(a)+f(b)=10、f(d)は0〜5。比率は学校ごとに違う。
-   ★この式と比率は学校マスタで直せるようにしてある。
-     手元の資料と合っているか、最初に1校で必ず確かめること。
+   元データ: 伸学工房「神奈川県公立高校受験結果資料」の一覧
+             （公立高校合格判定用.xlsx）
+   見方PDFで確認したこと:
+   ・【１次選考ボーダー(A3)】＝ Ｓ１値のうち **特色検査を除いた1000点満点** の値
+     → 判定でも特色は足さない。特色実施校は「特色の出来で上下する」と出すだけにする。
+   ・【合格者平均内申】＝ 重点化なしの135点満点（中2 ＋ 中3×2）
+   ・【合格者平均偏差値】＝ 原則5科合計偏差値（3科受験校は3科）
+   ・ボーダーが 0 の学校 ＝ 全県模試で合格判定を行わない（判定対象外）
+   ・内申：学力 の比率が違う学校どうしはボーダーを単純比較できない
+   ・１次Ａ値は「重点化を反映させた値」。ここでは重点化を持っていないので、
+     重点化のある学校ではS1がずれる。内申差・偏差値差も併記して補う。
    ========================================================== */
 var PUBK='shinro_pub_v1';
-var PUB={schools:[], memo:''};
+/* byYear: { '2026':[学校...], '2025':[...] } / year: 表示中の年度
+   資料の1ファイルに複数年度が入っているため、年度で分けて持つ。
+   混ぜると同じ学校が2件出て、ボーダーも別物になる。 */
+var PUB={byYear:{}, year:'', fit:{}, memo:'', importedAt:0, srcName:''};
+function pubSchools(){ return (PUB.byYear && PUB.byYear[PUB.year]) || []; }
+function pubYears(){ return Object.keys(PUB.byYear||{}).sort().reverse(); }
+function pubFit(){ return (PUB.fit&&PUB.fit[PUB.year])||null; }
 
 var PUB_COLS=[
-  ['name','校名'],['area','学区・地区'],['station','最寄駅'],['walk','駅から徒歩(分)'],['bus','駅からバス(分)'],
-  ['fa','f(a) 内申'],['fb','f(b) 学力'],['fd','f(d) 特色'],
-  ['borderS','合格目安S値'],['hensachi','目安偏差値'],['note','メモ']
+  ['name','校名'],['dept','学科'],['area','地区・学科'],
+  ['naishinAvg','合格者平均内申'],['hensachiAvg','合格者平均偏差値'],['border','1次ボーダー'],
+  ['fa','内申f'],['fb','学力g'],['fd','特色h'],
+  ['station','最寄駅'],['walk','徒歩(分)'],['bus','バス(分)'],['note','メモ']
 ];
 
 function loadPub(){
   var v=lsGet(PUBK,null);
-  PUB = v && v.schools ? v : {schools:[], memo:''};
+  if(v && v.byYear) PUB=v;
+  else if(v && v.schools){                 /* 旧かたちからの移行 */
+    PUB={byYear:{'—':v.schools}, year:'—', fit:{}, memo:v.memo||'', importedAt:v.importedAt||0, srcName:v.srcName||''};
+  } else PUB={byYear:{}, year:'', fit:{}, memo:'', importedAt:0, srcName:''};
+  if(!PUB.year || !PUB.byYear[PUB.year]) PUB.year=pubYears()[0]||'';
+  if(!PUB.fit) PUB.fit={};
 }
 function savePub(){ lsSet(PUBK,PUB); }
 
-/* --- 生徒の値から a値 / b値 / S値 --- */
-function aValue(st){
+/* --- 生徒の値 --- */
+function naishin135(st){
   if(!st) return null;
   var g2=st.g2_9, g3=st.g3_9;
   if(g2===''||g2==null||g3===''||g3==null) return null;
-  var pts=(+g2)+(+g3)*2;                    /* 135点満点 */
-  return Math.round(pts/135*100*10)/10;     /* 100点満点 */
+  return (+g2)+(+g3)*2;
 }
-function bValue(st){
-  if(!st) return null;
-  if(st.mo_score!==''&&st.mo_score!=null) return Math.round((+st.mo_score)/500*100*10)/10;
-  return null;
+function aValue(st){ var n=naishin135(st); return n==null? null : Math.round(n/135*1000)/10; }
+function bValueInfo(st){
+  if(!st) return {v:null, est:false};
+  if(st.mo_score!==''&&st.mo_score!=null) return {v:Math.round((+st.mo_score)/500*1000)/10, est:false};
+  /* 得点が無いときは、資料から求めた直線で偏差値から見積もる */
+  var f=pubFit();
+  if(f && st.mo_hensachi!==''&&st.mo_hensachi!=null){
+    var v=f.slope*(+st.mo_hensachi)+f.inter;
+    v=Math.max(0,Math.min(100,Math.round(v*10)/10));
+    return {v:v, est:true};
+  }
+  return {v:null, est:false};
 }
-function dValue(st){
-  if(!st) return null;
-  if(st.mo_tokushoku!==''&&st.mo_tokushoku!=null) return +st.mo_tokushoku;
-  return null;
+function bValue(st){ return bValueInfo(st).v; }
+
+/* 合格者平均とボーダーから「偏差値 → b値」の直線をあてはめる。
+   合格者平均がボーダー付近にあるという前提の近似なので、あくまで見積り。 */
+function fitHensachi(list){
+  var pts=[];
+  list.forEach(function(s){
+    if(!((+s.border||0)>0) || !s.naishinAvg || !s.hensachiAvg) return;
+    var fa=+s.fa||0, fb=+s.fb||0; if(!fb) return;
+    var a=s.naishinAvg/135*100;
+    var need=(s.border - a*fa)/fb;
+    if(need<0 || need>100) return;
+    pts.push([s.hensachiAvg, need]);
+  });
+  if(pts.length<30) return null;
+  var n=pts.length, sx=0, sy=0, sxx=0, sxy=0;
+  pts.forEach(function(p){ sx+=p[0]; sy+=p[1]; sxx+=p[0]*p[0]; sxy+=p[0]*p[1]; });
+  var slope=(n*sxy-sx*sy)/(n*sxx-sx*sx), inter=(sy-slope*sx)/n, mean=sy/n;
+  var ssT=0, ssR=0;
+  pts.forEach(function(p){ ssT+=Math.pow(p[1]-mean,2); ssR+=Math.pow(p[1]-(slope*p[0]+inter),2); });
+  return {slope:slope, inter:inter, r2:(ssT? 1-ssR/ssT : 0), n:n};
 }
-function sValue(sc, st){
+/* S1値（特色を除く1000点満点）＝ ボーダーと同じものさし */
+function s1Value(sc, st){
   var a=aValue(st), b=bValue(st);
   if(a==null||b==null) return null;
-  var fa=+sc.fa||0, fb=+sc.fb||0, fd=+sc.fd||0;
-  if(!fa&&!fb) return null;
-  var s=a*fa + b*fb;
-  if(fd){ var d=dValue(st); if(d!=null) s+=d*fd; }
-  return Math.round(s*10)/10;
+  var fa=+sc.fa||0, fb=+sc.fb||0;
+  if(!(fa+fb)) return null;
+  return Math.round((a*fa + b*fb)*10)/10;
 }
-function sMax(sc){
-  var fa=+sc.fa||0, fb=+sc.fb||0, fd=+sc.fd||0;
-  return 100*(fa+fb+fd);
-}
+function hasTokushoku(sc){ return (+sc.fd||0)>0; }
+function judgeable(sc){ return (+sc.border||0)>0 && ((+sc.fa||0)+(+sc.fb||0))>0; }
 
-/* --- 通学時間（私立と同じ駅マスタを使う） --- */
+/* --- 通学時間（私立と同じ駅マスタ） --- */
 function pubAccess(sc){
   if(!sc.station) return null;
   var st=S.stations[String(sc.station).replace(/駅$/,'').trim()];
@@ -1408,56 +1457,152 @@ function pubAccess(sc){
   return (+st.min)+(+st.tr||0)*(+S.settings.transferMin||0)+(+sc.bus||0)+(+sc.walk||0);
 }
 
-/* --- 貼り付け取込（TSV/CSV）--- */
-function splitPasted(text){
-  var lines=String(text||'').replace(/\r/g,'').split('\n').filter(function(l){ return l.trim()!==''; });
-  if(!lines.length) return [];
-  var tab=lines[0].indexOf('\t')>=0;
-  return lines.map(function(l){
-    if(tab) return l.split('\t');
-    var out=[],cur='',q=false;
-    for(var i=0;i<l.length;i++){
-      var ch=l[i];
-      if(ch==='"'){ q=!q; continue; }
-      if(ch===','&&!q){ out.push(cur); cur=''; continue; }
-      cur+=ch;
-    }
-    out.push(cur);
-    return out;
-  });
+/* ==========================================================
+   xlsx を読む（ブラウザ内・ライブラリなし）
+   zipのセントラルディレクトリを辿って inflate-raw で展開する
+   ========================================================== */
+function u8str(u8,from,to){ var s=''; for(var i=from;i<to;i++) s+=String.fromCharCode(u8[i]); return s; }
+function utf8str(u8,from,to){ return new TextDecoder('utf-8').decode(u8.subarray(from,to)); }
+function rd16(u8,p){ return u8[p]|(u8[p+1]<<8); }
+function rd32(u8,p){ return (u8[p]|(u8[p+1]<<8)|(u8[p+2]<<16))+(u8[p+3]*16777216); }
+
+async function unzipXlsx(u8, inflate){
+  var eocd=-1;
+  for(var i=u8.length-22;i>=0 && i>u8.length-70000;i--){ if(rd32(u8,i)===0x06054b50){ eocd=i; break; } }
+  if(eocd<0) throw new Error('xlsx（zip）として読めませんでした。');
+  var n=rd16(u8,eocd+10), p=rd32(u8,eocd+16), files={};
+  for(var k=0;k<n;k++){
+    if(rd32(u8,p)!==0x02014b50) break;
+    var method=rd16(u8,p+10), csize=rd32(u8,p+20);
+    var nameLen=rd16(u8,p+28), extraLen=rd16(u8,p+30), cmtLen=rd16(u8,p+32);
+    var lho=rd32(u8,p+42);
+    var name=utf8str(u8,p+46,p+46+nameLen);
+    var lnLen=rd16(u8,lho+26), leLen=rd16(u8,lho+28);
+    var start=lho+30+lnLen+leLen;
+    var raw=u8.subarray(start,start+csize), data=null;
+    try{ data = method===0? raw : await inflate(raw,'deflate-raw'); }catch(e){ data=null; }
+    if(data) files[name]=data;
+    p+=46+nameLen+extraLen+cmtLen;
+  }
+  return files;
 }
-/* 見出し行から列を推測する */
-function guessPubCols(head){
-  var map={};
-  var hints={
-    name:/校名|学校名|高校名|学校/, area:/学区|地区|エリア|地域/,
-    station:/最寄|駅/, walk:/徒歩/, bus:/バス/,
-    fa:/f\(a\)|内申.*比|比率.*内申|a値|調査書/, fb:/f\(b\)|学力.*比|比率.*学力|b値|学力検査/,
-    fd:/f\(d\)|特色/, borderS:/S値|ボーダー|合格.*目安|目安.*S/, hensachi:/偏差値/, note:/備考|メモ/
-  };
-  head.forEach(function(h,i){
-    var s=String(h||'').trim();
-    for(var k in hints){ if(map[k]==null && hints[k].test(s)){ map[k]=i; return; } }
-  });
-  return map;
+function xmlUnesc(s){
+  return s.replace(/&#(\d+);/g,function(_,d){return String.fromCharCode(+d);})
+          .replace(/&#x([0-9a-fA-F]+);/g,function(_,h){return String.fromCharCode(parseInt(h,16));})
+          .replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&');
 }
-function pubRowsFrom(rows, map){
-  var out=[];
-  rows.forEach(function(r){
-    var name=(map.name!=null? r[map.name] : r[0])||'';
-    name=String(name).trim();
-    if(!name || /校名|学校名/.test(name)) return;
-    var g=function(k,d){ var i=map[k]; if(i==null) return d; var v=String(r[i]==null?'':r[i]).trim(); return v===''? d : v; };
-    var num=function(k,d){ var v=g(k,''); var m=String(v).match(/-?\d+(\.\d+)?/); return m? +m[0] : d; };
-    out.push({
-      id:'p'+Math.random().toString(36).slice(2,9),
-      name:name, area:g('area',''), station:String(g('station','')).replace(/駅$/,'').trim(),
-      walk:num('walk',0), bus:num('bus',0),
-      fa:num('fa',4), fb:num('fb',6), fd:num('fd',0),
-      borderS:num('borderS',null), hensachi:num('hensachi',null), note:g('note','')
+function colIndex(ref){
+  var m=/^([A-Z]+)/.exec(ref); if(!m) return 0;
+  var n=0; for(var i=0;i<m[1].length;i++) n=n*26+(m[1].charCodeAt(i)-64);
+  return n-1;
+}
+async function readXlsxRows(arrayBuffer, inflate){
+  var files=await unzipXlsx(new Uint8Array(arrayBuffer), inflate);
+  var dec=function(k){ return files[k]? new TextDecoder('utf-8').decode(files[k]) : ''; };
+  var ss=[];
+  dec('xl/sharedStrings.xml').replace(/<si>([\s\S]*?)<\/si>/g,function(_,b){
+    var t=''; b.replace(/<t[^>]*>([\s\S]*?)<\/t>/g,function(_,v){ t+=xmlUnesc(v); return ''; });
+    ss.push(t); return '';
+  });
+  /* 最初のシートを読む */
+  var sheetKey=Object.keys(files).filter(function(k){ return /^xl\/worksheets\/sheet\d+\.xml$/.test(k); }).sort()[0];
+  if(!sheetKey) throw new Error('シートが見つかりません。');
+  var xml=dec(sheetKey), rows=[];
+  xml.replace(/<row[^>]*r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g,function(_,rn,body){
+    var cells=[];
+    body.replace(/<c([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g,function(_,attr,inner){
+      var ref=(/r="([A-Z]+\d+)"/.exec(attr)||[])[1]||'';
+      var t=(/t="([^"]+)"/.exec(attr)||[])[1]||'';
+      var v='';
+      if(inner!=null){
+        if(t==='inlineStr'){ inner.replace(/<t[^>]*>([\s\S]*?)<\/t>/g,function(_,x){ v+=xmlUnesc(x); return ''; }); }
+        else{
+          var vm=/<v[^>]*>([\s\S]*?)<\/v>/.exec(inner);
+          if(vm){ v=xmlUnesc(vm[1]); if(t==='s') v=(ss[+v]!==undefined? ss[+v] : v); }
+        }
+      }
+      cells[colIndex(ref)]=v; return '';
     });
+    rows[+rn-1]=cells; return '';
   });
-  return out;
+  return rows;
+}
+
+/* --- 「公立高校合格判定用.xlsx」を学校マスタに変換する --- */
+function num(v){
+  if(v==null) return null;
+  var m=String(v).replace(/[０-９．]/g,function(c){ return c==='．'?'.':String.fromCharCode(c.charCodeAt(0)-0xFEE0); }).match(/-?\d+(\.\d+)?/);
+  return m? +m[0] : null;
+}
+function parseRatio(v){
+  var t=String(v==null?'':v).replace(/[：]/g,':').replace(/[０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-0xFEE0);});
+  var m=t.match(/(\d+)\s*:\s*(\d+)\s*:\s*(\d+)/);
+  if(m) return {fa:+m[1], fb:+m[2], fd:+m[3]};
+  var m2=t.match(/(\d+)\s*:\s*(\d+)/);
+  if(m2) return {fa:+m2[1], fb:+m2[2], fd:0};
+  return {fa:0, fb:0, fd:0};
+}
+function pubFromSheet(rows){
+  /* 1つのファイルに複数年度が入っている。年度の見出し行で切り分ける。 */
+  var marks=[];
+  for(var i=0;i<rows.length;i++){
+    var r=rows[i]||[]; var first=null;
+    for(var c=0;c<r.length;c++){ if(String(r[c]||'').trim()!==''){ first=String(r[c]).trim(); break; } }
+    if(first && /^20\d\d(\.0+)?$/.test(first)) marks.push({at:i, year:first.replace(/\.0+$/,'')});
+  }
+  if(marks.length>1){
+    var years=[];
+    for(var m=0;m<marks.length;m++){
+      var from=marks[m].at, to=(m+1<marks.length? marks[m+1].at : rows.length);
+      var part=rows.slice(from,to);
+      var one=pubOneBlock(part);
+      if(one.schools.length) years.push({year:marks[m].year, schools:one.schools, cols:one.cols});
+    }
+    if(years.length) return {years:years, cols:years[0].cols};
+  }
+  var only=pubOneBlock(rows);
+  return {years:[{year:(marks[0]&&marks[0].year)||'—', schools:only.schools, cols:only.cols}], cols:only.cols};
+}
+function pubOneBlock(rows){
+  var hi=-1;
+  for(var i=0;i<Math.min(rows.length,20);i++){
+    var r=rows[i]||[];
+    if(r.some(function(c){ return /学校名/.test(String(c||'')); })){ hi=i; break; }
+  }
+  if(hi<0) throw new Error('見出し行（「学校名」を含む行）が見つかりません。');
+  var head=(rows[hi]||[]).map(function(c){ return String(c||'').replace(/\s+/g,''); });
+  var col={};
+  head.forEach(function(h,i){
+    if(/^地区|学科▲/.test(h) && col.area==null) col.area=i;
+    else if(/学校名/.test(h)) col.name=i;
+    else if(/学科名/.test(h)) col.dept=i;
+    else if(/合格者平均内申/.test(h)) col.naishinAvg=i;
+    else if(/合格者平均偏差値/.test(h)) col.hensachiAvg=i;
+    else if(/ボーダー/.test(h)) col.border=i;
+    else if(/内申.*学力.*特色|内申：学力/.test(h)) col.ratio=i;
+  });
+  if(col.name==null) throw new Error('「学校名」の列が見つかりません。');
+  var out=[], skipped=0;
+  for(var r=hi+1;r<rows.length;r++){
+    var row=rows[r]; if(!row) continue;
+    var name=String(row[col.name]||'').trim();
+    if(!name || /学校名/.test(name)) continue;
+    var area=col.area!=null? String(row[col.area]||'').trim() : '';
+    if(/地区・学科/.test(area)) continue;              /* 途中に混ざる見出し行 */
+    var ra=parseRatio(col.ratio!=null? row[col.ratio] : '');
+    out.push({
+      id:'p'+r,
+      name:name,
+      dept: col.dept!=null? String(row[col.dept]||'').trim() : '',
+      area: area,
+      naishinAvg: col.naishinAvg!=null? num(row[col.naishinAvg]) : null,
+      hensachiAvg: col.hensachiAvg!=null? num(row[col.hensachiAvg]) : null,
+      border: col.border!=null? (num(row[col.border])||0) : 0,
+      fa:ra.fa, fb:ra.fb, fd:ra.fd,
+      station:'', walk:0, bus:0, note:''
+    });
+  }
+  return {schools:out, cols:col, head:head};
 }
 
 
@@ -1904,7 +2049,7 @@ function renderAccess(){
   $('acTransfer').value=S.settings.transferMin;
   var used={};
   rows().forEach(function(r){ r._acc.forEach(function(x){ used[x.station]=(used[x.station]||0)+1; }); });
-  PUB.schools.forEach(function(sc){ if(sc.station) used[sc.station]=(used[sc.station]||0)+1; });
+  pubSchools().forEach(function(sc){ if(sc.station) used[sc.station]=(used[sc.station]||0)+1; });
   var names=Object.keys(S.stations);
   var miss=Object.keys(used).filter(function(n){ var s=S.stations[n]; return !s||s.min==null||s.min===''; });
   var mine=names.filter(function(n){ return S.stations[n].ok; }).length;
@@ -1957,7 +2102,7 @@ function renderAccess(){
    ========================================================== */
 function pubStuHtml(){
   if(!curStu) return '<div class="hint">私立タブで生徒を選ぶか、追加してください。</div>';
-  var a=aValue(curStu), b=bValue(curStu), d=dValue(curStu);
+  var n135=naishin135(curStu), a=aValue(curStu), b=bValue(curStu);
   var h='<div class="naishin">';
   [['g2_9','2年 9科',45],['g3_9','3年 9科',45]].forEach(function(f){
     h+='<div class="nb"><label>'+esc(f[1])+'</label>'+
@@ -1968,18 +2113,23 @@ function pubStuHtml(){
      '<input type="number" data-f="mo_score" min="0" max="500" value="'+esc(curStu.mo_score===0?0:(curStu.mo_score||''))+'">'+
      '<div class="mx">/500</div></div>';
   h+='<div class="nb"><label>模試 5科偏差値</label>'+
-     '<input type="number" data-f="mo_hensachi" min="20" max="80" value="'+esc(curStu.mo_hensachi===0?0:(curStu.mo_hensachi||''))+'">'+
-     '<div class="mx">目安の絞り込み用</div></div>';
-  h+='<div class="nb"><label>特色検査</label>'+
-     '<input type="number" data-f="mo_tokushoku" min="0" max="100" value="'+esc(curStu.mo_tokushoku===0?0:(curStu.mo_tokushoku||''))+'">'+
-     '<div class="mx">/100・任意</div></div>';
-  h+='<div class="nb calc"><label>a値（調査書）</label><div class="v">'+(a==null?'—':a)+'</div><div class="mx">'+
-     ((curStu.g2_9!==''&&curStu.g3_9!=='')? ((+curStu.g2_9)+(+curStu.g3_9)*2)+'/135':'2年9科+3年9科×2')+'</div></div>';
-  h+='<div class="nb calc"><label>b値（学力検査）</label><div class="v">'+(b==null?'—':b)+'</div><div class="mx">得点/500</div></div>';
+     '<input type="number" data-f="mo_hensachi" min="20" max="80" step="0.1" value="'+esc(curStu.mo_hensachi===0?0:(curStu.mo_hensachi||''))+'">'+
+     '<div class="mx">平均との比較用</div></div>';
+  h+='<div class="nb calc"><label>内申（135点）</label><div class="v">'+(n135==null?'—':n135)+'</div><div class="mx">2年9科＋3年9科×2</div></div>';
+  h+='<div class="nb calc"><label>a値</label><div class="v">'+(a==null?'—':a)+'</div><div class="mx">/100</div></div>';
+  var bi=bValueInfo(curStu), f=pubFit();
+  h+='<div class="nb calc"><label>b値</label><div class="v">'+(bi.v==null?'—':bi.v)+'</div>'+
+     '<div class="mx">'+(bi.est? '偏差値から推定' : '/100')+'</div></div>';
   h+='</div>';
-  h+='<div class="hint" style="margin-top:8px;">'+
-     'S値 ＝ a値×f(a) ＋ b値×f(b)'+(d!=null?' ＋ 特色×f(d)':'')+'。f(a)+f(b)=10 が基本で、比率は学校ごとに違います。'+
-     '<b>比率とボーダーは学校マスタで直せます。</b>手元の資料と1校で必ず突き合わせてください。</div>';
+  if(bi.est && f){
+    h+='<div class="okbox" style="margin-top:8px;">模試の得点が空なので、<b>偏差値から学力検査の得点を見積もって</b>います'+
+       '（この資料の合格者平均から求めた直線：得点 ≒ '+(f.slope*5).toFixed(1)+'×偏差値 '+
+       (f.inter*5>=0?'+':'')+(f.inter*5).toFixed(0)+'、あてはまり R²='+f.r2.toFixed(3)+'／'+f.n+'校）。'+
+       '実際の得点が分かるときはそちらを入れてください。</div>';
+  } else if(a==null||bValue(curStu)==null){
+    h+='<div class="warnbox" style="margin-top:8px;">S値で判定するには <b>2年9科・3年9科</b> と、'+
+       '<b>模試の5科得点</b>（または偏差値）が要ります。入っていない間は内申の比較だけで並べます。</div>';
+  }
   return h;
 }
 function renderPublic(){
@@ -1987,40 +2137,71 @@ function renderPublic(){
   var box=$('pubStu');
   box.innerHTML=pubStuHtml();
   if(curStu) bindStuInputs(box);
+
+  /* 年度の選択肢（資料に複数年度が入っている） */
+  var ys=pubYears(), ysel=$('pYear');
+  ysel.innerHTML=ys.map(function(y){ return '<option value="'+esc(y)+'">'+esc(y)+'年度</option>'; }).join('')
+                 || '<option value="">—</option>';
+  if(ys.indexOf(PUB.year)<0) PUB.year=ys[0]||'';
+  ysel.value=PUB.year;
+
+  /* 地区の選択肢 */
+  var areas=[]; pubSchools().forEach(function(s){ if(s.area && areas.indexOf(s.area)<0) areas.push(s.area); });
+  var sel=$('pArea'), keep=sel.value;
+  sel.innerHTML='<option value="">すべての地区・学科</option>'+areas.map(function(a){
+    return '<option value="'+esc(a)+'">'+esc(a)+'</option>'; }).join('');
+  if(areas.indexOf(keep)>=0) sel.value=keep;
+
+  var withSt=pubSchools().filter(function(s){ return s.station; }).length;
+  var noJudge=pubSchools().filter(function(s){ return !judgeable(s); }).length;
+  var f=pubFit();
+  $('pStat').textContent=pubSchools().length+'件'+(PUB.srcName? '（'+PUB.srcName+'）':'')+
+    '／最寄駅あり '+withSt+'／判定対象外 '+noJudge+
+    (f? '／偏差値→得点の推定式あり(R²'+f.r2.toFixed(2)+')' : '');
   $('pFormulaNote').innerHTML=
-    '計算式：<b>S値 ＝ a値×f(a) ＋ b値×f(b) ＋ 特色×f(d)</b>　'+
-    '（a値＝(2年9科＋3年9科×2)÷135×100、b値＝学力検査÷500×100、特色＝÷100×100）<br>'+
-    'この式と各校の比率は<b>こちらで確かめたものではありません</b>。全研模試の資料や県の選考基準と突き合わせて、'+
-    '最初に1校だけ手計算で合っているか確認してください。合っていなければ比率を直せば全校に効きます。';
-  $('pStat').textContent=PUB.schools.length+'校 登録';
+    '<b>判定のしかた</b>：Ｓ１値 ＝ a値×内申f ＋ b値×学力g（1000点満点）を、資料の【１次選考ボーダー(Ａ３)】と比べています。'+
+    'a値＝(2年9科＋3年9科×2)÷135×100、b値＝模試5科得点÷500×100。<br>'+
+    '<b>特色検査はボーダーに含まれていません</b>（資料の定義どおり）。特色実施校には印を付けてあるので、特色の出来で上下すると考えてください。<br>'+
+    '<b>重点化のある学校はズレます</b>。資料の1次Ａ値は重点化を反映した値ですが、ここでは素点の135点満点から計算しています。'+
+    '内申差・偏差値差も並べているので、3つを見て判断してください。';
   renderPubTable();
 }
-['pTime','pJudge','pSort'].forEach(function(id){ $(id).onchange=renderPubTable; });
+['pArea','pJudge','pSort','pNoStation','pHideNoJudge'].forEach(function(id){ $(id).onchange=renderPubTable; });
+$('pYear').onchange=function(){ PUB.year=$('pYear').value; savePub(); renderPublic(); };
 $('pTime').oninput=renderPubTable;
 $('pWord').oninput=renderPubTable;
 
+function pubEval(sc){
+  var s1=s1Value(sc,curStu);
+  var mins=pubAccess(sc);
+  var n135=naishin135(curStu);
+  var dS  = (s1!=null && judgeable(sc))? Math.round((s1-sc.border)*10)/10 : null;
+  var dN  = (n135!=null && sc.naishinAvg!=null)? Math.round((n135-sc.naishinAvg)*10)/10 : null;
+  var dH  = (curStu && curStu.mo_hensachi!=='' && curStu.mo_hensachi!=null && sc.hensachiAvg!=null)
+            ? Math.round(((+curStu.mo_hensachi)-sc.hensachiAvg)*10)/10 : null;
+  /* 判定はS1差を最優先。無ければ偏差値差→内申差で代用する */
+  var basis='S1', ord=dS;
+  if(ord==null && dH!=null){ basis='偏差値'; ord=dH*12; }
+  if(ord==null && dN!=null){ basis='内申';   ord=dN*7;  }
+  var status = ord==null? 'unknown' : (ord>=0? 'ok' : (ord>=-40? 'near':'ng'));
+  return {sc:sc, s1:s1, mins:mins, dS:dS, dN:dN, dH:dH, basis:basis, ord:ord, status:status};
+}
 function renderPubTable(){
-  var t=$('pTbl');
-  if(!PUB.schools.length){
-    t.innerHTML='<tbody><tr><td class="muted">公立の学校がまだ登録されていません。下の「表を貼り付けて取り込む」から入れてください。</td></tr></tbody>';
+  var box=$('pBody');
+  if(!pubSchools().length){
+    box.innerHTML='<div class="hint">公立の学校がまだ登録されていません。下の枠に「公立高校合格判定用.xlsx」を入れてください。</div>';
     $('pCount').textContent=''; return;
   }
-  var maxMin=+$('pTime').value||0, mode=$('pJudge').value, sortBy=$('pSort').value;
-  var w=($('pWord').value||'').trim();
-  var st=curStu;
+  var area=$('pArea').value, maxMin=+$('pTime').value||0, mode=$('pJudge').value;
+  var sortBy=$('pSort').value, w=($('pWord').value||'').trim();
+  var allowNoSt=$('pNoStation').checked, hideNJ=$('pHideNoJudge').checked;
 
-  var list=PUB.schools.map(function(sc){
-    var s=sValue(sc,st), mins=pubAccess(sc);
-    var diff=(s!=null && sc.borderS!=null)? Math.round((s-sc.borderS)*10)/10 : null;
-    var hDiff=(st && st.mo_hensachi!=='' && st.mo_hensachi!=null && sc.hensachi!=null)
-              ? Math.round(((+st.mo_hensachi)-sc.hensachi)*10)/10 : null;
-    var d = diff!=null? diff : (hDiff!=null? hDiff*10 : null);   /* S値が無ければ偏差値差で代用 */
-    var stt = d==null? 'unknown' : (d>=0? 'ok' : (d>=-20? 'near':'ng'));
-    return {sc:sc, s:s, mins:mins, diff:diff, hDiff:hDiff, ord:d, status:stt};
-  });
-  list=list.filter(function(x){
-    if(w && ((x.sc.name||'')+(x.sc.area||'')).indexOf(w)<0) return false;
-    if(maxMin){ if(x.mins==null || x.mins>maxMin) return false; }
+  var list=pubSchools().map(pubEval).filter(function(x){
+    var sc=x.sc;
+    if(area && sc.area!==area) return false;
+    if(w && ((sc.name||'')+(sc.dept||'')).indexOf(w)<0) return false;
+    if(hideNJ && !judgeable(sc)) return false;
+    if(maxMin){ if(x.mins==null){ if(!allowNoSt) return false; } else if(x.mins>maxMin) return false; }
     if(mode==='reach' && x.status!=='ok') return false;
     if(mode==='near' && !(x.status==='ok'||x.status==='near')) return false;
     return true;
@@ -2028,153 +2209,250 @@ function renderPubTable(){
   var ord={ok:0,near:1,unknown:2,ng:3};
   list.sort(function(a,b){
     if(sortBy==='time') return (a.mins==null?9999:a.mins)-(b.mins==null?9999:b.mins);
-    if(sortBy==='hensachi') return (b.sc.hensachi==null?-99:b.sc.hensachi)-(a.sc.hensachi==null?-99:a.sc.hensachi);
+    if(sortBy==='hensachi') return (b.sc.hensachiAvg==null?-99:b.sc.hensachiAvg)-(a.sc.hensachiAvg==null?-99:a.sc.hensachiAvg);
     var oa=ord[a.status], ob=ord[b.status];
     if(oa!==ob) return oa-ob;
     if(a.ord==null) return 1; if(b.ord==null) return -1;
     return sortBy==='loose'? (b.ord-a.ord) : (a.ord-b.ord);
   });
-  $('pCount').textContent=(st? ('『'+(st.name||'名前なし')+'』／'):'生徒未選択／')+list.length+'校'+(maxMin?'（通学'+maxMin+'分以内）':'');
+  $('pCount').textContent=(curStu? ('『'+(curStu.name||'名前なし')+'』／'):'生徒未選択／')+list.length+'件'+
+    (maxMin?'（通学'+maxMin+'分以内）':'');
 
-  var h='<thead><tr><th style="width:150px;">学校</th><th style="width:80px;">学区</th>'+
-        '<th style="width:96px;">判定</th><th style="width:120px;">S値／ボーダー</th>'+
-        '<th style="width:88px;">偏差値</th><th style="width:120px;">通学</th>'+
-        '<th style="width:96px;">比率 a:b:d</th><th style="width:100px;"></th></tr></thead><tbody>';
-  list.forEach(function(x,i){
-    var sc=x.sc;
-    var tag;
-    if(x.status==='unknown') tag='<span class="tag t-unk">判定不可</span>';
-    else{
-      var lab=x.diff!=null? (x.diff>0? 'S値 +'+x.diff : (x.diff===0? 'ちょうど':'S値 '+x.diff))
-                          : (x.hDiff>0? '偏差値 +'+x.hDiff : '偏差値 '+x.hDiff);
-      tag='<span class="tag '+(x.status==='ok'?'t-ok':(x.status==='near'?'t-near':'t-ng'))+'">'+lab+'</span>';
-    }
-    var idx=PUB.schools.indexOf(sc);
-    h+='<tr><td class="nowrap">'+esc(sc.name)+'</td><td class="small">'+esc(sc.area||'')+'</td>'+
-       '<td class="c">'+tag+'</td>'+
-       '<td class="small mono">'+(x.s==null?'—':x.s)+(sc.borderS!=null? ' / '+sc.borderS : ' / <span class="muted">未設定</span>')+'</td>'+
-       '<td class="small mono">'+(sc.hensachi==null?'<span class="muted">—</span>':sc.hensachi)+'</td>'+
-       '<td class="small">'+(x.mins==null? '<span class="tag t-warn">駅未設定</span>'
-            : ('<b class="mono">'+x.mins+'分</b> <span class="small muted">'+esc(sc.station||'')+'</span>'))+'</td>'+
-       '<td class="c small mono">'+(+sc.fa||0)+':'+(+sc.fb||0)+(+sc.fd? ':'+sc.fd:'')+'</td>'+
-       '<td><button class="btn sm pedit" data-i="'+idx+'">編集</button></td></tr>';
+  function cell(v,unit){ return v==null? '<span class="muted">—</span>'
+    : '<span class="mono">'+(v>0?'+':'')+v+'</span>'+(unit?'<span class="small muted">'+unit+'</span>':''); }
+  var groups=[['ok','届く'],['near','あと少し'],['ng','届かない'],['unknown','判定できない']];
+  var html='';
+  groups.forEach(function(g){
+    var part=list.filter(function(x){ return x.status===g[0]; });
+    if(!part.length) return;
+    html+='<div class="grp">'+esc(g[1])+'<span class="cnt">'+part.length+'件</span></div>';
+    html+='<div class="scroller" style="max-height:none;"><table class="tbl"><thead><tr>'+
+      '<th style="width:140px;">学校</th><th style="width:80px;">学科</th>'+
+      '<th style="width:96px;">判定</th><th style="width:126px;">S1／ボーダー</th>'+
+      '<th style="width:112px;">内申135</th><th style="width:104px;">偏差値</th>'+
+      '<th style="width:74px;">内申:学力:特色</th><th style="width:124px;">通学</th>'+
+      '<th style="width:150px;">地区</th><th style="width:56px;"></th></tr></thead><tbody>';
+    part.forEach(function(x){
+      var sc=x.sc, idx=pubSchools().indexOf(sc);
+      var tag;
+      if(x.status==='unknown') tag='<span class="tag t-unk">判定不可</span>';
+      else{
+        var lab = x.basis==='S1' ? ('S1 '+(x.dS>0?'+':'')+x.dS)
+                : x.basis==='偏差値' ? ('偏差 '+(x.dH>0?'+':'')+x.dH)
+                : ('内申 '+(x.dN>0?'+':'')+x.dN);
+        tag='<span class="tag '+(x.status==='ok'?'t-ok':(x.status==='near'?'t-near':'t-ng'))+'">'+esc(lab)+'</span>';
+      }
+      html+='<tr>'+
+        '<td class="nowrap">'+esc(sc.name)+(hasTokushoku(sc)?' <span class="tag t-info" title="特色検査あり。ボーダーには特色が含まれていません">特色</span>':'')+'</td>'+
+        '<td class="small">'+esc(sc.dept||'')+'</td>'+
+        '<td class="c">'+tag+'</td>'+
+        '<td class="small mono">'+(x.s1==null?'—':x.s1)+' / '+(judgeable(sc)? sc.border : '<span class="muted">—</span>')+'</td>'+
+        '<td class="small">'+cell(x.dN)+' <span class="small muted">平均'+(sc.naishinAvg==null?'—':sc.naishinAvg)+'</span></td>'+
+        '<td class="small">'+cell(x.dH)+' <span class="small muted">'+(sc.hensachiAvg==null?'—':sc.hensachiAvg)+'</span></td>'+
+        '<td class="c small mono">'+(+sc.fa||0)+':'+(+sc.fb||0)+':'+(+sc.fd||0)+'</td>'+
+        '<td class="small">'+(x.mins==null
+            ? (sc.station? '<span class="tag t-warn">駅時間未設定</span>' : '<span class="muted">駅未設定</span>')
+            : ('<b class="mono">'+x.mins+'分</b> <span class="small muted">'+esc(sc.station)+'</span>'))+'</td>'+
+        '<td class="small">'+esc(sc.area||'')+'</td>'+
+        '<td><button class="btn sm pedit" data-i="'+idx+'">編集</button></td></tr>';
+    });
+    html+='</tbody></table></div>';
   });
-  h+='</tbody>';
-  t.innerHTML=h;
-  each('.pedit',function(b){ b.onclick=function(){ editPubSchool(+b.dataset.i); }; }, t);
+  if(!html) html='<div class="hint">条件に合う学校がありません。地区や判定の条件をゆるめてください。</div>';
+  box.innerHTML=html;
+  each('.pedit',function(b){ b.onclick=function(){ editPubSchool(+b.dataset.i); }; }, box);
 }
 
 function editPubSchool(i){
-  var sc = i<0? {id:'p'+Math.random().toString(36).slice(2,9),name:'',area:'',station:'',walk:0,bus:0,fa:4,fb:6,fd:0,borderS:null,hensachi:null,note:''}
-              : PUB.schools[i];
+  var isNew=i<0;
+  var sc = isNew? {id:'p'+Date.now(),name:'',dept:'',area:'',naishinAvg:null,hensachiAvg:null,border:0,
+                   fa:5,fb:5,fd:0,station:'',walk:0,bus:0,note:''}
+                : pubSchools()[i];
+  var NUM=['naishinAvg','hensachiAvg','border','fa','fb','fd','walk','bus'];
   var h='<div class="row" style="flex-direction:column;align-items:stretch;gap:8px;">';
   PUB_COLS.forEach(function(c){
     var v=sc[c[0]]; v=(v==null?'':v);
-    h+='<div class="row"><label style="width:120px;">'+esc(c[1])+'</label>'+
-       '<input type="'+(['walk','bus','fa','fb','fd','borderS','hensachi'].indexOf(c[0])>=0?'number':'text')+
-       '" data-p="'+c[0]+'" value="'+esc(v)+'" style="flex:1 1 auto;'+(c[0]==='name'?'font-weight:700;':'')+'"></div>';
+    h+='<div class="row"><label style="width:130px;">'+esc(c[1])+'</label>'+
+       '<input type="'+(NUM.indexOf(c[0])>=0?'number':'text')+'" step="0.1" data-p="'+c[0]+'" value="'+esc(v)+
+       '" style="flex:1 1 auto;'+(c[0]==='name'?'font-weight:700;':'')+'"></div>';
   });
   h+='</div><div class="row" style="margin-top:12px;">'+
      '<button class="btn pri" id="pSaveOne">保存</button>'+
-     (i>=0? '<button class="btn dan" id="pDelOne">この学校を削除</button>':'')+
-     '<span class="grow"></span><span class="small muted">f(a)+f(b)=10 が基本。特色検査が無い学校は f(d)=0</span></div>';
-  openModal(i<0? '公立高校を追加' : sc.name, h);
+     (isNew? '' : '<button class="btn dan" id="pDelOne">この学校を削除</button>')+
+     '<span class="grow"></span><span class="small muted">最寄駅を入れると通学時間で絞れるようになります</span></div>';
+  openModal(isNew? '公立高校を追加' : (sc.name+'　'+(sc.dept||'')), h);
   $('pSaveOne').onclick=function(){
     each('input[data-p]',function(inp){
       var k=inp.dataset.p, v=inp.value.trim();
-      if(['walk','bus','fa','fb','fd','borderS','hensachi'].indexOf(k)>=0) sc[k]= v===''? (k==='borderS'||k==='hensachi'? null : 0) : +v;
+      if(NUM.indexOf(k)>=0) sc[k]= v===''? (k==='naishinAvg'||k==='hensachiAvg'? null : 0) : +v;
       else sc[k]=v;
     }, $('modalbd'));
     sc.station=String(sc.station||'').replace(/駅$/,'').trim();
     if(!sc.name){ alert('校名を入れてください'); return; }
-    if(i<0) PUB.schools.push(sc);
+    if(isNew){ if(!PUB.byYear[PUB.year]) PUB.byYear[PUB.year]=[]; PUB.byYear[PUB.year].push(sc); }
     if(sc.station && !S.stations[sc.station]){ S.stations[sc.station]={min:null,tr:0,ok:false,note:''}; lsSet(K.sta,S.stations); }
     savePub(); $('modal').classList.remove('on'); renderPublic();
   };
-  if(i>=0) $('pDelOne').onclick=function(){
+  if(!isNew) $('pDelOne').onclick=function(){
     if(!confirm('「'+sc.name+'」を削除します。よろしいですか？')) return;
-    PUB.schools.splice(i,1); savePub(); $('modal').classList.remove('on'); renderPublic();
+    pubSchools().splice(i,1); savePub(); $('modal').classList.remove('on'); renderPublic();
   };
 }
 $('pAdd').onclick=function(){ editPubSchool(-1); };
 
-$('pPaste').onclick=function(){
-  openModal('公立高校の表を貼り付ける',
-    '<div class="hint" style="margin-bottom:8px;">'+
-    '模試のマイページや県の資料の表を、そのままコピーしてここに貼り付けてください。'+
-    'ExcelからのコピーもCSVも読めます。1行目が見出しなら列を自動で見分けます。</div>'+
-    '<textarea id="pText" style="min-height:180px;" placeholder="校名&#9;学区&#9;最寄駅&#9;徒歩&#9;f(a)&#9;f(b)&#9;f(d)&#9;ボーダーS値&#9;偏差値"></textarea>'+
-    '<div class="row" style="margin-top:8px;"><button class="btn pri" id="pParse">読み取る</button>'+
-    '<label><input type="checkbox" id="pReplace"> 今の学校マスタを消してから入れる</label></div>'+
-    '<div id="pPrev" style="margin-top:10px;"></div>');
-  $('pParse').onclick=function(){
-    var rowsIn=splitPasted($('pText').value);
-    if(!rowsIn.length){ $('pPrev').innerHTML='<div class="errbox">読み取れませんでした。</div>'; return; }
-    var head=rowsIn[0], map=guessPubCols(head);
-    var body=(Object.keys(map).length? rowsIn.slice(1) : rowsIn);
-    if(!Object.keys(map).length) map={name:0};
-    var got=pubRowsFrom(body,map);
-    if(!got.length){ $('pPrev').innerHTML='<div class="errbox">校名らしい列が見つかりませんでした。1列目を校名にしてみてください。</div>'; return; }
-    var mapTxt=Object.keys(map).map(function(k){
-      var c=PUB_COLS.filter(function(x){return x[0]===k;})[0];
-      return (c?c[1]:k)+'←「'+esc(String(head[map[k]]||'').trim())+'」';
-    }).join('　');
-    var h='<div class="okbox">'+got.length+'校を読み取りました。<br><span class="small">'+mapTxt+'</span></div>'+
-      '<div class="scroller" style="max-height:260px;margin-top:8px;"><table class="tbl"><thead><tr>'+
-      PUB_COLS.map(function(c){return '<th>'+esc(c[1])+'</th>';}).join('')+'</tr></thead><tbody>'+
-      got.slice(0,50).map(function(r){ return '<tr>'+PUB_COLS.map(function(c){
-        return '<td class="small">'+esc(r[c[0]]==null?'':r[c[0]])+'</td>'; }).join('')+'</tr>'; }).join('')+
-      '</tbody></table></div>'+
-      '<div class="row" style="margin-top:8px;"><button class="btn pri" id="pCommit">この内容で登録する</button>'+
-      '<span class="small muted">見出しが違う列に入っていたら、貼り付ける表の見出しを直すか、登録後に「一覧を編集」で直せます</span></div>';
-    $('pPrev').innerHTML=h;
-    $('pCommit').onclick=function(){
-      if($('pReplace').checked) PUB.schools=[];
-      var byName={}; PUB.schools.forEach(function(s){ byName[s.name]=s; });
-      got.forEach(function(g){
-        if(byName[g.name]){ var o=byName[g.name]; Object.keys(g).forEach(function(k){ if(k!=='id') o[k]=g[k]; }); }
-        else PUB.schools.push(g);
-        if(g.station && !S.stations[g.station]) S.stations[g.station]={min:null,tr:0,ok:false,note:''};
-      });
-      lsSet(K.sta,S.stations); savePub();
-      $('modal').classList.remove('on'); renderPublic();
-    };
-  };
-};
-$('pEditTbl').onclick=function(){
-  var h='<div class="scroller" style="max-height:60vh;"><table class="tbl"><thead><tr>'+
-    PUB_COLS.map(function(c){return '<th>'+esc(c[1])+'</th>';}).join('')+'<th></th></tr></thead><tbody>';
-  PUB.schools.forEach(function(sc,i){
-    h+='<tr data-i="'+i+'">'+PUB_COLS.map(function(c){
-      var num=['walk','bus','fa','fb','fd','borderS','hensachi'].indexOf(c[0])>=0;
-      return '<td><input type="'+(num?'number':'text')+'" data-p="'+c[0]+'" value="'+esc(sc[c[0]]==null?'':sc[c[0]])+
-             '" style="width:'+(c[0]==='name'?'130px':(num?'62px':'90px'))+';"></td>';
-    }).join('')+'<td><button class="btn sm dan pdel">削除</button></td></tr>';
-  });
-  h+='</tbody></table></div><div class="row" style="margin-top:8px;"><button class="btn pri" id="pSaveAll">保存</button></div>';
-  openModal('公立の学校マスタ（'+PUB.schools.length+'校）',h);
-  each('.pdel',function(b){ b.onclick=function(){ b.closest('tr').style.display='none'; b.closest('tr').dataset.del='1'; }; }, $('modalbd'));
-  $('pSaveAll').onclick=function(){
-    var next=[];
+/* ---- 最寄駅をまとめて入れる ---- */
+$('pStations').onclick=function(){
+  var names=[]; pubSchools().forEach(function(s){ if(names.indexOf(s.name)<0) names.push(s.name); });
+  var byName={}; pubSchools().forEach(function(s){ (byName[s.name]=byName[s.name]||[]).push(s); });
+  var h='<div class="hint" style="margin-bottom:8px;">同じ校名の学科はまとめて設定されます。'+
+        '通学時間で絞りたい学校だけ入れれば十分です（空のままでも一覧には出ます）。</div>'+
+        '<div class="row" style="margin-bottom:8px;"><input type="text" id="psWord" placeholder="校名で絞る" style="width:180px;">'+
+        '<label><input type="checkbox" id="psBlank" checked> 未設定だけ</label></div>'+
+        '<div id="psList"></div>'+
+        '<div class="row" style="margin-top:8px;"><button class="btn pri" id="psSave">保存</button></div>';
+  openModal('最寄駅をまとめて入れる（'+names.length+'校）',h);
+  function draw(){
+    var w=($('psWord').value||'').trim(), onlyBlank=$('psBlank').checked;
+    var f=names.filter(function(n){
+      if(w && n.indexOf(w)<0) return false;
+      if(onlyBlank && byName[n][0].station) return false;
+      return true;
+    });
+    $('psList').innerHTML='<div class="scroller" style="max-height:52vh;"><table class="tbl"><thead><tr>'+
+      '<th style="width:180px;">学校</th><th style="width:130px;">最寄駅</th><th style="width:90px;">徒歩(分)</th>'+
+      '<th style="width:90px;">バス(分)</th><th style="width:70px;">学科数</th></tr></thead><tbody>'+
+      f.slice(0,300).map(function(n){
+        var s=byName[n][0];
+        return '<tr data-n="'+esc(n)+'"><td class="small nowrap">'+esc(n)+'</td>'+
+          '<td><input type="text" class="ps-st" value="'+esc(s.station||'')+'" style="width:110px;"></td>'+
+          '<td><input type="number" class="num ps-w" value="'+(+s.walk||0)+'"></td>'+
+          '<td><input type="number" class="num ps-b" value="'+(+s.bus||0)+'"></td>'+
+          '<td class="c small mono">'+byName[n].length+'</td></tr>';
+      }).join('')+'</tbody></table></div>'+
+      (f.length>300? '<div class="hint">300校まで表示しています。絞り込んでください。</div>':'');
+  }
+  $('psWord').oninput=draw; $('psBlank').onchange=draw; draw();
+  $('psSave').onclick=function(){
     each('tbody tr',function(tr){
-      if(tr.dataset.del) return;
-      var sc=PUB.schools[+tr.dataset.i]||{};
-      each('input[data-p]',function(inp){
-        var k=inp.dataset.p, v=inp.value.trim();
-        if(['walk','bus','fa','fb','fd','borderS','hensachi'].indexOf(k)>=0) sc[k]= v===''? (k==='borderS'||k==='hensachi'? null:0) : +v;
-        else sc[k]=v;
-      }, tr);
-      sc.station=String(sc.station||'').replace(/駅$/,'').trim();
-      if(sc.station && !S.stations[sc.station]) S.stations[sc.station]={min:null,tr:0,ok:false,note:''};
-      if(sc.name) next.push(sc);
+      var n=tr.dataset.n; if(!n||!byName[n]) return;
+      var st=String(tr.querySelector('.ps-st').value||'').replace(/駅$/,'').trim();
+      var wk=+tr.querySelector('.ps-w').value||0, bs=+tr.querySelector('.ps-b').value||0;
+      byName[n].forEach(function(s){ s.station=st; s.walk=wk; s.bus=bs; });
+      if(st && !S.stations[st]) S.stations[st]={min:null,tr:0,ok:false,note:''};
     }, $('modalbd'));
-    PUB.schools=next; lsSet(K.sta,S.stations); savePub();
-    $('modal').classList.remove('on'); renderPublic();
+    lsSet(K.sta,S.stations); savePub(); $('modal').classList.remove('on'); renderPublic();
   };
 };
+
+/* ---- xlsx / CSV の取込 ---- */
+function pubLog(h){ $('pImpLog').innerHTML=h; }
+$('pDrop').onclick=function(){ $('pFile').click(); };
+$('pFile').onchange=function(){ if(this.files&&this.files[0]) pubHandleFile(this.files[0]); this.value=''; };
+['dragenter','dragover'].forEach(function(ev){
+  $('pDrop').addEventListener(ev,function(e){ e.preventDefault(); $('pDrop').style.borderColor='#2b6fe0'; });
+});
+['dragleave','drop'].forEach(function(ev){
+  $('pDrop').addEventListener(ev,function(e){ e.preventDefault(); $('pDrop').style.borderColor='#b9c8d8'; });
+});
+$('pDrop').addEventListener('drop',function(e){
+  var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+  if(f) pubHandleFile(f);
+});
+async function pubHandleFile(file){
+  pubLog('<div class="okbox">読み込んでいます… '+esc(file.name)+'</div>');
+  try{
+    var rowsIn;
+    if(/\.csv$/i.test(file.name)) rowsIn=splitPasted(await file.text());
+    else rowsIn=await readXlsxRows(await file.arrayBuffer(), inflate);
+    var got=pubFromSheet(rowsIn);
+    pubPreview(got, file.name);
+  }catch(e){
+    pubLog('<div class="errbox">読み込めませんでした：'+esc(e.message||e)+'</div>');
+  }
+}
+function pubPreview(got, srcName){
+  var years=got.years||[{year:'—', schools:got.schools||[]}];
+  var list=years[0].schools;
+  var nJudge=list.filter(judgeable).length;
+  var ratios={}; list.forEach(function(s){ var k=s.fa+':'+s.fb+':'+s.fd; ratios[k]=(ratios[k]||0)+1; });
+  var h='<div class="okbox"><b>'+esc(srcName)+'</b><ul class="loglist">'+
+    '<li class="ok">年度 '+years.map(function(y){ return y.year+'（'+y.schools.length+'件）'; }).join('、')+'</li>'+
+    '<li class="ok">'+list.length+'件（学校×学科）を読み取りました ※下の表は'+years[0].year+'年度</li>'+
+    '<li class="'+(nJudge>list.length*0.5?'ok':'ng')+'">合格判定に使えるのは '+nJudge+'件（ボーダーが0の学校は判定対象外）</li>'+
+    '<li class="ok">比率の種類 '+Object.keys(ratios).length+'種／地区 '+new Set(list.map(function(s){return s.area;})).size+'種</li>'+
+    '</ul></div>'+
+    '<div class="scroller" style="max-height:240px;margin-top:8px;"><table class="tbl"><thead><tr>'+
+    '<th>校名</th><th>学科</th><th>地区</th><th>平均内申</th><th>平均偏差値</th><th>ボーダー</th><th>比率</th></tr></thead><tbody>'+
+    list.slice(0,40).map(function(s){
+      return '<tr><td class="small nowrap">'+esc(s.name)+'</td><td class="small">'+esc(s.dept)+'</td>'+
+        '<td class="small">'+esc(s.area)+'</td><td class="small mono">'+(s.naishinAvg==null?'—':s.naishinAvg)+'</td>'+
+        '<td class="small mono">'+(s.hensachiAvg==null?'—':s.hensachiAvg)+'</td>'+
+        '<td class="small mono">'+s.border+'</td><td class="small mono">'+s.fa+':'+s.fb+':'+s.fd+'</td></tr>';
+    }).join('')+'</tbody></table></div>'+
+    '<div class="row" style="margin-top:8px;">'+
+    '<button class="btn pri" id="pCommit">この内容で登録する</button>'+
+    '<label><input type="checkbox" id="pKeepSt" checked> 今入っている最寄駅の設定は残す</label></div>';
+  pubLog(h);
+  $('pCommit').onclick=function(){
+    /* 今入っている最寄駅の設定は、校名（＋学科）で引き継ぐ */
+    var keep={};
+    if($('pKeepSt').checked){
+      Object.keys(PUB.byYear||{}).forEach(function(y){
+        (PUB.byYear[y]||[]).forEach(function(s){
+          if(s.station && !keep[s.name]) keep[s.name]={station:s.station,walk:s.walk,bus:s.bus,note:s.note};
+        });
+      });
+    }
+    PUB.byYear={}; PUB.fit={};
+    years.forEach(function(y){
+      y.schools.forEach(function(s){
+        var k=keep[s.name];
+        if(k){ s.station=k.station; s.walk=k.walk; s.bus=k.bus; s.note=k.note||''; }
+        if(s.station && !S.stations[s.station]) S.stations[s.station]={min:null,tr:0,ok:false,note:''};
+      });
+      PUB.byYear[y.year]=y.schools;
+      var f=fitHensachi(y.schools); if(f) PUB.fit[y.year]=f;
+    });
+    PUB.year=pubYears()[0]||'';
+    PUB.srcName=srcName; PUB.importedAt=Date.now();
+    lsSet(K.sta,S.stations); savePub();
+    pubLog('<div class="okbox">登録しました（'+years.map(function(y){return y.year+':'+y.schools.length+'件';}).join(' / ')+'）。</div>');
+    renderPublic();
+  };
+}
+$('pPaste').onclick=function(){
+  openModal('表を貼り付けて取り込む',
+    '<div class="hint" style="margin-bottom:8px;">1行目に「学校名」を含む見出しがある表を貼り付けてください。'+
+    'Excelからのコピー（タブ区切り）とCSVに対応しています。</div>'+
+    '<textarea id="pText" style="min-height:180px;"></textarea>'+
+    '<div class="row" style="margin-top:8px;"><button class="btn pri" id="pParse">読み取る</button></div>');
+  $('pParse').onclick=function(){
+    try{
+      var got=pubFromSheet(splitPasted($('pText').value));
+      $('modal').classList.remove('on');
+      showPane('public');
+      pubPreview(got,'貼り付け');
+    }catch(e){ alert('読み取れませんでした：'+(e.message||e)); }
+  };
+};
+function splitPasted(text){
+  var lines=String(text||'').replace(/\r/g,'').split('\n').filter(function(l){ return l.trim()!==''; });
+  var tab=lines.length && lines[0].indexOf('\t')>=0;
+  return lines.map(function(l){
+    if(tab) return l.split('\t');
+    var out=[],cur='',q=false;
+    for(var i=0;i<l.length;i++){
+      var ch=l[i];
+      if(ch==='"'){ q=!q; continue; }
+      if(ch===','&&!q){ out.push(cur); cur=''; continue; }
+      cur+=ch;
+    }
+    out.push(cur); return out;
+  });
+}
 $('pCsv').onclick=function(){
   var head=PUB_COLS.map(function(c){return c[1];}).join(',');
-  var body=PUB.schools.map(function(s){ return PUB_COLS.map(function(c){
+  var body=pubSchools().map(function(s){ return PUB_COLS.map(function(c){
     var v=s[c[0]]==null?'':String(s[c[0]]);
     return /[",\n]/.test(v)? '"'+v.replace(/"/g,'""')+'"' : v; }).join(','); }).join('\n');
   var blob=new Blob(['﻿'+head+'\n'+body],{type:'text/csv'});
@@ -2395,7 +2673,7 @@ function renderSettings(){
   $('stStorage').innerHTML=
     '<table class="tbl"><tbody>'+
     '<tr><th style="width:150px;">私立の版</th><td>'+S.versions.length+'件</td></tr>'+
-    '<tr><th>公立の学校</th><td>'+PUB.schools.length+'校</td></tr>'+
+    '<tr><th>公立の学校</th><td>'+pubSchools().length+'校</td></tr>'+
     '<tr><th>生徒</th><td>'+S.students.length+'人</td></tr>'+
     '<tr><th>駅</th><td>'+Object.keys(S.stations).length+'駅</td></tr>'+
     '<tr><th>手直し</th><td>'+Object.keys(S.edits).length+'箇所</td></tr>'+
@@ -2452,7 +2730,7 @@ $('stClear').onclick=function(){
   if(!confirm('本当に消してよいですか？（版・生徒・駅・手直し・公立マスタがすべて消えます）')) return;
   Object.keys(K).forEach(function(k){ try{ localStorage.removeItem(K[k]); }catch(e){} });
   S={versions:[],curId:'',edits:{},stations:seedStations(),students:[],settings:Object.assign({},DEF_SET)};
-  PUB={schools:[],memo:''};
+  PUB={byYear:{},year:'',fit:{},memo:'',importedAt:0,srcName:''};
   lsSet(K.sta,S.stations);
   curStu=null; invalidate(); render();
 };
