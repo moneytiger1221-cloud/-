@@ -1152,10 +1152,12 @@ function accessText(routes){
     return '<span class="tag t-warn" title="'+esc(miss.join('・'))+' の電車時間が未設定です">駅未設定</span>';
   }
   var s=staGet(b.rt.station)||{};
-  var parts=['電車'+s.min+'分'];
+  var parts=[];
+  if(+s.min) parts.push('電車'+s.min+'分');          /* 起点の駅そのものなら電車の行は出さない */
   if(+s.tr) parts.push('乗換'+s.tr+'回');
   if(b.rt.bus) parts.push((b.rt.schoolBus?'ｽｸｰﾙﾊﾞｽ':'バス')+b.rt.bus+'分'+(b.rt.busGuess?'?':''));
   if(b.rt.walk) parts.push('徒歩'+b.rt.walk+'分');
+  if(!parts.length) parts.push('目の前');
   return '<b class="mono">'+b.min+'分</b> <span class="small muted">'+esc(b.rt.station)+'／'+parts.join('＋')+'</span>';
 }
 
@@ -1598,14 +1600,16 @@ function judgeable(sc){ return (+sc.border||0)>0 && ((+sc.fa||0)+(+sc.fb||0))>0;
    1校に駅が複数あるので、全部試して一番早いルートを採る。
    駅から学校までの分数は県の資料に無いため、
    徒歩／バス／バスまたは徒歩 ごとの既定値を使い、分かる学校は個別に上書きする。 */
+/* 戻り値の est は「調べた分数ではなく既定値を使った＝目安」の印。
+   私立の busGuess と同じ役割で、表示では ? が付く。 */
 function legMinutes(sc, how, known){
-  if(known!=null && +known>0) return +known;          /* 調べた分数があればそれ */
-  if(sc.walk!==''&&sc.walk!=null&&+sc.walk>0 && how==='w') return +sc.walk;
-  if(sc.bus!==''&&sc.bus!=null&&+sc.bus>0 && how!=='w') return +sc.bus;
+  if(known!=null && +known>0) return {min:+known, est:false};      /* 調べた分数があればそれ */
+  if(sc.walk!==''&&sc.walk!=null&&+sc.walk>0 && how==='w') return {min:+sc.walk, est:false};
+  if(sc.bus!==''&&sc.bus!=null&&+sc.bus>0 && how!=='w') return {min:+sc.bus, est:false};
   var s=S.settings;
-  if(how==='w')  return +s.legWalk||12;
-  if(how==='b')  return +s.legBus||17;
-  return +s.legWB||15;
+  if(how==='w')  return {min:(+s.legWalk||12), est:true};
+  if(how==='b')  return {min:(+s.legBus||17),  est:true};
+  return {min:(+s.legWB||15), est:true};
 }
 function pubRoutes(sc){
   var list=(sc.stations&&sc.stations.length)? sc.stations
@@ -1615,9 +1619,9 @@ function pubRoutes(sc){
     var name=String(p[0]||'').replace(/駅$/,'').trim(); if(!name) return;
     var st=staGet(name);
     if(!st || st.min==null || st.min==='') return;
-    var leg=legMinutes(sc,p[1],p[2]);
-    out.push({station:name, how:p[1], leg:leg, known:(p[2]!=null),
-      min:(+st.min)+(+st.tr||0)*(+S.settings.transferMin||0)+leg});
+    var lg=legMinutes(sc,p[1],p[2]);
+    out.push({station:name, how:p[1], leg:lg.min, est:lg.est, known:(p[2]!=null),
+      min:(+st.min)+(+st.tr||0)*(+S.settings.transferMin||0)+lg.min});
   });
   out.sort(function(x,y){ return x.min-y.min; });
   return out;
@@ -1625,6 +1629,34 @@ function pubRoutes(sc){
 function pubBest(sc){ var r=pubRoutes(sc); return r.length? r[0] : null; }
 function pubAccess(sc){ var b=pubBest(sc); return b? b.min : null; }
 function howLabel(h){ return h==='w'?'徒歩':(h==='b'?'バス':'バス/徒歩'); }
+/* 公立の学校に登録されている駅を、重複なく並べる */
+function pubStationNames(sc){
+  var list=(sc.stations&&sc.stations.length)? sc.stations : (sc.station? [[sc.station,'w']] : []);
+  var out=[];
+  list.forEach(function(p){
+    var n=String(p[0]||'').replace(/駅$/,'').trim();
+    if(n && out.indexOf(n)<0) out.push(n);
+  });
+  return out;
+}
+/* 私立の accessText と同じ形で出す。
+   「合計◯分  駅名／電車◯分＋バス◯分」。? は既定値を使ったという印。 */
+function pubAccessText(sc){
+  var b=pubBest(sc);
+  if(!b){
+    var miss=pubStationNames(sc);
+    if(!miss.length) return '<span class="muted small">交通情報なし</span>';
+    return '<span class="tag t-warn" title="'+esc(miss.join('・'))+' の電車時間が未設定です">駅未設定</span>';
+  }
+  var s=staGet(b.station)||{};
+  var parts=[];
+  if(+s.min) parts.push('電車'+s.min+'分');          /* 起点の駅そのものなら電車の行は出さない */
+  if(+s.tr) parts.push('乗換'+s.tr+'回');
+  if(b.leg) parts.push(howLabel(b.how)+b.leg+'分'+(b.est?'?':''));
+  if(!parts.length) parts.push('目の前');
+  var tip=b.est? ' title="' +esc(b.station+'から学校までは既定値（目安）です。分かったら「最寄駅をまとめて入れる」で直せます。')+'"' : '';
+  return '<b class="mono">'+b.min+'分</b> <span class="small muted"'+tip+'>'+esc(b.station)+'／'+parts.join('＋')+'</span>';
+}
 
 /* ==========================================================
    xlsx を読む（ブラウザ内・ライブラリなし）
@@ -2485,13 +2517,7 @@ function renderPubTable(){
             : ('内申 '+(x.dN>0?'+':'')+x.dN);
     return '<span class="tag '+(x.status==='ok'?'t-ok':(x.status==='near'?'t-near':'t-ng'))+'">'+esc(lab)+'</span>';
   }
-  function accLab(x){
-    var sc=x.sc;
-    return x.best==null
-      ? ((sc.stations&&sc.stations.length)||sc.station? '<span class="tag t-warn">駅時間未設定</span>' : '<span class="muted">駅なし</span>')
-      : ('<b class="mono">'+x.best.min+'分</b> <span class="small muted">'+esc(x.best.station)+'＋'+
-         howLabel(x.best.how)+x.best.leg+'分</span>');
-  }
+  function accLab(x){ return pubAccessText(x.sc); }
   groups.forEach(function(g){
     var part=list.filter(function(x){ return x.status===g[0]; });
     if(!part.length) return;
@@ -2523,8 +2549,8 @@ function renderPubTable(){
       '<th style="width:140px;">学校</th><th style="width:80px;">学科</th>'+
       '<th style="width:96px;">判定</th><th style="width:126px;">S1／ボーダー</th>'+
       '<th style="width:112px;">内申135</th><th style="width:104px;">偏差値</th>'+
-      '<th style="width:74px;">内申:学力:特色</th><th style="width:124px;">通学</th>'+
-      '<th style="width:150px;">地区</th><th style="width:56px;"></th></tr></thead><tbody>';
+      '<th style="width:74px;">内申:学力:特色</th><th style="width:158px;">通学</th>'+
+      '<th style="width:124px;">地区</th><th style="width:56px;"></th></tr></thead><tbody>';
     part.forEach(function(x){
       var sc=x.sc, idx=pubSchools().indexOf(sc);
       var tag;
@@ -2543,10 +2569,7 @@ function renderPubTable(){
         '<td class="small">'+cell(x.dN)+' <span class="small muted">平均'+(sc.naishinAvg==null?'—':sc.naishinAvg)+'</span></td>'+
         '<td class="small">'+cell(x.dH)+' <span class="small muted">'+(sc.hensachiAvg==null?'—':sc.hensachiAvg)+'</span></td>'+
         '<td class="c small mono">'+(+sc.fa||0)+':'+(+sc.fb||0)+':'+(+sc.fd||0)+'</td>'+
-        '<td class="small">'+(x.best==null
-            ? ((sc.stations&&sc.stations.length)||sc.station? '<span class="tag t-warn">駅時間未設定</span>' : '<span class="muted">駅なし</span>')
-            : ('<b class="mono">'+x.best.min+'分</b> <span class="small muted">'+esc(x.best.station)+'＋'+
-               howLabel(x.best.how)+x.best.leg+'分</span>'))+'</td>'+
+        '<td class="small">'+pubAccessText(sc)+'</td>'+
         '<td class="small">'+esc(sc.area||'')+'</td>'+
         '<td><button class="btn sm pedit" data-i="'+idx+'">編集</button></td></tr>';
     });
@@ -2563,7 +2586,14 @@ function editPubSchool(i){
                    fa:5,fb:5,fd:0,station:'',walk:0,bus:0,note:''}
                 : pubSchools()[i];
   var NUM=['naishinAvg','hensachiAvg','border','fa','fb','fd','walk','bus'];
-  var h='<div class="row" style="flex-direction:column;align-items:stretch;gap:8px;">';
+  var h='';
+  if(!isNew){
+    var stn=pubStationNames(sc);
+    h+='<div class="row" style="margin-bottom:10px;">'+pubAccessText(sc)+'<span class="grow"></span>'+
+       '<span class="small muted">'+(stn.length? '最寄駅 '+esc(stn.join('・')) : '最寄駅なし')+
+       '／'+esc(sc.area||'')+'</span></div>';
+  }
+  h+='<div class="row" style="flex-direction:column;align-items:stretch;gap:8px;">';
   PUB_COLS.forEach(function(c){
     var v=sc[c[0]]; v=(v==null?'':v);
     h+='<div class="row"><label style="width:130px;">'+esc(c[1])+'</label>'+
@@ -2614,7 +2644,8 @@ $('pStations').onclick=function(){
       return true;
     });
     $('psList').innerHTML='<div class="scroller" style="max-height:52vh;"><table class="tbl"><thead><tr>'+
-        '<th style="width:150px;">学校</th><th>最寄駅（県のページより）</th><th style="width:96px;">徒歩(分)</th>'+
+        '<th style="width:150px;">学校</th><th>最寄駅（県のページより）</th><th style="width:150px;">今の通学時間</th>'+
+      '<th style="width:96px;">徒歩(分)</th>'+
       '<th style="width:96px;">バス(分)</th><th style="width:64px;">学科数</th></tr></thead><tbody>'+
       f.slice(0,300).map(function(n){
         var s=byName[n][0];
@@ -2623,6 +2654,7 @@ $('pStations').onclick=function(){
           : (s.station||'');
         return '<tr data-n="'+esc(n)+'"><td class="small nowrap">'+esc(n)+'</td>'+
           '<td class="small">'+esc(stTxt)+'</td>'+
+          '<td class="small">'+pubAccessText(s)+'</td>'+
           '<td><input type="number" class="num ps-w" value="'+(+s.walk||0)+'" title="0なら既定値"></td>'+
           '<td><input type="number" class="num ps-b" value="'+(+s.bus||0)+'" title="0なら既定値"></td>'+
           '<td class="c small mono">'+byName[n].length+'</td></tr>';
