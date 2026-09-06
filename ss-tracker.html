@@ -626,24 +626,23 @@ async function parseSSFile(bytes, opts) {
   if (!out.date) throw new Error('A1からファイルの日付を読み取れませんでした');
 
   /* どちらの期を既定で見せるかを決める。
-     ファイルによって手掛かりが違うので順に試す:
-       ① 累計シートの片方だけが hidden（9月以降のファイルはこれで決まる）
-       ② 今週のR単元数が多いほう（＝いま授業が動いている期）
-       ③ 累計のR単元数が多いほう
-     どれも使えないときは下期にする。UIでは常に切り替えられるようにする。 */
+     ★期は月で決まる。4〜7月＝上期(①②)、9〜3月＝下期(③〜⑤)。
+       以前は「今週のR単元が多いほう」で判定していたが、これは期ではなく
+       「いま単元を積んでいるテスト回」なので、6月中旬から下期に切り替わってしまっていた
+       （①②のテストが終わると、授業は③④⑤に向けて積み上がるため）。
+     8月は夏期講習で手掛かりが無いので保留にし、履歴から前日の判断を引き継ぐ。
+     SS自身が片方を非表示にしている場合は、それを最優先する。 */
   (function () {
     var A = out.blocks.cumA, B = out.blocks.cumB;
     function pick(k, why) { out.term = b0Term[k] || (k === 'cumA' ? '上' : '下'); out.termKey = k; out.termWhy = why; }
     if (A && B) {
       if (A.hidden !== B.hidden) { pick(A.hidden ? 'cumB' : 'cumA', '一方の累計シートが非表示'); return; }
-      var aw = (A.school && A.school.rw) ? A.school.rw[0] : 0;
-      var bw = (B.school && B.school.rw) ? B.school.rw[0] : 0;
-      if (aw !== bw) { pick(aw > bw ? 'cumA' : 'cumB', '今週のR単元が多いほう'); return; }
-      // ここまでで決まらない＝その週にまだ授業が無い（月曜など）。
-      // 単一ファイルでは判断材料が無いので保留にし、履歴側(resolveTerms)で前日の判断を引き継ぐ。
-      out.term = null; out.termKey = null; out.termWhy = '単一ファイルでは判定できず';
-      out.termFallback = ((A.school && A.school.r) ? A.school.r[0] : 0) >=
-                         ((B.school && B.school.r) ? B.school.r[0] : 0) ? 'cumA' : 'cumB';
+      var mo = +out.date.slice(5, 7);
+      if (mo >= 4 && mo <= 7) { pick('cumA', '4〜7月は上期'); return; }
+      if (mo === 9 || mo <= 3) { pick('cumB', '9〜3月は下期'); return; }
+      // 8月は判断材料が無いので保留。履歴側(resolveTerms)で前日の判断を引き継ぐ。
+      out.term = null; out.termKey = null; out.termWhy = '8月は前後から判断';
+      out.termFallback = 'cumA';
       return;
     }
     pick(A ? 'cumA' : 'cumB', '片方の累計しか無い');
@@ -2530,10 +2529,18 @@ function lastFilledDate(bk) {
 function corrBlocks() {
   return ['cumA', 'cumB', 't1', 't2', 't3', 't4', 't5'].filter(function (k) { return !!lastFilledDate(k); });
 }
-/* 点数の期に合うSSの期を選ぶ。1学期＝上期(①②)、2・3学期＝下期(③〜⑤)。 */
+/* 点数の期に合うSSの期を選ぶ。
+   貢献シートなら「1学期＝上期(①②)」「2・3学期＝下期(③〜⑤)」。
+   成績ツールなら回番号で判断する（テスト①②＝上期、③④⑤＝下期。SSの番号と同じ並び）。 */
 function guessBlock(label) {
-  var av = corrBlocks();
-  var want = /1学期|１学期/.test(label || '') ? 'cumA' : (/[23２３]学期/.test(label || '') ? 'cumB' : null);
+  var av = corrBlocks(), want = null;
+  var s = label || '';
+  if (/1学期|１学期/.test(s)) want = 'cumA';
+  else if (/[23２３]学期/.test(s)) want = 'cumB';
+  else {
+    var m = s.match(/→\s*\d+\s*-\s*(\d+)/) || s.match(/-(\d+)\s*$/);
+    if (m) want = (+m[1] <= 2) ? 'cumA' : 'cumB';
+  }
   if (want && av.indexOf(want) >= 0) return want;
   return av.indexOf('cumB') >= 0 ? 'cumB' : (av[0] || null);
 }
