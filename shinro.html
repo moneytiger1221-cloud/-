@@ -253,6 +253,9 @@ details.fold>div{padding:0 10px 10px;}
       </div>
       <div class="row" style="margin-top:8px;">
         <label><input type="checkbox" id="pNoStation" checked> 最寄駅を設定していない学校も出す</label>
+        <label>駅から 徒歩</label><input type="number" id="pLegW" min="1" max="60" style="width:56px;"> 分
+        <label>バス</label><input type="number" id="pLegB" min="1" max="60" style="width:56px;"> 分
+        <label>バス/徒歩</label><input type="number" id="pLegWB" min="1" max="60" style="width:56px;"> 分
         <label><input type="checkbox" id="pHideNoJudge" checked> 判定できない学校（ボーダー0）は隠す</label>
         <span class="grow"></span>
         <input type="text" id="pWord" placeholder="校名・学科で絞る" style="width:170px;">
@@ -275,7 +278,8 @@ details.fold>div{padding:0 10px 10px;}
       <div class="row" style="margin-top:10px;">
         <button class="btn" id="pPaste">表を貼り付けて取り込む</button>
         <button class="btn" id="pAdd">＋ 1校ずつ追加</button>
-        <button class="btn" id="pStations">最寄駅をまとめて入れる</button>
+        <button class="btn" id="pApplyPref">県の最寄駅データを当てはめる</button>
+        <button class="btn" id="pStations">駅と所要時間を手で直す</button>
         <button class="btn" id="pCsv">CSVに書き出す</button>
       </div>
       <div class="warnbox" id="pFormulaNote" style="margin-top:10px;"></div>
@@ -841,7 +845,8 @@ var COLS=['校名','コース','交通','形','所在地','情報','推薦入試
 var KINDS=['単願推薦基準','併願推薦基準','一般専願基準','一般併願基準'];
 var KINDLABEL={'単願推薦基準':'単願推薦','併願推薦基準':'併願推薦','一般専願基準':'一般専願','一般併願基準':'一般併願'};
 
-var DEF_SET={origin:'戸塚', transferMin:3, nearLimit:3, busGuessMin:10};
+var DEF_SET={origin:'戸塚', transferMin:3, nearLimit:3, busGuessMin:10,
+             legWalk:12, legBus:17, legWB:15};
 var S={ versions:[], curId:'', edits:{}, stations:{}, students:[], settings:{} };
 
 function loadAll(){
@@ -1038,6 +1043,10 @@ function bestTokutai(list, st, bonus){
 /* ==========================================================
    5. 交通（駅・所要時間）
    ========================================================== */
+/* 「保土ケ谷」と「保土ヶ谷」のような表記ゆれを1つにそろえる */
+function normSta(n){ return String(n||'').replace(/駅$/,'').replace(/ケ/g,'ヶ').replace(/[ 　]/g,'').trim(); }
+function staGet(n){ return S.stations[normSta(n)]; }
+
 function numAt(s){ var m=toHalf(s).match(/(\d{1,3})/); return m? +m[1] : null; }
 
 function parseAccess(text){
@@ -1071,7 +1080,7 @@ function parseAccess(text){
   return routes;
 }
 function routeMinutes(rt){
-  var s=S.stations[rt.station];
+  var s=staGet(rt.station);
   if(!s || s.min==null || s.min==='') return null;
   var tr=(+s.tr||0)*(+S.settings.transferMin||0);
   return (+s.min)+tr+(+rt.bus||0)+(+rt.walk||0);
@@ -1081,7 +1090,7 @@ function bestRoute(routes){
   for(var i=0;i<routes.length;i++){
     var m=routeMinutes(routes[i]);
     if(m==null) continue;
-    if(!best || m<best.min){ best={min:m, rt:routes[i], ok:!!(S.stations[routes[i].station]||{}).ok && !routes[i].busGuess}; }
+    if(!best || m<best.min){ best={min:m, rt:routes[i], ok:!!(staGet(routes[i].station)||{}).ok && !routes[i].busGuess}; }
   }
   return best;
 }
@@ -1092,7 +1101,7 @@ function accessText(routes){
     var miss=routes.map(function(r){return r.station;}).filter(function(v,i,a){return a.indexOf(v)===i;});
     return '<span class="tag t-warn" title="'+esc(miss.join('・'))+' の電車時間が未設定です">駅未設定</span>';
   }
-  var s=S.stations[b.rt.station]||{};
+  var s=staGet(b.rt.station)||{};
   var parts=['電車'+s.min+'分'];
   if(+s.tr) parts.push('乗換'+s.tr+'回');
   if(b.rt.bus) parts.push((b.rt.schoolBus?'ｽｸｰﾙﾊﾞｽ':'バス')+b.rt.bus+'分'+(b.rt.busGuess?'?':''));
@@ -1115,10 +1124,29 @@ function seedStations(){
     '強羅':[90,3],'逗子':[12,1],'新逗子':[15,2],'逗子・葉山':[15,2],'北鎌倉':[8,0],
     '汐入':[33,2],'横須賀':[30,1],'北久里浜':[42,2],'横須賀中央':[36,2],'衣笠':[38,1],
     '追浜':[30,2],'金沢八景':[27,2],'能見台':[30,2],'柳小路':[14,1],'藤沢本町':[12,1],
-    '善行':[14,1],'六会日大前':[18,1]
+    '善行':[14,1],'六会日大前':[18,1],
+    /* --- ここから下は公立高校で使う駅（神奈川県HPの最寄駅一覧より）--- */
+    '戸塚':[0,0],'舞岡':[5,0],'踊場':[3,0],'立場':[5,0],'下永谷':[7,0],'上永谷':[8,0],'港南中央':[11,0],'上大岡':[12,0],
+    '吉野町':[16,1],'南太田':[18,1],'弥生台':[12,1],'緑園都市':[14,1],'いずみ野':[16,1],'いずみ中央':[18,1],'下飯田':[20,1],
+    '湘南台':[13,0],'和田町':[22,1],'三ツ境':[30,1],'平沼橋':[13,1],'三ツ沢下町':[20,2],'保土ヶ谷':[8,0],'東神奈川':[14,1],
+    '東白楽':[17,1],'京急東神奈川':[17,1],'川崎':[20,0],'新川崎':[18,0],'元住吉':[24,1],'平間':[25,1],'八丁畷':[24,1],
+    '川崎新町':[26,1],'鶴見市場':[24,1],'京急川崎':[22,1],'京急鶴見':[20,1],'新横浜':[20,1],'北新横浜':[26,1],'新羽':[28,1],
+    '大倉山':[20,1],'片倉町':[24,1],'山手':[18,1],'磯子':[20,1],'洋光台':[16,1],'屏風浦':[24,2],'鎌倉':[12,1],
+    '東逗子':[16,1],'湘南深沢':[20,2],'七里ヶ浜':[22,2],'鎌倉高校前':[24,2],'金沢文庫':[30,2],'京急富岡':[32,2],
+    '並木中央':[35,2],'京急大津':[40,2],'新大津':[41,2],'津久井浜':[47,2],'久里浜':[45,1],'京急久里浜':[47,2],'堀の内':[38,2],
+    '京急田浦':[33,2],'三崎口':[55,2],'茅ヶ崎':[14,0],'北茅ヶ崎':[20,1],'寒川':[26,1],'香川':[24,1],'大磯':[25,0],
+    '二宮':[30,0],'国府津':[35,0],'鴨宮':[38,0],'長後':[18,1],'高座渋谷':[22,1],'桜ヶ丘':[26,1],'鶴間':[30,1],
+    '相模大塚':[33,2],'さがみ野':[35,2],'座間':[40,2],'入谷':[42,2],'相武台前':[45,2],'東林間':[44,2],'つきみ野':[44,2],
+    '海老名':[38,1],'厚木':[45,2],'本厚木':[45,1],'伊勢原':[50,1],'鶴巻温泉':[52,1],'東海大学前':[54,1],'秦野':[57,1],
+    '栢山':[55,2],'開成':[58,2],'大雄山':[70,3],'東山北':[65,2],'社家':[45,2],'町田':[40,1],'古淵':[45,2],
+    '相模原':[50,2],'淵野辺':[48,2],'橋本':[52,2],'上溝':[55,3],'南橋本':[55,3],'番田':[58,3],'相模湖':[75,3],
+    '武蔵中原':[30,1],'武蔵新城':[32,1],'武蔵溝ノ口':[35,2],'久地':[38,2],'宿河原':[40,2],'登戸':[40,2],'中野島':[43,2],
+    '稲田堤':[45,2],'京王稲田堤':[45,2],'宮前平':[35,2],'鷺沼':[33,2],'たまプラーザ':[37,2],'江田':[40,2],'市が尾':[44,1],
+    '中山':[33,1],'都筑ふれあいの丘':[42,2],'センター南':[36,1],'仲町台':[34,1],'生田':[42,2],'百合ヶ丘':[45,2],
+    '新百合ヶ丘':[47,2],'鶴川':[50,2],'五月台':[57,3]
   };
   var o={};
-  for(var k in seed) o[k]={min:seed[k][0], tr:seed[k][1], ok:false, note:''};
+  for(var k in seed) o[normSta(k)]={min:seed[k][0], tr:seed[k][1], ok:false, note:''};
   return o;
 }
 /* 版に出てくる駅を駅マスタに登録（未知の駅は空で作る） */
@@ -1126,7 +1154,8 @@ function syncStations(rows){
   var changed=false;
   rows.forEach(function(r){
     parseAccess(cellOf(r,'交通')).forEach(function(rt){
-      if(!S.stations[rt.station]){ S.stations[rt.station]={min:null,tr:0,ok:false,note:''}; changed=true; }
+      var key=normSta(rt.station);
+      if(key && !S.stations[key]){ S.stations[key]={min:null,tr:0,ok:false,note:''}; changed=true; }
     });
   });
   if(changed) lsSet(K.sta,S.stations);
@@ -1378,6 +1407,22 @@ function pubSchools(){ return (PUB.byYear && PUB.byYear[PUB.year]) || []; }
 function pubYears(){ return Object.keys(PUB.byYear||{}).sort().reverse(); }
 function pubFit(){ return (PUB.fit&&PUB.fit[PUB.year])||null; }
 
+/* 県立高校の最寄駅（神奈川県HP「鉄道路線から高校をさがす」）
+   w=徒歩 / b=バス / wb=バスまたは徒歩。1校に複数の駅がある。
+   分数は県のページに載っていないので、ここでは持たない（既定値＋個別入力で出す）。 */
+var PREF_STATIONS={"川崎高校":[["川崎","wb"],["川崎新町","w"],["八丁畷","w"]],"大師高校":[["川崎","b"],["京急川崎","b"]],"鶴見総合高校":[["川崎","b"],["鶴見","wb"],["京急川崎","b"],["鶴見市場","w"],["京急鶴見","wb"]],"鶴見高校":[["川崎","b"],["東神奈川","b"],["菊名","b"],["鶴見","b"],["綱島","b"]],"横浜翠嵐高校":[["横浜","wb"],["三ツ沢下町","w"],["反町","w"]],"横浜平沼高校":[["横浜","w"],["平沼橋","w"]],"舞岡高校":[["戸塚","b"],["舞岡","wb"]],"横浜桜陽高校":[["戸塚","b"],["立場","b"]],"上矢部高校":[["戸塚","wb"],["踊場","w"],["弥生台","b"]],"金井高校":[["戸塚","b"],["大船","b"]],"横浜国際高校":[["戸塚","b"],["弘明寺","wb"]],"横浜緑園高校":[["戸塚","b"],["東戸塚","b"],["緑園都市","w"]],"大船高校":[["大船","wb"],["北鎌倉","w"]],"横浜栄高校":[["大船","b"],["港南台","wb"],["上大岡","b"],["上永谷","b"],["金沢八景","b"]],"深沢高校":[["藤沢","wb"],["鎌倉","b"],["湘南深沢","w"]],"藤沢西高校":[["藤沢","b"],["辻堂","b"],["湘南台","b"]],"湘南高校":[["藤沢","w"],["藤沢本町","w"]],"茅ケ崎高校":[["茅ケ崎","wb"],["茅ヶ崎","wb"],["北茅ヶ崎","w"]],"茅ケ崎西浜高校":[["茅ケ崎","b"],["茅ヶ崎","b"]],"鶴嶺高校":[["茅ケ崎","b"],["茅ヶ崎","b"],["北茅ヶ崎","w"]],"寒川高校":[["茅ケ崎","b"],["茅ヶ崎","b"],["寒川","w"]],"高浜高校":[["平塚","w"]],"平塚工科高校":[["平塚","w"]],"平塚江南高校":[["平塚","wb"],["伊勢原","b"]],"平塚農商高校":[["平塚","b"]],"平塚湘風高校":[["平塚","b"],["本厚木","b"],["伊勢原","b"]],"平塚中等教育学校":[["平塚","wb"]],"大磯高校":[["平塚","b"],["大磯","w"]],"二宮高校":[["二宮","wb"],["秦野","b"]],"秦野総合高校":[["二宮","b"],["秦野","wb"]],"小田原東高校":[["国府津","b"],["小田原","b"]],"西湘高校":[["鴨宮","w"]],"小田原高校":[["小田原","w"]],"住吉高校":[["武蔵小杉","w"],["元住吉","w"]],"川崎工科高校":[["新川崎","wb"],["平間","w"]],"光陵高校":[["保土ケ谷","b"],["東戸塚","wb"]],"商工高校":[["保土ケ谷","b"],["東戸塚","b"],["二俣川","b"]],"永谷高校":[["東戸塚","b"],["上大岡","b"],["上永谷","b"],["下永谷","w"]],"保土ケ谷高校":[["東戸塚","b"],["和田町","b"],["鶴ヶ峰","b"]],"逗子葉山高校":[["逗子","b"],["東逗子","w"],["京急田浦","b"],["逗子・葉山","b"]],"三浦初声高校":[["逗子","b"],["横須賀","b"],["三崎口","wb"]],"海洋科学高校":[["逗子","b"],["横須賀中央","b"],["三崎口","b"],["逗子・葉山","b"]],"横須賀高校":[["衣笠","w"],["横須賀中央","b"],["北久里浜","w"]],"横須賀工業高校":[["衣笠","wb"],["堀の内","wb"],["北久里浜","w"]],"横須賀南高校":[["久里浜","w"],["北久里浜","wb"],["京急久里浜","wb"]],"神奈川総合高校":[["東神奈川","w"],["東白楽","w"],["京急東神奈川","w"]],"神奈川工業高校":[["東神奈川","w"],["東白楽","w"],["京急東神奈川","w"]],"港北高校":[["新横浜","w"],["鶴見","b"],["新羽","w"],["大倉山","w"]],"岸根高校":[["新横浜","w"],["岸根公園","wb"]],"白山高校":[["鴨居","b"],["中山","b"],["西谷","b"]],"川和高校":[["中山","b"],["都筑ふれあいの丘","w"],["センター南","b"],["市が尾","b"]],"旭高校":[["中山","b"],["鶴ヶ峰","b"],["二俣川","b"],["三ツ境","b"]],"横浜旭陵高校":[["中山","b"],["鶴ヶ峰","b"],["三ツ境","b"]],"霧が丘高校":[["十日市場","b"],["長津田","b"],["青葉台","b"],["鶴ヶ峰","b"],["三ツ境","b"]],"上鶴間高校":[["町田","b"],["つきみ野","w"],["相模大野","b"],["東林間","w"]],"麻溝台高校":[["古淵","b"],["相模原","b"],["原当麻","b"],["相模大野","b"],["小田急相模原","b"]],"相模原弥栄高校":[["淵野辺","wb"],["相模大野","b"]],"相模田名高校":[["淵野辺","b"],["相模原","b"],["橋本","b"]],"上溝高校":[["淵野辺","b"],["相模原","b"],["上溝","w"]],"相模原高校":[["相模原","wb"],["上溝","wb"]],"神奈川総合産業高校":[["相模原","b"],["上溝","b"],["相模大野","w"]],"相原高校":[["相模原","b"],["橋本","b"],["上溝","b"],["南橋本","b"]],"橋本高校":[["橋本","w"]],"相模原城山高校":[["橋本","b"]],"津久井高校":[["橋本","b"],["相模湖","b"]],"横浜緑ケ丘高校":[["山手","wb"]],"横浜立野高校":[["根岸","b"]],"磯子工業高校":[["磯子","wb"],["洋光台","wb"],["屏風浦","w"]],"横浜南陵高校":[["洋光台","wb"],["港南中央","b"],["上大岡","b"]],"横浜氷取沢高校":[["洋光台","b"],["能見台","b"],["金沢文庫","b"]],"釜利谷高校":[["洋光台","b"],["能見台","b"],["金沢文庫","wb"]],"横浜明朋高校":[["港南台","w"]],"柏陽高校":[["本郷台","w"]],"茅ケ崎北陵高校":[["香川","w"],["寒川","w"]],"有馬高校":[["社家","w"]],"海老名高校":[["厚木","w"],["海老名","w"]],"中央農業高校":[["厚木","w"],["海老名","wb"]],"綾瀬西高校":[["海老名","b"]],"愛川高校":[["海老名","b"],["上溝","b"],["本厚木","b"]],"綾瀬高校":[["海老名","b"],["長後","b"],["さがみ野","b"]],"座間高校":[["入谷","w"],["座間","w"]],"上溝南高校":[["番田","w"]],"新城高校":[["武蔵中原","w"],["武蔵新城","w"]],"百合丘高校":[["武蔵溝ノ口","b"],["宮前平","b"],["生田","b"],["百合ヶ丘","b"]],"生田高校":[["武蔵溝ノ口","b"],["宮前平","b"],["生田","wb"],["百合ヶ丘","b"]],"向の岡工業高校":[["久地","w"]],"多摩高校":[["宿河原","w"],["登戸","w"]],"生田東高校":[["中野島","w"],["生田","w"]],"菅高校":[["稲田堤","wb"],["読売ランド前","wb"],["京王稲田堤","wb"]],"足柄高校":[["松田","b"],["新松田","b"],["大雄山","wb"]],"吉田島高校":[["松田","w"],["新松田","wb"],["開成","w"]],"山北高校":[["東山北","w"],["新松田","b"]],"荏田高校":[["都筑ふれあいの丘","b"],["仲町台","b"],["江田","wb"]],"元石川高校":[["あざみ野","wb"],["たまプラーザ","wb"]],"川崎北高校":[["センター北","b"],["宮前平","w"],["鷺沼","wb"]],"新栄高校":[["仲町台","w"],["綱島","b"]],"新羽高校":[["北新横浜","w"],["綱島","b"],["大倉山","b"]],"城郷高校":[["片倉町","w"]],"横浜清陵高校":[["吉野町","w"],["南太田","w"]],"松陽高校":[["立場","b"],["いずみ野","w"]],"横浜修悠館高校":[["下飯田","w"],["いずみ中央","w"]],"湘南台高校":[["湘南台","w"]],"藤沢工科高校":[["湘南台","wb"],["六会日大前","w"]],"市ケ尾高校":[["市が尾","wb"],["柿生","b"]],"青葉総合高校":[["青葉台","b"]],"大和高校":[["つきみ野","w"],["中央林間","w"]],"麻生高校":[["新百合ヶ丘","wb"]],"麻生総合高校":[["柿生","wb"],["鶴川","b"],["五月台","w"]],"相模原中等教育学校":[["相模大野","w"]],"座間総合高校":[["相武台前","wb"],["南林間","wb"],["さがみ野","wb"]],"厚木高校":[["本厚木","wb"]],"厚木王子高校":[["本厚木","b"]],"厚木北高校":[["本厚木","b"]],"厚木清南高校":[["本厚木","w"]],"厚木西高校":[["本厚木","b"],["愛甲石田","b"]],"伊志田高校":[["愛甲石田","w"]],"伊勢原高校":[["伊勢原","wb"]],"秦野高校":[["鶴巻温泉","b"],["東海大学前","wb"],["秦野","b"]],"秦野曽屋高校":[["秦野","wb"]],"小田原北高校":[["栢山","w"]],"大和西高校":[["南林間","w"]],"相模向陽館高校":[["鶴間","w"],["相模大塚","w"],["さがみ野","w"]],"大和南高校":[["大和","b"],["桜ヶ丘","w"],["高座渋谷","b"],["三ツ境","b"]],"大和東高校":[["大和","w"]],"藤沢総合高校":[["長後","w"]],"藤沢清流高校":[["藤沢本町","w"]],"金沢総合高校":[["京急富岡","w"],["並木中央","w"]],"追浜高校":[["追浜","w"]],"横須賀大津高校":[["京急大津","w"],["新大津","w"]],"津久井浜高校":[["津久井浜","w"]],"二俣川高校":[["二俣川","wb"]],"希望ケ丘高校":[["希望ヶ丘","w"]],"横浜瀬谷高校":[["三ツ境","wb"]],"七里ガ浜高校":[["七里ヶ浜","w"]],"鎌倉高校":[["鎌倉高校前","w"]]};
+
+/* 学校名のゆらぎを吸収する（県立◯◯高／◯◯高校／ケとヶ） */
+function schoolKey(s){
+  return String(s||'')
+    .replace(/^(神奈川)?県立|^横浜市立|^川崎市立|^横須賀市立|^市立|^町立/,'')
+    .replace(/[（(][^）)]*[）)]/g,'')
+    .replace(/中等教育学校$|高等学校$|高校$|高$/,'')
+    .replace(/[ 　]/g,'')
+    .replace(/ケ/g,'ヶ');
+}
+var PREF_BY_KEY=(function(){ var o={}; for(var k in PREF_STATIONS) o[schoolKey(k)]=PREF_STATIONS[k]; return o; })();
+
 var PUB_COLS=[
   ['name','校名'],['dept','学科'],['area','地区・学科'],
   ['naishinAvg','合格者平均内申'],['hensachiAvg','合格者平均偏差値'],['border','1次ボーダー'],
@@ -1449,13 +1494,36 @@ function s1Value(sc, st){
 function hasTokushoku(sc){ return (+sc.fd||0)>0; }
 function judgeable(sc){ return (+sc.border||0)>0 && ((+sc.fa||0)+(+sc.fb||0))>0; }
 
-/* --- 通学時間（私立と同じ駅マスタ） --- */
-function pubAccess(sc){
-  if(!sc.station) return null;
-  var st=S.stations[String(sc.station).replace(/駅$/,'').trim()];
-  if(!st || st.min==null || st.min==='') return null;
-  return (+st.min)+(+st.tr||0)*(+S.settings.transferMin||0)+(+sc.bus||0)+(+sc.walk||0);
+/* --- 通学時間（私立と同じ駅マスタを使う） ---
+   1校に駅が複数あるので、全部試して一番早いルートを採る。
+   駅から学校までの分数は県の資料に無いため、
+   徒歩／バス／バスまたは徒歩 ごとの既定値を使い、分かる学校は個別に上書きする。 */
+function legMinutes(sc, how){
+  if(sc.walk!==''&&sc.walk!=null&&+sc.walk>0 && how==='w') return +sc.walk;
+  if(sc.bus!==''&&sc.bus!=null&&+sc.bus>0 && how!=='w') return +sc.bus;
+  var s=S.settings;
+  if(how==='w')  return +s.legWalk||12;
+  if(how==='b')  return +s.legBus||17;
+  return +s.legWB||15;
 }
+function pubRoutes(sc){
+  var list=(sc.stations&&sc.stations.length)? sc.stations
+          : (sc.station? [[sc.station, (+sc.bus>0?'b':'w')]] : []);
+  var out=[];
+  list.forEach(function(p){
+    var name=String(p[0]||'').replace(/駅$/,'').trim(); if(!name) return;
+    var st=staGet(name);
+    if(!st || st.min==null || st.min==='') return;
+    var leg=legMinutes(sc,p[1]);
+    out.push({station:name, how:p[1], leg:leg,
+      min:(+st.min)+(+st.tr||0)*(+S.settings.transferMin||0)+leg});
+  });
+  out.sort(function(x,y){ return x.min-y.min; });
+  return out;
+}
+function pubBest(sc){ var r=pubRoutes(sc); return r.length? r[0] : null; }
+function pubAccess(sc){ var b=pubBest(sc); return b? b.min : null; }
+function howLabel(h){ return h==='w'?'徒歩':(h==='b'?'バス':'バス/徒歩'); }
 
 /* ==========================================================
    xlsx を読む（ブラウザ内・ライブラリなし）
@@ -1599,6 +1667,7 @@ function pubOneBlock(rows){
       hensachiAvg: col.hensachiAvg!=null? num(row[col.hensachiAvg]) : null,
       border: col.border!=null? (num(row[col.border])||0) : 0,
       fa:ra.fa, fb:ra.fb, fd:ra.fd,
+      stations:(PREF_BY_KEY[schoolKey(name)]||[]).slice(),
       station:'', walk:0, bus:0, note:''
     });
   }
@@ -2049,7 +2118,10 @@ function renderAccess(){
   $('acTransfer').value=S.settings.transferMin;
   var used={};
   rows().forEach(function(r){ r._acc.forEach(function(x){ used[x.station]=(used[x.station]||0)+1; }); });
-  pubSchools().forEach(function(sc){ if(sc.station) used[sc.station]=(used[sc.station]||0)+1; });
+  pubSchools().forEach(function(sc){
+    ((sc.stations&&sc.stations.length)? sc.stations.map(function(p){return p[0];}) : (sc.station?[sc.station]:[]))
+      .forEach(function(n){ used[n]=(used[n]||0)+1; });
+  });
   var names=Object.keys(S.stations);
   var miss=Object.keys(used).filter(function(n){ var s=S.stations[n]; return !s||s.min==null||s.min===''; });
   var mine=names.filter(function(n){ return S.stations[n].ok; }).length;
@@ -2152,7 +2224,10 @@ function renderPublic(){
     return '<option value="'+esc(a)+'">'+esc(a)+'</option>'; }).join('');
   if(areas.indexOf(keep)>=0) sel.value=keep;
 
-  var withSt=pubSchools().filter(function(s){ return s.station; }).length;
+  $('pLegW').value=S.settings.legWalk||12;
+  $('pLegB').value=S.settings.legBus||17;
+  $('pLegWB').value=S.settings.legWB||15;
+  var withSt=pubSchools().filter(function(s){ return (s.stations&&s.stations.length)||s.station; }).length;
   var noJudge=pubSchools().filter(function(s){ return !judgeable(s); }).length;
   var f=pubFit();
   $('pStat').textContent=pubSchools().length+'件'+(PUB.srcName? '（'+PUB.srcName+'）':'')+
@@ -2167,13 +2242,37 @@ function renderPublic(){
   renderPubTable();
 }
 ['pArea','pJudge','pSort','pNoStation','pHideNoJudge'].forEach(function(id){ $(id).onchange=renderPubTable; });
+['pLegW','pLegB','pLegWB'].forEach(function(id){
+  $(id).onchange=function(){
+    S.settings.legWalk=+$('pLegW').value||12;
+    S.settings.legBus=+$('pLegB').value||17;
+    S.settings.legWB=+$('pLegWB').value||15;
+    lsSet(K.set,S.settings); invalidate(); renderPublic();
+  };
+});
+$('pApplyPref').onclick=function(){
+  var list=pubSchools(), hit=0, miss=[];
+  list.forEach(function(sc){
+    var p=PREF_BY_KEY[schoolKey(sc.name)];
+    if(p){ sc.stations=p.slice(); hit++;
+      p.forEach(function(x){ var n=normSta(x[0]); if(n && !S.stations[n]) S.stations[n]={min:null,tr:0,ok:false,note:''}; });
+    } else if(!(sc.stations&&sc.stations.length)) miss.push(sc.name);
+  });
+  lsSet(K.sta,S.stations); savePub();
+  var uniq=[]; miss.forEach(function(m){ if(uniq.indexOf(m)<0) uniq.push(m); });
+  pubLog('<div class="okbox">'+hit+'件に最寄駅を当てはめました。'+
+    (uniq.length? '<br>県のページに載っていない学校（市立など） '+uniq.length+'校：<span class="small">'+esc(uniq.join('、'))+'</span>'
+                : '')+
+    '<br><b>「通学時間」タブで、出てきた駅の'+esc(S.settings.origin)+'からの電車時間を入れてください。</b></div>');
+  renderPublic();
+};
 $('pYear').onchange=function(){ PUB.year=$('pYear').value; savePub(); renderPublic(); };
 $('pTime').oninput=renderPubTable;
 $('pWord').oninput=renderPubTable;
 
 function pubEval(sc){
   var s1=s1Value(sc,curStu);
-  var mins=pubAccess(sc);
+  var best=pubBest(sc), mins=best? best.min : null;
   var n135=naishin135(curStu);
   var dS  = (s1!=null && judgeable(sc))? Math.round((s1-sc.border)*10)/10 : null;
   var dN  = (n135!=null && sc.naishinAvg!=null)? Math.round((n135-sc.naishinAvg)*10)/10 : null;
@@ -2184,7 +2283,7 @@ function pubEval(sc){
   if(ord==null && dH!=null){ basis='偏差値'; ord=dH*12; }
   if(ord==null && dN!=null){ basis='内申';   ord=dN*7;  }
   var status = ord==null? 'unknown' : (ord>=0? 'ok' : (ord>=-40? 'near':'ng'));
-  return {sc:sc, s1:s1, mins:mins, dS:dS, dN:dN, dH:dH, basis:basis, ord:ord, status:status};
+  return {sc:sc, s1:s1, mins:mins, best:best, dS:dS, dN:dN, dH:dH, basis:basis, ord:ord, status:status};
 }
 function renderPubTable(){
   var box=$('pBody');
@@ -2250,9 +2349,10 @@ function renderPubTable(){
         '<td class="small">'+cell(x.dN)+' <span class="small muted">平均'+(sc.naishinAvg==null?'—':sc.naishinAvg)+'</span></td>'+
         '<td class="small">'+cell(x.dH)+' <span class="small muted">'+(sc.hensachiAvg==null?'—':sc.hensachiAvg)+'</span></td>'+
         '<td class="c small mono">'+(+sc.fa||0)+':'+(+sc.fb||0)+':'+(+sc.fd||0)+'</td>'+
-        '<td class="small">'+(x.mins==null
-            ? (sc.station? '<span class="tag t-warn">駅時間未設定</span>' : '<span class="muted">駅未設定</span>')
-            : ('<b class="mono">'+x.mins+'分</b> <span class="small muted">'+esc(sc.station)+'</span>'))+'</td>'+
+        '<td class="small">'+(x.best==null
+            ? ((sc.stations&&sc.stations.length)||sc.station? '<span class="tag t-warn">駅時間未設定</span>' : '<span class="muted">駅なし</span>')
+            : ('<b class="mono">'+x.best.min+'分</b> <span class="small muted">'+esc(x.best.station)+'＋'+
+               howLabel(x.best.how)+x.best.leg+'分</span>'))+'</td>'+
         '<td class="small">'+esc(sc.area||'')+'</td>'+
         '<td><button class="btn sm pedit" data-i="'+idx+'">編集</button></td></tr>';
     });
@@ -2304,10 +2404,11 @@ $('pAdd').onclick=function(){ editPubSchool(-1); };
 $('pStations').onclick=function(){
   var names=[]; pubSchools().forEach(function(s){ if(names.indexOf(s.name)<0) names.push(s.name); });
   var byName={}; pubSchools().forEach(function(s){ (byName[s.name]=byName[s.name]||[]).push(s); });
-  var h='<div class="hint" style="margin-bottom:8px;">同じ校名の学科はまとめて設定されます。'+
-        '通学時間で絞りたい学校だけ入れれば十分です（空のままでも一覧には出ます）。</div>'+
+  var h='<div class="hint" style="margin-bottom:8px;">最寄駅は県のページから入っています。'+
+        '<b>徒歩・バスの分数だけ</b>、分かる学校に入れてください（0のままなら上の既定値を使います）。'+
+        '同じ校名の学科はまとめて設定されます。</div>'+
         '<div class="row" style="margin-bottom:8px;"><input type="text" id="psWord" placeholder="校名で絞る" style="width:180px;">'+
-        '<label><input type="checkbox" id="psBlank" checked> 未設定だけ</label></div>'+
+        '<label><input type="checkbox" id="psBlank"> 分数が未入力のものだけ</label></div>'+
         '<div id="psList"></div>'+
         '<div class="row" style="margin-top:8px;"><button class="btn pri" id="psSave">保存</button></div>';
   openModal('最寄駅をまとめて入れる（'+names.length+'校）',h);
@@ -2315,18 +2416,21 @@ $('pStations').onclick=function(){
     var w=($('psWord').value||'').trim(), onlyBlank=$('psBlank').checked;
     var f=names.filter(function(n){
       if(w && n.indexOf(w)<0) return false;
-      if(onlyBlank && byName[n][0].station) return false;
+      if(onlyBlank && (+byName[n][0].walk>0 || +byName[n][0].bus>0)) return false;
       return true;
     });
     $('psList').innerHTML='<div class="scroller" style="max-height:52vh;"><table class="tbl"><thead><tr>'+
-      '<th style="width:180px;">学校</th><th style="width:130px;">最寄駅</th><th style="width:90px;">徒歩(分)</th>'+
-      '<th style="width:90px;">バス(分)</th><th style="width:70px;">学科数</th></tr></thead><tbody>'+
+        '<th style="width:150px;">学校</th><th>最寄駅（県のページより）</th><th style="width:96px;">徒歩(分)</th>'+
+      '<th style="width:96px;">バス(分)</th><th style="width:64px;">学科数</th></tr></thead><tbody>'+
       f.slice(0,300).map(function(n){
         var s=byName[n][0];
+        var stTxt=(s.stations&&s.stations.length)
+          ? s.stations.map(function(p){ return p[0]+'('+howLabel(p[1])+')'; }).join('・')
+          : (s.station||'');
         return '<tr data-n="'+esc(n)+'"><td class="small nowrap">'+esc(n)+'</td>'+
-          '<td><input type="text" class="ps-st" value="'+esc(s.station||'')+'" style="width:110px;"></td>'+
-          '<td><input type="number" class="num ps-w" value="'+(+s.walk||0)+'"></td>'+
-          '<td><input type="number" class="num ps-b" value="'+(+s.bus||0)+'"></td>'+
+          '<td class="small">'+esc(stTxt)+'</td>'+
+          '<td><input type="number" class="num ps-w" value="'+(+s.walk||0)+'" title="0なら既定値"></td>'+
+          '<td><input type="number" class="num ps-b" value="'+(+s.bus||0)+'" title="0なら既定値"></td>'+
           '<td class="c small mono">'+byName[n].length+'</td></tr>';
       }).join('')+'</tbody></table></div>'+
       (f.length>300? '<div class="hint">300校まで表示しています。絞り込んでください。</div>':'');
@@ -2335,10 +2439,8 @@ $('pStations').onclick=function(){
   $('psSave').onclick=function(){
     each('tbody tr',function(tr){
       var n=tr.dataset.n; if(!n||!byName[n]) return;
-      var st=String(tr.querySelector('.ps-st').value||'').replace(/駅$/,'').trim();
       var wk=+tr.querySelector('.ps-w').value||0, bs=+tr.querySelector('.ps-b').value||0;
-      byName[n].forEach(function(s){ s.station=st; s.walk=wk; s.bus=bs; });
-      if(st && !S.stations[st]) S.stations[st]={min:null,tr:0,ok:false,note:''};
+      byName[n].forEach(function(s){ s.walk=wk; s.bus=bs; });
     }, $('modalbd'));
     lsSet(K.sta,S.stations); savePub(); $('modal').classList.remove('on'); renderPublic();
   };
