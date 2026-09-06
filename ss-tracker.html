@@ -2172,19 +2172,38 @@ async function pdfExtract(bytes) {
     }
     return lat.slice(i, j);
   }
-  function streamOf(start) {
+  /* /Length の値を取る。 /Length 8 0 R のように別オブジェクトを指すことがある。 */
+  function lengthOf(dict) {
+    var ind = dict.match(/\/Length\s+(\d+)\s+\d+\s+R/);
+    if (ind) {
+      var st = objs[ind[1]];
+      if (st === undefined) return null;
+      var v = lat.slice(st, st + 40).match(/\d+/);
+      return v ? +v[0] : null;
+    }
+    var dir = dict.match(/\/Length\s+(\d+)/);
+    return dir ? +dir[1] : null;
+  }
+  function streamOf(start, dict) {
     var k = lat.indexOf('stream', start);
     if (k < 0) return null;
     var s = k + 6;
     if (lat[s] === '\r') s++;
     if (lat[s] === '\n') s++;
+    /* ★終端は必ず /Length で決める。
+       endstream を文字列検索すると、圧縮データの中にたまたま同じ並びがあったときに途中で切れる。
+       逆に末尾の改行を機械的に削ると、圧縮データの最後が 0x0a のときに1バイト失う。
+       DecompressionStream は1バイトのズレでも失敗する（Nodeのzlibは許すので、Nodeだけで試すと気づけない）。 */
+    var len = lengthOf(dict || '');
+    if (len && s + len <= lat.length) return latin1ToBytes(lat.slice(s, s + len));
     var e = lat.indexOf('endstream', s);
     if (e < 0) return null;
+    while (e > s && (lat.charCodeAt(e - 1) === 10 || lat.charCodeAt(e - 1) === 13)) e--;
     return latin1ToBytes(lat.slice(s, e));
   }
   async function dataOf(objNum) {
     var st = objs[objNum]; if (st === undefined) return '';
-    var d = dictOf(st), raw = streamOf(st);
+    var d = dictOf(st), raw = streamOf(st, d);
     if (!raw) return '';
     if (!/FlateDecode/.test(d)) return bytesToLatin1(raw);
     try { return bytesToLatin1(await inflateBytes(raw, false)); }
@@ -2506,6 +2525,18 @@ function lastFilledDate(bk) {
   }
   return null;
 }
+/* 履歴のどこかに中身があるブロック。相関では過去の期も選べる必要がある
+   （最新日だけを見ると、終わった期が選べない）。 */
+function corrBlocks() {
+  return ['cumA', 'cumB', 't1', 't2', 't3', 't4', 't5'].filter(function (k) { return !!lastFilledDate(k); });
+}
+/* 点数の期に合うSSの期を選ぶ。1学期＝上期(①②)、2・3学期＝下期(③〜⑤)。 */
+function guessBlock(label) {
+  var av = corrBlocks();
+  var want = /1学期|１学期/.test(label || '') ? 'cumA' : (/[23２３]学期/.test(label || '') ? 'cumB' : null);
+  if (want && av.indexOf(want) >= 0) return want;
+  return av.indexOf('cumB') >= 0 ? 'cumB' : (av[0] || null);
+}
 
 /* ---------- 突き合わせ -------------------------------------------------- */
 function buildCorr(scoreSrc, ssDate, bk, minN) {
@@ -2587,8 +2618,6 @@ function renderCorr() {
   if (!allDates().length) { host.innerHTML = emptyState(); return; }
 
   var cfg = DB.ui.corr || (DB.ui.corr = { src: 'kouken', minN: 5, metric: 'ct', bk: '', date: '', pr: '', cr: '' });
-  var bk = cfg.bk && blockKeys(snapAt(latestDate())).indexOf(cfg.bk) >= 0 ? cfg.bk : (VIEW.block || defaultBlock(snapAt(latestDate())));
-  var ssDate = cfg.date && snapAt(cfg.date) ? cfg.date : lastFilledDate(bk);
 
   var kk = koukenDeltas(), gr = gradeRounds();
   if (cfg.src === 'kouken' && !kk) cfg.src = 'grade';
@@ -2600,6 +2629,12 @@ function renderCorr() {
     src = gradeDeltas(cfg.pr, cfg.cr);
   }
 
+  /* SSの期は、点数の期に合わせて選ぶ。
+     1学期の点数を下期(③〜⑤)のSSと突き合わせても意味がないため。 */
+  var avail = corrBlocks();
+  var bk = (cfg.bk && avail.indexOf(cfg.bk) >= 0) ? cfg.bk : guessBlock(src ? src.label : '');
+  var ssDate = (cfg.date && snapAt(cfg.date) && getBlock(cfg.date, bk)) ? cfg.date : lastFilledDate(bk);
+
   var h = '<div class="card"><h3>成績との相関 <span class="sub">SSの指標が点数を上げているか</span></h3>' +
     '<div class="row"><label>点数の出どころ</label><select id="cSrc">' +
     '<option value="kouken"' + (cfg.src === 'kouken' ? ' selected' : '') + (kk ? '' : ' disabled') + '>貢献シート' + (kk ? '（' + esc(kk.label) + '）' : '（未取込）') + '</option>' +
@@ -2609,8 +2644,12 @@ function renderCorr() {
     h += '<label>比べる回</label><select id="cPr">' + gr.map(function (r) { return '<option value="' + esc(r) + '"' + (r === cfg.pr ? ' selected' : '') + '>' + esc(r) + '</option>'; }).join('') + '</select>' +
       '→<select id="cCr">' + gr.map(function (r) { return '<option value="' + esc(r) + '"' + (r === cfg.cr ? ' selected' : '') + '>' + esc(r) + '</option>'; }).join('') + '</select>';
   }
-  h += '<label>SSの基準日</label><select id="cDate">' +
-    allDates().slice().reverse().map(function (d) { return '<option value="' + d + '"' + (d === ssDate ? ' selected' : '') + '>' + fmtDate(d) + '</option>'; }).join('') + '</select>' +
+  h += '<label>SSの期</label><select id="cBk">' +
+    avail.map(function (k) { return '<option value="' + k + '"' + (k === bk ? ' selected' : '') + '>' + esc(blockLabel(k)) + '</option>'; }).join('') +
+    '</select>' +
+    '<label>SSの基準日</label><select id="cDate">' +
+    allDates().slice().reverse().filter(function (d) { return !!getBlock(d, bk); })
+      .map(function (d) { return '<option value="' + d + '"' + (d === ssDate ? ' selected' : '') + '>' + fmtDate(d) + '</option>'; }).join('') + '</select>' +
     '<label>担当が</label><select id="cMinN">' +
     [1, 3, 5, 8].map(function (v) { return '<option value="' + v + '"' + (v === cfg.minN ? ' selected' : '') + '>' + v + '名以上</option>'; }).join('') + '</select>' +
     '</div>';
@@ -2686,6 +2725,12 @@ function wireCorr() {
   };
   set('cSrc', 'src'); set('cDate', 'date'); set('cMinN', 'minN', true);
   set('cMetric', 'metric'); set('cPr', 'pr'); set('cCr', 'cr');
+  // 期を変えたら基準日は選び直す（前の期の日付が残ると空になる）
+  var b = el('cBk');
+  if (b && b.tagName) b.onchange = function () { cfg.bk = this.value; cfg.date = ''; saveUi(); renderCorr(); };
+  // 点数の出どころを変えたら期も選び直す
+  var s2 = el('cSrc');
+  if (s2 && s2.tagName) s2.onchange = function () { cfg.src = this.value; cfg.bk = ''; cfg.date = ''; saveUi(); renderCorr(); };
 }
 /* ==========================================================================
    SS管理ツール — 取り込み・フォルダ監視・同期・起動
@@ -2741,7 +2786,7 @@ async function importFiles(files, msgId) {
 /* ---------- 貢献シート(PDF)の取り込み ---------------------------------- */
 async function importKouken(file) {
   if (!file) return;
-  if (!/.pdf$/i.test(file.name)) { setMsg('kmsg', 'PDFファイルを選んでください。', 'er'); return; }
+  if (!/\.pdf$/i.test(file.name)) { setMsg('kmsg', 'PDFファイルを選んでください。', 'er'); return; }
   setMsg('kmsg', '読み込んでいます…（少し時間がかかります）');
   try {
     var bytes = new Uint8Array(await file.arrayBuffer());
@@ -2750,7 +2795,7 @@ async function importKouken(file) {
     if (!sheets.length) throw new Error('先生ごとの表を見つけられませんでした。貢献シートのPDFか確認してください');
     // 年度・学期を拾う
     var head = items.filter(function (i) { return i.page === 1; }).map(function (i) { return i.t; }).join(' ');
-    var y = head.match(/(20dd)s*年度/), t = head.match(/([1-3１-３])s*学期/);
+    var y = head.match(/(20\d\d)\s*年度/), t = head.match(/([1-3１-３])\s*学期/);
     var term = (y ? y[1] + '年度' : '') + (t ? t[1] + '学期' : '');
     // ポイントの検算（ランクの上下と合うか）。列がずれていればここで大きく崩れる。
     var chk = 0, ok = 0;
