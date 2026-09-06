@@ -123,6 +123,26 @@ details.fold{border:1px solid #e3e9f0;border-radius:7px;padding:0;margin-top:8px
 details.fold>summary{cursor:pointer;padding:7px 10px;font-size:12px;font-weight:700;color:#44566a;}
 details.fold>div{padding:0 10px 10px;}
 
+/* ---- 結果カード（スマホ向け。原文が横スクロールの外に消えないように） ---- */
+.rcard{border:1px solid #dde3ea;border-radius:8px;padding:9px 10px;margin-bottom:8px;background:#fff;
+  box-shadow:0 1px 2px rgba(0,0,0,.04);}
+.rcard .hd{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:5px;}
+.rcard .nm{font-weight:800;font-size:14px;}
+.rcard .nm a{text-decoration:none;}
+.rcard .cs{font-size:12px;color:#5a6b7d;}
+.rcard .sp{margin-left:auto;}
+.rcard .meta{display:flex;flex-wrap:wrap;gap:3px 14px;font-size:12px;color:#44566a;margin-bottom:6px;}
+.rcard .meta .k{color:#8497a8;margin-right:3px;}
+.raw{font-size:12px;line-height:1.8;background:#f8fafc;border:1px solid #e6ecf3;border-radius:6px;
+  padding:7px 9px;white-space:pre-wrap;word-break:break-word;cursor:pointer;}
+.raw.clip{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;
+  max-height:calc(1.8em * 3);}   /* 4行目が半分見えるのを防ぐ */
+.raw:empty{display:none;}
+.rawhint{font-size:10.5px;color:#93a3b3;margin:3px 0 0;}
+.viewsw{display:flex;gap:0;border:1px solid #c3cfdb;border-radius:6px;overflow:hidden;}
+.viewsw button{border:none;background:#fff;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;color:#5a6b7d;}
+.viewsw button.on{background:#2b6fe0;color:#fff;}
+
 .grp{margin:14px 0 6px;font-weight:800;font-size:12.5px;color:#33465a;display:flex;align-items:center;gap:8px;}
 .grp .cnt{font-weight:400;font-size:11.5px;color:#7a8b9c;}
 
@@ -133,6 +153,12 @@ details.fold>div{padding:0 10px 10px;}
   dl.kv{grid-template-columns:82px 1fr;}
   .scroller{max-height:none;}
   .naishin .nb{min-width:calc(50% - 5px);}
+  /* スマホでは詳細画面も画面幅に収める */
+  #modal{padding:6px;}
+  #modalbox{max-width:100%;}
+  #modalbd table.tbl{display:block;overflow-x:auto;white-space:normal;}
+  #modalbd .scroller{max-height:none;}
+  .rcard .meta{gap:2px 10px;}
 }
 </style>
 </head>
@@ -203,6 +229,7 @@ details.fold>div{padding:0 10px 10px;}
         </select>
       </div>
       <div class="row" style="margin-top:8px;">
+        <span class="viewsw" id="fView"><button data-v="auto" class="on">自動</button><button data-v="card">カード</button><button data-v="table">表</button></span>
         <label><input type="checkbox" id="fKaten" checked> 加点を含めて判定</label>
         <label><input type="checkbox" id="fNear" checked> あと少し（-3まで）も出す</label>
         <label><input type="checkbox" id="fUnk"> 判定できない学校も出す</label>
@@ -1775,6 +1802,28 @@ function openModal(title, html){
 $('modalX').onclick=function(){ $('modal').classList.remove('on'); };
 $('modal').onclick=function(e){ if(e.target===$('modal')) $('modal').classList.remove('on'); };
 
+/* 画面が狭いか（スマホ）。表示の切り替えは設定に覚えさせる */
+function viewMode(){ return S.settings.view||'auto'; }
+function useCard(){
+  var v=viewMode();
+  if(v==='card') return true;
+  if(v==='table') return false;
+  return window.innerWidth<=820;
+}
+function rawBlock(text, label){
+  if(!text) return '';
+  return '<div class="rawhint">'+esc(label||'基準の原文')+'（タップで全文）</div>'+
+         '<div class="raw clip">'+esc(text)+'</div>';
+}
+function bindRaw(root){
+  each('.raw',function(e){ e.onclick=function(){ e.classList.toggle('clip'); }; }, root);
+}
+var __rzt=null;
+if(typeof window!=='undefined' && window.addEventListener) window.addEventListener('resize',function(){
+  if(viewMode()!=='auto') return;
+  clearTimeout(__rzt); __rzt=setTimeout(function(){ render(); },200);
+});
+
 function render(){
   var v=curVersion();
   $('verLabel').textContent = v ? (v.label+'（'+v.rows.length+'コース／'+new Set(v.rows.map(function(r){return r['校名'];})).size+'校）')
@@ -1985,16 +2034,40 @@ function renderSgTable(){
 
   var groups=[['ok','届く'],['free','基準なし（誰でも出願可）'],['near','あと少し'],
               ['unknown','判定できない（原文を確認）'],['na','この選考は実施なし'],['none','記載なし']];
-  var html='';
+  var card=useCard(), html='';
   groups.forEach(function(g){
     var part=list.filter(function(x){ return x.j.status===g[0]; });
     if(!part.length) return;
     html+='<div class="grp">'+esc(g[1])+'<span class="cnt">'+part.length+'件</span></div>';
+
+    if(card){
+      /* スマホ向け。横スクロールが無いので原文が必ず見える */
+      part.forEach(function(x){
+        var r=x.r, j=x.j;
+        var kk = kind.indexOf('推薦')>=0 ? '推薦確約' : '一般確約';
+        var basis = j.best? (BASIS[j.basis].label+' '+j.need+'/'+j.best.max) : '';
+        html+='<div class="rcard">'+
+          '<div class="hd"><span class="nm"><a href="#" class="lnk" data-i="'+r._i+'">'+esc(r['校名'])+'</a></span>'+
+          '<span class="cs">'+esc(r['コース']||'')+'</span>'+
+          '<span class="sp"></span>'+judgeTag(j)+'</div>'+
+          '<div class="meta">'+
+            (basis? '<span><span class="k">基準</span>'+esc(basis)+(j.score!=null?'／本人 '+j.score:'')+'</span>':'')+
+            (x.kt.none? '' : '<span><span class="k">加点</span><a href="#" class="ktl" data-i="'+r._i+'" data-k="'+kind+'">'+(x.kt.pt?'+'+x.kt.pt:'0')+'</a></span>')+
+            '<span><span class="k">通学</span>'+accessText(r._acc)+'</span>'+
+            (r[kk]? '<span><span class="k">確約</span>'+esc(r[kk])+'</span>':'')+
+            ((x.tok && /有/.test(r['特待有無']||''))? '<span><span class="k">特待</span>'+esc(x.tok.item.label)+' '+x.tok.item.need+'/'+x.tok.item.max+'</span>':'')+
+          '</div>'+
+          rawBlock(r[kind])+
+          '</div>';
+      });
+      return;
+    }
+
     html+='<div class="scroller" style="max-height:none;"><table class="tbl">'+
       '<thead><tr><th style="width:118px;">学校</th><th style="width:105px;">コース</th>'+
       '<th style="width:88px;">判定</th><th style="width:132px;">基準／本人</th>'+
       '<th style="width:62px;">加点</th><th style="width:140px;">通学</th><th style="width:44px;">確約</th>'+
-      '<th style="width:112px;">特待</th><th>基準の原文</th></tr></thead><tbody>';
+      '<th style="width:112px;">特待</th><th>基準の原文（クリックで全文）</th></tr></thead><tbody>';
     part.forEach(function(x){
       var r=x.r, j=x.j;
       var kk = kind.indexOf('推薦')>=0 ? '推薦確約' : '一般確約';
@@ -2011,7 +2084,7 @@ function renderSgTable(){
         '<td>'+accessText(r._acc)+'</td>'+
         '<td class="c">'+esc(r[kk]||'')+'</td>'+
         '<td class="small">'+((x.tok && /有/.test(r['特待有無']||''))? ('<span class="tag t-info">'+esc(x.tok.item.label)+'</span> '+x.tok.item.need+'/'+x.tok.item.max) : '')+'</td>'+
-        '<td class="small clip2">'+esc((r[kind]||'').slice(0,120))+'</td>'+
+        '<td>'+(r[kind]? '<div class="raw clip">'+esc(r[kind])+'</div>':'')+'</td>'+
         '</tr>';
     });
     html+='</tbody></table></div>';
@@ -2020,6 +2093,7 @@ function renderSgTable(){
   box.innerHTML=html;
   each('.lnk',function(a){ a.onclick=function(e){ e.preventDefault(); openDetail(+a.dataset.i); }; }, box);
   each('.ktl',function(a){ a.onclick=function(e){ e.preventDefault(); openKaten(+a.dataset.i, a.dataset.k); }; }, box);
+  bindRaw(box);
 }
 
 function openKaten(i,kind){
@@ -2317,6 +2391,13 @@ function renderPublic(){
     '内申差・偏差値差も並べているので、3つを見て判断してください。';
   renderPubTable();
 }
+each('#fView button',function(b){
+  b.onclick=function(){
+    S.settings.view=b.dataset.v; lsSet(K.set,S.settings);
+    each('#fView button',function(x){ x.classList.toggle('on', x.dataset.v===S.settings.view); });
+    render();
+  };
+});
 ['pArea','pJudge','pSort','pNoStation','pHideNoJudge'].forEach(function(id){ $(id).onchange=renderPubTable; });
 ['pLegW','pLegB','pLegWB'].forEach(function(id){
   $(id).onchange=function(){
@@ -2396,11 +2477,48 @@ function renderPubTable(){
   function cell(v,unit){ return v==null? '<span class="muted">—</span>'
     : '<span class="mono">'+(v>0?'+':'')+v+'</span>'+(unit?'<span class="small muted">'+unit+'</span>':''); }
   var groups=[['ok','届く'],['near','あと少し'],['ng','届かない'],['unknown','判定できない']];
-  var html='';
+  var card=useCard(), html='';
+  function judgeLab(x){
+    if(x.status==='unknown') return '<span class="tag t-unk">判定不可</span>';
+    var lab = x.basis==='S1' ? ('S1 '+(x.dS>0?'+':'')+x.dS)
+            : x.basis==='偏差値' ? ('偏差 '+(x.dH>0?'+':'')+x.dH)
+            : ('内申 '+(x.dN>0?'+':'')+x.dN);
+    return '<span class="tag '+(x.status==='ok'?'t-ok':(x.status==='near'?'t-near':'t-ng'))+'">'+esc(lab)+'</span>';
+  }
+  function accLab(x){
+    var sc=x.sc;
+    return x.best==null
+      ? ((sc.stations&&sc.stations.length)||sc.station? '<span class="tag t-warn">駅時間未設定</span>' : '<span class="muted">駅なし</span>')
+      : ('<b class="mono">'+x.best.min+'分</b> <span class="small muted">'+esc(x.best.station)+'＋'+
+         howLabel(x.best.how)+x.best.leg+'分</span>');
+  }
   groups.forEach(function(g){
     var part=list.filter(function(x){ return x.status===g[0]; });
     if(!part.length) return;
     html+='<div class="grp">'+esc(g[1])+'<span class="cnt">'+part.length+'件</span></div>';
+
+    if(card){
+      part.forEach(function(x){
+        var sc=x.sc, idx=pubSchools().indexOf(sc);
+        html+='<div class="rcard">'+
+          '<div class="hd"><span class="nm">'+esc(sc.name)+'</span>'+
+          '<span class="cs">'+esc(sc.dept||'')+'</span>'+
+          (hasTokushoku(sc)?' <span class="tag t-info" title="特色検査あり。ボーダーには特色が含まれていません">特色</span>':'')+
+          '<span class="sp"></span>'+judgeLab(x)+'</div>'+
+          '<div class="meta">'+
+            '<span><span class="k">S1</span>'+(x.s1==null?'—':x.s1)+' / ボーダー '+(judgeable(sc)? sc.border : '—')+'</span>'+
+            '<span><span class="k">内申135</span>'+(x.dN==null?'—':((x.dN>0?'+':'')+x.dN))+'（平均 '+(sc.naishinAvg==null?'—':sc.naishinAvg)+'）</span>'+
+            '<span><span class="k">偏差値</span>'+(x.dH==null?'—':((x.dH>0?'+':'')+x.dH))+'（平均 '+(sc.hensachiAvg==null?'—':sc.hensachiAvg)+'）</span>'+
+            '<span><span class="k">比率</span>'+(+sc.fa||0)+':'+(+sc.fb||0)+':'+(+sc.fd||0)+'</span>'+
+            '<span><span class="k">通学</span>'+accLab(x)+'</span>'+
+            '<span><span class="k">地区</span>'+esc(sc.area||'')+'</span>'+
+          '</div>'+
+          '<button class="btn sm pedit" data-i="'+idx+'">この学校を編集</button>'+
+          '</div>';
+      });
+      return;
+    }
+
     html+='<div class="scroller" style="max-height:none;"><table class="tbl"><thead><tr>'+
       '<th style="width:140px;">学校</th><th style="width:80px;">学科</th>'+
       '<th style="width:96px;">判定</th><th style="width:126px;">S1／ボーダー</th>'+
