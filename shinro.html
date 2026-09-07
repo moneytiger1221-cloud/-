@@ -278,6 +278,12 @@ details.fold>div{padding:0 10px 10px;}
           <option value="time">通学が近い順</option>
         </select>
       </div>
+      <div class="hint" style="margin-top:8px;">
+        通学時間は<b>戸塚から学校まで、1校ずつ乗換案内で調べた実測値</b>です（平日07:30発・IC優先・
+        駅からの徒歩やバスも込みの、戸口から戸口）。あわせて<b>最寄り駅からの徒歩・バスの分数</b>も出しています
+        （各校の公式アクセス案内より）。<b>起点を戸塚以外にすると</b>この実測は使えないので、
+        駅マスタ＋下の既定値からの計算に切り替わります。
+      </div>
       <div class="row" style="margin-top:8px;">
         <label><input type="checkbox" id="pNoStation" checked> 最寄駅を設定していない学校も出す</label>
         <label>駅から 徒歩</label><input type="number" id="pLegW" min="1" max="60" style="width:56px;"> 分
@@ -349,7 +355,10 @@ details.fold>div{padding:0 10px 10px;}
       <div class="hint" style="margin-top:8px;">
         時間は<b>乗換案内で調べた実測値</b>です（平日の朝、乗換の待ち時間込み）。
         結果を見ていて「その学校そんなに遠くない／近くない」と思った駅だけ、ここで直してください。
-        直した駅は<b>自分で設定</b>と表示され、以後そちらが使われます。
+        直した駅は<b>自分で設定</b>と表示され、以後そちらが使われます。<br>
+        ここの駅時間は<b>私立の通学時間の計算</b>に使います。
+        <b>公立</b>は学校ごとに戸塚からの時間を直接実測してあるので、駅を直しても合計は変わりません
+        （最寄り駅からの徒歩・バスの表示だけが変わります）。
       </div>
     </div>
     <div class="card">
@@ -883,7 +892,24 @@ function loadAll(){
   S.stations = lsGet(K.sta,null);
   S.students = lsGet(K.stu,[]) || [];
   S.settings = Object.assign({}, DEF_SET, lsGet(K.set,{})||{});
-  if(!S.stations){ S.stations=seedStations(); lsSet(K.sta,S.stations); }
+  if(!S.stations){ S.stations=seedStations(); }
+  mergeSeedStations();
+  lsSet(K.sta,S.stations);
+}
+/* 自分で設定した駅かどうか。通学時間タブで触ると ok=true になり、
+   メモから「（乗換案内で実測）」が外れる。 */
+function isMyStation(st){ return !!(st && st.ok && !/実測/.test(st.note||'')); }
+function mergeSeedStations(){
+  var seed=seedStations(), added=0, fixed=0;
+  Object.keys(seed).forEach(function(k){
+    var cur=S.stations[k];
+    if(!cur){ S.stations[k]=seed[k]; added++; return; }
+    if(isMyStation(cur)) return;                 /* 自分で入れた値は触らない */
+    if(cur.min===seed[k].min && cur.tr===seed[k].tr && cur.note===seed[k].note) return;
+    S.stations[k]=seed[k]; fixed++;
+  });
+  if(added||fixed) console.log('駅マスタを更新: 追加'+added+'駅／実測値に入れ替え'+fixed+'駅');
+  return {added:added, fixed:fixed};
 }
 function curVersion(){ for(var i=0;i<S.versions.length;i++) if(S.versions[i].id===S.curId) return S.versions[i]; return null; }
 function editKey(r,col){ return (r['校名']||'')+'|#|'+(r['コース']||'')+'|#|'+col; }
@@ -1167,7 +1193,7 @@ function seedStations(){
      [所要分, 乗換回数] だが、**所要分に乗換の待ち時間が含まれている**ので
      乗換回数は表示用（メモ）にとどめ、計算には足さない（tr は 0 で入れる）。 */
   var seed={
-    '戸塚':[0,0],'踊場':[2,0],'東戸塚':[3,0],'舞岡':[3,0],'下永谷':[4,0],'大船':[5,0],'立場':[6,0],'上永谷':[7,0],
+    '戸塚':[0,0],'小机':[35,2],'相原':[69,1],'港町':[38,1],'踊場':[2,0],'東戸塚':[3,0],'舞岡':[3,0],'下永谷':[4,0],'大船':[5,0],'立場':[6,0],'上永谷':[7,0],
     '保土ヶ谷':[8,0],'港南中央':[9,0],'下飯田':[9,0],'藤沢':[11,0],'横浜':[11,0],'上大岡':[11,0],'北鎌倉':[12,0],
     '湘南台':[12,0],'辻堂':[15,0],'蒔田':[16,0],'鎌倉':[16,0],'茅ヶ崎':[18,0],'本郷台':[18,1],'吉野町':[18,0],
     '湘南深沢':[18,1],'六会日大前':[19,1],'東神奈川':[20,1],'港南台':[21,1],'弘明寺':[21,1],'関内':[21,1],
@@ -1518,10 +1544,325 @@ var SCHOOL_LEGS={
   "鶴見": [["東神奈川","b",26]]
 };
 
+/* 戸塚駅から学校までの所要時間 [分, 乗換回数]。
+   2026-09-07 に乗換案内（Yahoo!路線情報）で「戸塚 → 学校名」を1校ずつ検索した実測値。
+   平日07:30発・IC優先・**駅からの徒歩やバスを含む戸口から戸口**。
+   起点が戸塚のときだけ使う。 */
+var SCHOOL_DD={
+  "横浜翠嵐": [37,1],
+  "神奈川総合": [29,1],
+  "市立東": [51,2],
+  "港北": [48,2],
+  "鶴見": [52,1],
+  "岸根": [44,1],
+  "城郷": [41,1],
+  "新羽": [49,1],
+  "鶴見総合": [49,1],
+  "川和": [68,2],
+  "市ヶ尾": [78,3],
+  "元石川": [67,2],
+  "荏田": [64,2],
+  "霧が丘": [63,3],
+  "新栄": [49,1],
+  "白山": [56,2],
+  "青葉総合": [74,3],
+  "希望ヶ丘": [45,1],
+  "松陽": [46,1],
+  "横浜瀬谷": [60,1],
+  "旭": [63,2],
+  "二俣川": [52,2],
+  "横浜緑園": [37,1],
+  "光陵": [33,1],
+  "横浜平沼": [27,0],
+  "市立桜丘": [25,1],
+  "市立戸塚": [16,0],
+  "金井": [26,0],
+  "舞岡": [19,0],
+  "上矢部": [23,0],
+  "保土ヶ谷": [32,1],
+  "横浜桜陽": [22,0],
+  "柏陽": [25,1],
+  "横浜栄": [37,2],
+  "横浜清陵": [35,0],
+  "横浜南陵": [30,1],
+  "横浜緑ヶ丘": [38,1],
+  "市立金沢": [34,1],
+  "市立みなと総合": [31,1],
+  "横浜氷取沢": [46,1],
+  "横浜立野": [41,2],
+  "金沢総合": [39,1],
+  "釜利谷": [46,2],
+  "新城": [55,1],
+  "市立橘": [39,0],
+  "住吉": [40,0],
+  "川崎": [45,1],
+  "市立幸": [40,1],
+  "大師": [57,1],
+  "多摩": [62,1],
+  "生田": [94,2],
+  "市立高津": [56,1],
+  "麻生": [73,2],
+  "百合丘": [91,2],
+  "川崎北": [68,2],
+  "生田東": [83,2],
+  "菅": [81,1],
+  "横須賀": [53,0],
+  "追浜": [47,1],
+  "横須賀大津": [51,1],
+  "市立横須賀総合": [56,0],
+  "津久井浜": [63,1],
+  "逗子葉山": [45,0],
+  "三浦初声": [75,2],
+  "横須賀南": [70,1],
+  "湘南": [34,1],
+  "鎌倉": [40,2],
+  "七里ガ浜": [50,1],
+  "大船": [26,1],
+  "藤沢西": [32,1],
+  "湘南台": [25,0],
+  "藤沢清流": [43,1],
+  "藤沢総合": [36,1],
+  "茅ヶ崎北陵": [47,1],
+  "鶴嶺": [37,1],
+  "茅ヶ崎": [38,1],
+  "茅ヶ崎西浜": [45,1],
+  "寒川": [52,1],
+  "平塚江南": [45,1],
+  "大磯": [44,0],
+  "高浜": [42,0],
+  "二宮": [51,1],
+  "平塚湘風": [57,1],
+  "秦野": [82,1],
+  "伊志田": [72,2],
+  "伊勢原": [80,4],
+  "秦野曽屋": [91,3],
+  "秦野総合": [73,1],
+  "小田原": [61,0],
+  "西湘": [51,0],
+  "足柄": [94,2],
+  "山北": [70,1],
+  "小田原東": [60,1],
+  "厚木": [69,4],
+  "海老名": [58,2],
+  "厚木王子": [80,4],
+  "有馬": [68,3],
+  "厚木西": [92,3],
+  "厚木北": [94,4],
+  "厚木清南": [74,2],
+  "愛川": [106,3],
+  "大和": [48,1],
+  "座間": [68,2],
+  "大和西": [54,1],
+  "座間総合": [54,2],
+  "綾瀬": [54,2],
+  "大和南": [52,1],
+  "綾瀬西": [71,3],
+  "大和東": [50,1],
+  "相模原弥栄": [83,3],
+  "麻溝台": [70,2],
+  "上鶴間": [63,2],
+  "相模原": [85,3],
+  "上溝南": [73,3],
+  "橋本": [89,2],
+  "上溝": [82,3],
+  "相模田名": [93,3],
+  "相模原城山": [102,3],
+  "津久井": [120,3],
+  "平塚農商": [44,1],
+  "相原": [99,3],
+  "中央農業": [67,3],
+  "吉田島": [86,1],
+  "神奈川工業": [29,1],
+  "商工": [30,1],
+  "磯子工業": [35,1],
+  "川崎工科": [38,0],
+  "向の岡工業": [61,1],
+  "横須賀工業": [54,1],
+  "平塚工科": [46,0],
+  "藤沢工科": [28,1],
+  "小田原北": [78,1],
+  "市立川崎総合科学": [49,1],
+  "市立横浜商業": [28,0],
+  "海洋科学": [64,1],
+  "市立川崎": [42,1],
+  "市立横浜ｻｲｴﾝｽﾌﾛﾝﾃｨｱ": [40,2],
+  "横浜国際": [38,0],
+  "神奈川総合産業": [57,1],
+  "横浜明朋": [31,1],
+  "市立横浜総合": [21,0],
+  "相模向陽館": [57,2],
+  "横浜修悠館": [25,0]
+};
+
+/* 駅から学校までの徒歩（各校の公式アクセス案内より）。[駅, w, 分] */
+var SCHOOL_WALK={
+  "神奈川総合": [["東白楽","w",2],["東神奈川","w",8],["京急東神奈川","w",10]],
+  "港北": [["大倉山","w",18],["新羽","w",16],["新横浜","w",25]],
+  "岸根": [["岸根公園","w",10]],
+  "城郷": [["片倉町","w",10]],
+  "新羽": [["北新横浜","w",10],["小机","w",25]],
+  "鶴見総合": [["鶴見市場","w",15],["鶴見","w",22]],
+  "川和": [["都筑ふれあいの丘","w",15]],
+  "市ヶ尾": [["市が尾","w",15]],
+  "元石川": [["たまプラーザ","w",20],["あざみ野","w",25]],
+  "荏田": [["江田","w",15]],
+  "新栄": [["仲町台","w",10]],
+  "希望ヶ丘": [["希望ヶ丘","w",5]],
+  "横浜瀬谷": [["三ツ境","w",20]],
+  "二俣川": [["二俣川","w",15]],
+  "横浜清陵": [["南太田","w",12],["吉野町","w",17]],
+  "横浜緑ヶ丘": [["山手","w",13]],
+  "金沢総合": [["京急富岡","w",10],["並木中央","w",10]],
+  "新城": [["武蔵中原","w",12],["武蔵新城","w",12]],
+  "住吉": [["元住吉","w",8],["平間","w",15]],
+  "川崎": [["川崎新町","w",3],["八丁畷","w",10]],
+  "市立川崎": [["港町","w",10]],
+  "多摩": [["宿河原","w",5],["登戸","w",18]],
+  "生田": [["生田","w",10]],
+  "麻生": [["新百合ヶ丘","w",20]],
+  "川崎北": [["鷺沼","w",18],["宮前平","w",17]],
+  "生田東": [["生田","w",10],["中野島","w",20]],
+  "菅": [["稲田堤","w",20],["読売ランド前","w",15]],
+  "横須賀": [["衣笠","w",12],["北久里浜","w",25]],
+  "追浜": [["追浜","w",13]],
+  "横須賀大津": [["新大津","w",5],["京急大津","w",8]],
+  "津久井浜": [["津久井浜","w",5]],
+  "逗子葉山": [["東逗子","w",18]],
+  "鎌倉": [["鎌倉高校前","w",5]],
+  "七里ガ浜": [["七里ヶ浜","w",1]],
+  "藤沢清流": [["藤沢本町","w",17]],
+  "藤沢総合": [["長後","w",10]],
+  "茅ヶ崎北陵": [["香川","w",12],["寒川","w",15]],
+  "鶴嶺": [["北茅ヶ崎","w",10]],
+  "茅ヶ崎": [["茅ヶ崎","w",20],["北茅ヶ崎","w",15]],
+  "茅ヶ崎西浜": [["茅ヶ崎","w",25]],
+  "寒川": [["寒川","w",13]],
+  "平塚江南": [["平塚","w",25]],
+  "大磯": [["大磯","w",15]],
+  "高浜": [["平塚","w",13]],
+  "二宮": [["二宮","w",25]],
+  "秦野": [["東海大学前","w",25]],
+  "伊志田": [["愛甲石田","w",7]],
+  "伊勢原": [["伊勢原","w",14]],
+  "秦野総合": [["秦野","w",25]],
+  "小田原": [["小田原","w",12]],
+  "西湘": [["鴨宮","w",8]],
+  "足柄": [["大雄山","w",22]],
+  "山北": [["東山北","w",10]],
+  "小田原東": [["国府津","w",10]],
+  "厚木": [["本厚木","w",20]],
+  "海老名": [["厚木","w",12],["海老名","w",17]],
+  "有馬": [["社家","w",12]],
+  "厚木清南": [["本厚木","w",20]],
+  "大和": [["つきみ野","w",9],["中央林間","w",12]],
+  "座間": [["座間","w",7],["入谷","w",7]],
+  "大和西": [["南林間","w",20],["中央林間","w",25]],
+  "大和南": [["桜ヶ丘","w",22],["高座渋谷","w",25]],
+  "大和東": [["大和","w",20]],
+  "相模原弥栄": [["淵野辺","w",25]],
+  "麻溝台": [["原当麻","w",15],["相模大野","w",25]],
+  "上鶴間": [["東林間","w",25],["つきみ野","w",20]],
+  "相模原": [["相模原","w",25],["上溝","w",15]],
+  "上溝南": [["番田","w",6]],
+  "橋本": [["相原","w",12],["橋本","w",16]],
+  "上溝": [["上溝","w",12]],
+  "中央農業": [["厚木","w",20],["海老名","w",25]],
+  "吉田島": [["開成","w",20],["松田","w",25]],
+  "神奈川工業": [["東白楽","w",3],["東神奈川","w",8]],
+  "磯子工業": [["屏風浦","w",13]],
+  "川崎工科": [["平間","w",8],["新川崎","w",15]],
+  "向の岡工業": [["久地","w",10]],
+  "横須賀工業": [["北久里浜","w",15]],
+  "平塚工科": [["平塚","w",15]],
+  "神奈川総合産業": [["相模大野","w",15]],
+  "横浜明朋": [["港南台","w",10]],
+  "相模向陽館": [["さがみ野","w",20],["鶴間","w",30]],
+  "横浜修悠館": [["いずみ中央","w",7],["下飯田","w",12]],
+  "小田原北": [["栢山","w",7]],
+  "横浜総合": [["弘明寺","w",10]]
+};
+
+/* バスで行く学校の降車バス停と、そこからの徒歩（各校の公式アクセス案内より）。[停留所, 徒歩分] */
+var SCHOOL_STOP={
+  "港北": [["太尾小学校前",2],["太尾堤",5]],
+  "岸根": [["岸根谷戸",5]],
+  "城郷": [["八反橋",7]],
+  "新羽": [["専念寺前",7],["大竹",9]],
+  "川和": [["川和高校前",1],["川和高校入口",5]],
+  "市ヶ尾": [["市ケ尾高校",1]],
+  "元石川": [["元石川町",12]],
+  "荏田": [["荏田高校入口",6]],
+  "霧が丘": [["霧が丘高校前",2]],
+  "新栄": [["新栄高校南口",10],["新栄高校北口",10]],
+  "白山": [["白山高校",2],["中山車庫",3],["白山通り",5]],
+  "横浜瀬谷": [["西部病院前",5]],
+  "旭": [["旭高校入口",15],["川井橋",7],["川井宿",7]],
+  "二俣川": [["運転免許センター",2]],
+  "横浜氷取沢": [["横浜氷取沢高校",1],["下ヶ谷",5]],
+  "横浜立野": [["東福院前",5]],
+  "釜利谷": [["市民の森入口",5]],
+  "大師": [["大師高校前",1]],
+  "麻生": [["金程",4]],
+  "百合丘": [["百合丘高校前",2],["百合丘高校裏",5]],
+  "川崎北": [["中有馬",5]],
+  "菅": [["西菅団地",2]],
+  "逗子葉山": [["才戸坂上",8]],
+  "三浦初声": [["宮田",15]],
+  "横須賀南": [["内川二丁目",5],["内川一丁目",5]],
+  "茅ヶ崎北陵": [["北陵高校入口",5]],
+  "鶴嶺": [["ニュータウン入口",2]],
+  "茅ヶ崎": [["茅ヶ崎高校前",7]],
+  "茅ヶ崎西浜": [["団地中央",5]],
+  "平塚江南": [["江南高校前",2]],
+  "二宮": [["緑が丘・二宮高校前",3],["二宮高校入口",5]],
+  "平塚湘風": [["田村団地",5]],
+  "秦野": [["宿矢名",4]],
+  "秦野曽屋": [["末広小学校前",20]],
+  "西湘": [["西湘高校入口",3]],
+  "足柄": [["足柄高校前",5]],
+  "厚木": [["厚木高校前",2]],
+  "厚木西": [["森の里青山",5]],
+  "厚木北": [["リコー前",5]],
+  "愛川": [["愛川高校前",1]],
+  "座間総合": [["座間総合高校前",3]],
+  "綾瀬": [["観音入口",1],["綾瀬高校",3]],
+  "綾瀬西": [["瀬端橋",3]],
+  "大和東": [["大和東高校",1]],
+  "相模原弥栄": [["弥栄小学校前",3]],
+  "相模原": [["横山団地",2]],
+  "相模田名": [["四ツ谷",10],["田名バスターミナル",13]],
+  "相模原城山": [["城山高校前",3]],
+  "津久井": [["三ヶ木",20]],
+  "平塚農商": [["平塚農商高校",1]],
+  "相原": [["相模原協同病院",1]],
+  "横須賀工業": [["妙真寺",3]],
+  "海洋科学": [["市民病院前",5]],
+  "青葉総合": [["田奈高校",3]],
+  "厚木王子": [["緑ヶ丘小学校前",7]]
+};
+
+/* 「県立川崎高」と「市立川崎高」は schoolKey だと同じ「川崎」になってしまう。
+   市立には「市立」を付けたキーも用意して、そちらを先に見る。 */
+function schoolKeyFull(s){
+  return (/^(横浜市立|川崎市立|横須賀市立|市立)/.test(String(s||''))? '市立':'')+schoolKey(s);
+}
+function pickBy(table, name){
+  var v=table[schoolKeyFull(name)];
+  return v!==undefined? v : table[schoolKey(name)];
+}
+
 var PREF_BY_KEY=(function(){
   var o={};
-  for(var k in PREF_STATIONS) o[schoolKey(k)]=PREF_STATIONS[k];
-  for(var k2 in SCHOOL_LEGS) o[schoolKey(k2)]=SCHOOL_LEGS[k2];   /* 調べたぶんで上書き */
+  function add(src){
+    for(var k in src){
+      var f=schoolKeyFull(k), g=schoolKey(k);
+      o[f]=src[k];
+      if(f===g) o[g]=src[k];        /* 市立の分は「市立◯◯」だけに入れ、素のキーは県立に残す */
+    }
+  }
+  add(PREF_STATIONS);
+  add(SCHOOL_WALK);                 /* 公式の徒歩分で上書き */
+  add(SCHOOL_LEGS);                 /* 戸塚まわりの実測を最優先 */
   return o;
 })();
 
@@ -1540,6 +1881,21 @@ function loadPub(){
   } else PUB={byYear:{}, year:'', fit:{}, memo:'', importedAt:0, srcName:''};
   if(!PUB.year || !PUB.byYear[PUB.year]) PUB.year=pubYears()[0]||'';
   if(!PUB.fit) PUB.fit={};
+  refreshPubStations();
+}
+/* 最寄駅と「駅から学校まで◯分」を今の表で入れ直す */
+function refreshPubStations(){
+  var n=0;
+  Object.keys(PUB.byYear||{}).forEach(function(y){
+    (PUB.byYear[y]||[]).forEach(function(sc){
+      var p=pickBy(PREF_BY_KEY, sc.name);
+      if(!p) return;
+      if(JSON.stringify(sc.stations||[])===JSON.stringify(p)) return;
+      sc.stations=p.slice(); n++;
+    });
+  });
+  if(n) console.log('最寄駅を入れ直した学校 '+n+'件');
+  return n;
 }
 function savePub(){ lsSet(PUBK,PUB); }
 
@@ -1626,7 +1982,21 @@ function pubRoutes(sc){
   out.sort(function(x,y){ return x.min-y.min; });
   return out;
 }
-function pubBest(sc){ var r=pubRoutes(sc); return r.length? r[0] : null; }
+/* 起点が戸塚のときだけ、実測値をそのまま使える */
+function ddUsable(){ return normSta(S.settings.origin||'')==='戸塚'; }
+function pubDD(sc){
+  if(!ddUsable()) return null;
+  var v=pickBy(SCHOOL_DD, sc.name);
+  return v? {min:v[0], tr:v[1]} : null;
+}
+function pubStop(sc){ return pickBy(SCHOOL_STOP, sc.name)||null; }
+/* 駅からの内訳（実測値が無い学校では、これがそのまま所要時間になる） */
+function pubStationBest(sc){ var r=pubRoutes(sc); return r.length? r[0] : null; }
+function pubBest(sc){
+  var dd=pubDD(sc);
+  if(dd) return {min:dd.min, tr:dd.tr, dd:true, near:pubStationBest(sc)};
+  return pubStationBest(sc);
+}
 function pubAccess(sc){ var b=pubBest(sc); return b? b.min : null; }
 function howLabel(h){ return h==='w'?'徒歩':(h==='b'?'バス':'バス/徒歩'); }
 /* 公立の学校に登録されている駅を、重複なく並べる */
@@ -1641,7 +2011,27 @@ function pubStationNames(sc){
 }
 /* 私立の accessText と同じ形で出す。
    「合計◯分  駅名／電車◯分＋バス◯分」。? は既定値を使ったという印。 */
+/* 駅からの内訳を1行にする。「本郷台から徒歩5分」「バス『川和高校前』下車 徒歩1分」 */
+function pubNearText(sc){
+  var out=[], rs=pubRoutes(sc), best=null;
+  for(var i=0;i<rs.length;i++){ if(!rs[i].est){ best=rs[i]; break; } }   /* 分数を調べてあるルートの中で一番早いもの */
+  if(best) out.push(esc(best.station)+'から'+howLabel(best.how)+best.leg+'分');
+  var st=pubStop(sc);
+  if(st && st.length) out.push('バス『'+esc(st[0][0])+'』下車 徒歩'+st[0][1]+'分');
+  if(!out.length){
+    var names=pubStationNames(sc);
+    if(names.length) out.push('最寄り '+esc(names.join('・')));
+  }
+  return out.join('／');
+}
 function pubAccessText(sc){
+  var dd=pubDD(sc);
+  if(dd){
+    var near=pubNearText(sc);
+    return '<b class="mono">'+dd.min+'分</b> <span class="small muted" '+
+      'title="戸塚から学校まで、乗換案内で実測した時間です（平日07:30発・駅からの徒歩やバスも込み）">'+
+      '実測'+(dd.tr? '・乗換'+dd.tr+'回' : '・乗換なし')+(near? '／'+near : '')+'</span>';
+  }
   var b=pubBest(sc);
   if(!b){
     var miss=pubStationNames(sc);
@@ -1800,7 +2190,7 @@ function pubOneBlock(rows){
       hensachiAvg: col.hensachiAvg!=null? num(row[col.hensachiAvg]) : null,
       border: col.border!=null? (num(row[col.border])||0) : 0,
       fa:ra.fa, fb:ra.fb, fd:ra.fd,
-      stations:(PREF_BY_KEY[schoolKey(name)]||[]).slice(),
+      stations:(pickBy(PREF_BY_KEY, name)||[]).slice(),
       station:'', walk:0, bus:0, note:''
     });
   }
@@ -2442,7 +2832,7 @@ each('#fView button',function(b){
 $('pApplyPref').onclick=function(){
   var list=pubSchools(), hit=0, miss=[];
   list.forEach(function(sc){
-    var p=PREF_BY_KEY[schoolKey(sc.name)];
+    var p=pickBy(PREF_BY_KEY, sc.name);
     if(p){ sc.stations=p.slice(); hit++;
       p.forEach(function(x){ var n=normSta(x[0]); if(n && !S.stations[n]) S.stations[n]={min:null,tr:0,ok:false,note:''}; });
     } else if(!(sc.stations&&sc.stations.length)) miss.push(sc.name);
@@ -2549,8 +2939,8 @@ function renderPubTable(){
       '<th style="width:140px;">学校</th><th style="width:80px;">学科</th>'+
       '<th style="width:96px;">判定</th><th style="width:126px;">S1／ボーダー</th>'+
       '<th style="width:112px;">内申135</th><th style="width:104px;">偏差値</th>'+
-      '<th style="width:74px;">内申:学力:特色</th><th style="width:158px;">通学</th>'+
-      '<th style="width:124px;">地区</th><th style="width:56px;"></th></tr></thead><tbody>';
+      '<th style="width:64px;">内申:学力:特色</th><th style="width:230px;">通学</th>'+
+      '<th style="width:110px;">地区</th><th style="width:52px;"></th></tr></thead><tbody>';
     part.forEach(function(x){
       var sc=x.sc, idx=pubSchools().indexOf(sc);
       var tag;
@@ -2956,10 +3346,10 @@ function applySyncPayload(d){
   if(d.versions){ S.versions=d.versions; lsSet(K.ver,S.versions); }
   if(d.curId!=null){ S.curId=d.curId; lsSet(K.cur,S.curId); }
   if(d.edits){ S.edits=d.edits; lsSet(K.edit,S.edits); }
-  if(d.stations){ S.stations=d.stations; lsSet(K.sta,S.stations); }
+  if(d.stations){ S.stations=d.stations; mergeSeedStations(); lsSet(K.sta,S.stations); }
   if(d.students){ S.students=d.students; lsSet(K.stu,S.students); }
   if(d.settings){ S.settings=Object.assign({},DEF_SET,d.settings); lsSet(K.set,S.settings); }
-  if(d.pub){ PUB=d.pub; savePub(); }
+  if(d.pub){ PUB=d.pub; refreshPubStations(); savePub(); }
 }
 function syncCfg(){ return lsGet(K.sync,{})||{}; }
 function syncMsg(t,color){ var m=$('syncMsg'); m.textContent=t; m.style.color=color||'#7a8b9c'; }
