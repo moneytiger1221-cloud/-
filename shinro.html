@@ -139,6 +139,16 @@ details.fold>div{padding:0 10px 10px;}
   max-height:calc(1.8em * 3);}   /* 4行目が半分見えるのを防ぐ */
 .raw:empty{display:none;}
 .rawhint{font-size:10.5px;color:#93a3b3;margin:3px 0 0;}
+/* 地区・学科をいくつでも選べるボタン */
+.frow{align-items:flex-start;margin-top:6px;}
+.fkey{width:36px;flex:0 0 auto;padding-top:5px;color:#5a6b7d;font-size:12px;font-weight:700;}
+.chips{display:flex;flex-wrap:wrap;gap:4px;flex:1 1 auto;min-width:0;}
+.fchip{border:1px solid #c8d3de;background:#fff;border-radius:999px;padding:4px 11px;font-size:12px;
+  cursor:pointer;color:#3c4d5e;line-height:1.5;white-space:nowrap;font-family:inherit;}
+.fchip .n{color:#93a3b3;margin-left:4px;font-size:10.5px;}
+.fchip.on{background:#2b6fe0;border-color:#2b6fe0;color:#fff;}
+.fchip.on .n{color:#cfe0ff;}
+.fchip.all{font-weight:700;}
 .viewsw{display:flex;gap:0;border:1px solid #c3cfdb;border-radius:6px;overflow:hidden;}
 .viewsw button{border:none;background:#fff;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;color:#5a6b7d;}
 .viewsw button.on{background:#2b6fe0;color:#fff;}
@@ -260,8 +270,6 @@ details.fold>div{padding:0 10px 10px;}
       <div class="row">
         <label>年度</label>
         <select id="pYear" style="width:96px;"></select>
-        <label>地区・学科</label>
-        <select id="pArea" style="max-width:280px;"><option value="">すべて</option></select>
         <label>通学</label>
         <input type="number" id="pTime" min="0" max="180" step="5" value="0" style="width:64px;"> 分以内
         <label>判定</label>
@@ -277,6 +285,20 @@ details.fold>div{padding:0 10px 10px;}
           <option value="hensachi">偏差値が高い順</option>
           <option value="time">通学が近い順</option>
         </select>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn sm" id="pFilterFold">地区・学科をたたむ</button>
+        <span class="small" id="pFilterNow" style="color:#44566a;"></span>
+      </div>
+      <div id="pFilterBox">
+      <div class="row frow"><label class="fkey">地区</label><span class="chips" id="pAreaChips"></span></div>
+      <div class="row frow"><label class="fkey">学科</label><span class="chips" id="pKindChips"></span></div>
+      <div class="hint" style="margin-top:8px;">
+        地区・学科は<b>いくつでも選べます</b>（同じ行の中はどれかに当てはまればOK、
+        地区と学科は両方に当てはまるものだけ）。もう一度押すと外れます。
+        地区は<b>普通科・総合学科だけに付いている区分</b>なので、専門学科や定時制を探すときは
+        地区を「すべて」にしてください。
+      </div>
       </div>
       <div class="hint" style="margin-top:8px;">
         通学時間は<b>戸塚から学校まで、1校ずつ乗換案内で調べた実測値</b>です（平日07:30発・IC優先・
@@ -1949,6 +1971,40 @@ function s1Value(sc, st){
   if(!(fa+fb)) return null;
   return Math.round((a*fa + b*fb)*10)/10;
 }
+/* 「地区・学科」の欄を、地区と学科に分ける。
+   普通科・総合学科（旧横浜中部） → 学科=普通科・総合学科 / 地区=旧横浜中部
+   専門学科（工業に関する学科）   → 学科=専門学科（工業） / 地区=なし
+   定時制・通信制                → 学科=定時制 / 地区=なし          */
+function areaParts(v){
+  var s=String(v==null?'':v).trim();
+  var m=/^(.*?)[（(]\s*旧(.+?)\s*[）)]$/.exec(s);
+  if(m) return {kind:(m[1].trim()||'普通科・総合学科'), area:'旧'+m[2].trim()};
+  m=/^(.*?専門学科)[（(]\s*(.+?)\s*に関する学科\s*[）)]$/.exec(s);
+  if(m) return {kind:m[1].trim()+'（'+m[2].trim()+'）', area:''};
+  return {kind:s, area:''};
+}
+function pubAreaOf(sc){ return areaParts(sc.area).area; }
+function pubKindOf(sc){ return areaParts(sc.area).kind; }
+/* 資料に出てくる順（＝学区の順）で並べる */
+function pubAreaList(){
+  var out=[], has=false;
+  pubSchools().forEach(function(s){
+    var v=pubAreaOf(s);
+    if(!v){ has=true; return; }
+    if(out.indexOf(v)<0) out.push(v);
+  });
+  if(has) out.push('');            /* 地区の指定がないもの（専門学科・定時制など） */
+  return out;
+}
+function pubKindList(){
+  var out=[];
+  pubSchools().forEach(function(s){
+    var v=pubKindOf(s);
+    if(v && out.indexOf(v)<0) out.push(v);
+  });
+  return out;
+}
+
 function hasTokushoku(sc){ return (+sc.fd||0)>0; }
 function judgeable(sc){ return (+sc.border||0)>0 && ((+sc.fa||0)+(+sc.fb||0))>0; }
 
@@ -2789,12 +2845,7 @@ function renderPublic(){
   if(ys.indexOf(PUB.year)<0) PUB.year=ys[0]||'';
   ysel.value=PUB.year;
 
-  /* 地区の選択肢 */
-  var areas=[]; pubSchools().forEach(function(s){ if(s.area && areas.indexOf(s.area)<0) areas.push(s.area); });
-  var sel=$('pArea'), keep=sel.value;
-  sel.innerHTML='<option value="">すべての地区・学科</option>'+areas.map(function(a){
-    return '<option value="'+esc(a)+'">'+esc(a)+'</option>'; }).join('');
-  if(areas.indexOf(keep)>=0) sel.value=keep;
+  drawPubChips();
 
   $('pLegW').value=S.settings.legWalk||12;
   $('pLegB').value=S.settings.legBus||22;
@@ -2820,7 +2871,10 @@ each('#fView button',function(b){
     render();
   };
 });
-['pArea','pJudge','pSort','pNoStation','pHideNoJudge'].forEach(function(id){ $(id).onchange=renderPubTable; });
+$('pFilterFold').onclick=function(){
+  S.settings.pubFold=!pubFilterFolded(); lsSet(K.set,S.settings); drawPubFold();
+};
+['pJudge','pSort','pNoStation','pHideNoJudge'].forEach(function(id){ $(id).onchange=renderPubTable; });
 ['pLegW','pLegB','pLegWB'].forEach(function(id){
   $(id).onchange=function(){
     S.settings.legWalk=+$('pLegW').value||12;
@@ -2849,6 +2903,50 @@ $('pYear').onchange=function(){ PUB.year=$('pYear').value; savePub(); renderPubl
 $('pTime').oninput=renderPubTable;
 $('pWord').oninput=renderPubTable;
 
+/* えらばれている地区・学科。画面を作り直しても消えないように、ここで持っておく */
+var PUBF={area:{}, kind:{}};
+function pubFilterOn(g){ for(var k in PUBF[g]) if(PUBF[g][k]) return true; return false; }
+function pubFilterList(g){ var o=[]; for(var k in PUBF[g]) if(PUBF[g][k]) o.push(k); return o; }
+function pubFilterSummary(){
+  var s=[];
+  if(pubFilterOn('area')) s.push('地区 '+pubFilterList('area').map(function(v){ return v||'地区なし'; }).join('・'));
+  if(pubFilterOn('kind')) s.push('学科 '+pubFilterList('kind').join('・'));
+  return s.length? s.join('／') : 'すべての地区・学科';
+}
+function pubFilterFolded(){ return !!S.settings.pubFold; }
+function drawPubFold(){
+  var box=$('pFilterBox'), btn=$('pFilterFold');
+  if(!box||!btn) return;
+  box.hidden=pubFilterFolded();
+  btn.textContent=pubFilterFolded()? '地区・学科でしぼる' : '地区・学科をたたむ';
+  $('pFilterNow').textContent=pubFilterSummary();
+}
+function drawPubChips(){
+  drawPubFold();
+  [['area','pAreaChips',pubAreaList,pubAreaOf,'地区なし（専門学科・定時制など）'],
+   ['kind','pKindChips',pubKindList,pubKindOf,'']].forEach(function(g){
+    var name=g[0], box=$(g[1]), list=g[2](), of=g[3], blankLabel=g[4];
+    var cnt={}; pubSchools().forEach(function(s){ var v=of(s); cnt[v]=(cnt[v]||0)+1; });
+    /* 使われていない選択肢は消しておく（年度を変えたときなど） */
+    for(var k in PUBF[name]) if(list.indexOf(k)<0) delete PUBF[name][k];
+    var h='<button class="fchip all'+(pubFilterOn(name)?'':' on')+'" data-all="1">すべて</button>';
+    list.forEach(function(v){
+      h+='<button class="fchip'+(PUBF[name][v]?' on':'')+'" data-g="'+name+'" data-v="'+esc(v)+'">'+
+         esc(v||blankLabel||'（なし）')+'<span class="n">'+(cnt[v]||0)+'</span></button>';
+    });
+    box.innerHTML=h;
+    each('.fchip',function(btn){
+      btn.onclick=function(){
+        var v=btn.dataset.v;
+        if(btn.dataset.all) PUBF[name]={};
+        else if(PUBF[name][v]) delete PUBF[name][v];
+        else PUBF[name][v]=true;
+        drawPubChips(); renderPubTable();
+      };
+    }, box);
+  });
+}
+
 function pubEval(sc){
   var s1=s1Value(sc,curStu);
   var best=pubBest(sc), mins=best? best.min : null;
@@ -2870,13 +2968,14 @@ function renderPubTable(){
     box.innerHTML='<div class="hint">公立の学校がまだ登録されていません。下の枠に「公立高校合格判定用.xlsx」を入れてください。</div>';
     $('pCount').textContent=''; return;
   }
-  var area=$('pArea').value, maxMin=+$('pTime').value||0, mode=$('pJudge').value;
+  var maxMin=+$('pTime').value||0, mode=$('pJudge').value;
   var sortBy=$('pSort').value, w=($('pWord').value||'').trim();
   var allowNoSt=$('pNoStation').checked, hideNJ=$('pHideNoJudge').checked;
 
   var list=pubSchools().map(pubEval).filter(function(x){
     var sc=x.sc;
-    if(area && sc.area!==area) return false;
+    if(pubFilterOn('area') && !PUBF.area[pubAreaOf(sc)]) return false;
+    if(pubFilterOn('kind') && !PUBF.kind[pubKindOf(sc)]) return false;
     if(w && ((sc.name||'')+(sc.dept||'')).indexOf(w)<0) return false;
     if(hideNJ && !judgeable(sc)) return false;
     if(maxMin){ if(x.mins==null){ if(!allowNoSt) return false; } else if(x.mins>maxMin) return false; }
@@ -2893,8 +2992,12 @@ function renderPubTable(){
     if(a.ord==null) return 1; if(b.ord==null) return -1;
     return sortBy==='loose'? (b.ord-a.ord) : (a.ord-b.ord);
   });
+  var fl=[];
+  if(pubFilterOn('area')) fl.push(pubFilterList('area').map(function(v){ return v||'地区なし'; }).join('・'));
+  if(pubFilterOn('kind')) fl.push(pubFilterList('kind').join('・'));
+  if(maxMin) fl.push('通学'+maxMin+'分以内');
   $('pCount').textContent=(curStu? ('『'+(curStu.name||'名前なし')+'』／'):'生徒未選択／')+list.length+'件'+
-    (maxMin?'（通学'+maxMin+'分以内）':'');
+    (fl.length? '（'+fl.join('／')+'）' : '');
 
   function cell(v,unit){ return v==null? '<span class="muted">—</span>'
     : '<span class="mono">'+(v>0?'+':'')+v+'</span>'+(unit?'<span class="small muted">'+unit+'</span>':''); }
@@ -2927,7 +3030,8 @@ function renderPubTable(){
             '<span><span class="k">偏差値</span>'+(x.dH==null?'—':((x.dH>0?'+':'')+x.dH))+'（平均 '+(sc.hensachiAvg==null?'—':sc.hensachiAvg)+'）</span>'+
             '<span><span class="k">比率</span>'+(+sc.fa||0)+':'+(+sc.fb||0)+':'+(+sc.fd||0)+'</span>'+
             '<span><span class="k">通学</span>'+accLab(x)+'</span>'+
-            '<span><span class="k">地区</span>'+esc(sc.area||'')+'</span>'+
+            '<span><span class="k">地区</span>'+esc(pubAreaOf(sc)||'—')+'</span>'+
+            '<span><span class="k">学科</span>'+esc(pubKindOf(sc)||'')+'</span>'+
           '</div>'+
           '<button class="btn sm pedit" data-i="'+idx+'">この学校を編集</button>'+
           '</div>';
@@ -2940,7 +3044,7 @@ function renderPubTable(){
       '<th style="width:96px;">判定</th><th style="width:126px;">S1／ボーダー</th>'+
       '<th style="width:112px;">内申135</th><th style="width:104px;">偏差値</th>'+
       '<th style="width:64px;">内申:学力:特色</th><th style="width:230px;">通学</th>'+
-      '<th style="width:110px;">地区</th><th style="width:52px;"></th></tr></thead><tbody>';
+      '<th style="width:118px;">地区・学科</th><th style="width:52px;"></th></tr></thead><tbody>';
     part.forEach(function(x){
       var sc=x.sc, idx=pubSchools().indexOf(sc);
       var tag;
@@ -2960,12 +3064,16 @@ function renderPubTable(){
         '<td class="small">'+cell(x.dH)+' <span class="small muted">'+(sc.hensachiAvg==null?'—':sc.hensachiAvg)+'</span></td>'+
         '<td class="c small mono">'+(+sc.fa||0)+':'+(+sc.fb||0)+':'+(+sc.fd||0)+'</td>'+
         '<td class="small">'+pubAccessText(sc)+'</td>'+
-        '<td class="small">'+esc(sc.area||'')+'</td>'+
+        '<td class="small">'+(pubAreaOf(sc)? esc(pubAreaOf(sc))+'<br>' : '')+
+          '<span class="muted">'+esc(pubKindOf(sc)||'')+'</span></td>'+
         '<td><button class="btn sm pedit" data-i="'+idx+'">編集</button></td></tr>';
     });
     html+='</tbody></table></div>';
   });
-  if(!html) html='<div class="hint">条件に合う学校がありません。地区や判定の条件をゆるめてください。</div>';
+  if(!html) html='<div class="hint">条件に合う学校がありません。'+
+    ((pubFilterOn('area')&&pubFilterOn('kind'))
+      ? '<b>地区と学科の両方</b>で絞っています。地区は普通科・総合学科にしか付いていないので、専門学科や定時制を見るときは地区を「すべて」にしてください。'
+      : '地区・学科や判定の条件をゆるめてください。')+'</div>';
   box.innerHTML=html;
   each('.pedit',function(b){ b.onclick=function(){ editPubSchool(+b.dataset.i); }; }, box);
 }
