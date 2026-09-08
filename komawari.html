@@ -723,6 +723,35 @@ function teacherActive(tid){
   }
   return false;                                                                  // 講習はシフト表が無いのでコマの有無だけ
 }
+/* その曜日に出勤している先生を、他のツール（SS管理）から使えるように書き出す。
+   判定はこの画面の「稼働中のみ」と同じ考え方：
+     ・その曜日にコマが入っている       → 出勤
+     ・通常コマシフトに○がある         → 出勤
+     ・退職予定                         → 出勤しない
+     ・シフト表に載っていない（不明）   → 判断できないので unknown に入れ、読む側で全部出す
+   名前で渡す（IDは他ツールが持っていないため）。 */
+const LSDOW='komawari_dow_v1';
+function exportDowRoster(){
+  try{
+    if(!teachers.length)return;
+    const days={};
+    DOW.forEach(d=>{
+      const names=[];
+      teachers.forEach(t=>{
+        if(RETIRE.has(t.id))return;
+        const hasKoma=komasN.some(k=>k.period===d&&k.teacherId===t.id)
+                    ||groupClasses.some(g=>g.period===d&&g.teacherId===t.id);
+        const onShift=shiftKnown(t.id)&&!!(NORMAL_SHIFT[t.id]||{})[d];
+        if(hasKoma||onShift)names.push(t.name);
+      });
+      if(names.length)days[d]=names;
+    });
+    const unknown=teachers.filter(t=>!RETIRE.has(t.id)&&!shiftKnown(t.id)).map(t=>t.name);
+    const n=new Date();
+    const savedAt=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
+    LS.set(LSDOW,JSON.stringify({savedAt,days,unknown}));
+  }catch(e){}
+}
 function activeCount(){return teachers.filter(t=>teacherActive(t.id)).length;}
 function visibleTeachers(){
   if(showAllT)return teachers;
@@ -1427,7 +1456,7 @@ function loadSaved(){
 function save(){try{const d={};komas.forEach(k=>d[k.kid]={teacherId:k.teacherId,limitNo:k.limitNo,period:k.period});
   LS.set(lskFor(),JSON.stringify(d));
   const g={};groupClasses.forEach(c=>g[c.gid]=c.teacherId);LS.set(LSGRP,JSON.stringify(g));
-  saveManualGroups();}catch(e){}flashSave();}
+  saveManualGroups();exportDowRoster();}catch(e){}flashSave();}
 let grey=new Set();try{grey=new Set(JSON.parse(LS.get(LSG)||'[]'));}catch(e){}
 function saveGrey(){LS.set(LSG,JSON.stringify([...grey]));}
 // ---- 初回ロード ----
@@ -1440,6 +1469,7 @@ buildTeachersFromCSV(curTeacherCsv);
 buildDataFromCSV(curStudentCsv);
 snapshotOrig();
 loadSaved();
+exportDowRoster();   // 曜日ごとの出勤先生をSSツールへ渡す
 let saveT;function flashSave(){const el=document.getElementById('autosave');el.textContent='✓ 保存済';clearTimeout(saveT);saveT=setTimeout(()=>el.textContent='',1500);}
 /* ============ CSV取込（生徒／先生） ============ */
 function decodeCsvBuffer(buf){
@@ -1453,6 +1483,7 @@ function rebuildAll(resetPlacement){
   if(resetPlacement){LS.del(LSK);LS.del(LSK+'_tsu');LS.del(LSGRP);}
   snapshotOrig();
   if(!resetPlacement)loadSaved();
+  exportDowRoster();
   applyMode();
   if(PERIODS.indexOf(activePeriod)<0)activePeriod=PERIODS[0]||'';
   renderAll();

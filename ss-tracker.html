@@ -739,7 +739,8 @@ var DEF_CFG = {
   autoOut: true,   // 最新データに載っていない先生を自動で在籍外にする
   tests:   true,   // テスト回別（③④⑤など）も取り込む
   keepDays: 70,    // 「古い日を間引く」を押したとき、これより新しい日はそのまま残す
-  showOut: false   // 在籍外の先生を画面に出すか（既定は出さない）
+  showOut: false,  // 在籍外の先生を画面に出すか（既定は出さない）
+  touchAll: false  // 今日のタッチを出勤者で絞らず全員出すか（既定は絞る）
 };
 
 /* ---------- localStorage の読み書き ------------------------------------ */
@@ -1328,12 +1329,52 @@ function factsLine(T) {
   }).join(' ・ ');
 }
 
+/* ---------- コマ組ツールの出勤シフト ------------------------------------ */
+/* コマ組ツールが同じオリジンの localStorage に書き出した「曜日ごとの出勤先生」を読む。
+   その日に来ない先生の話をしても声はかけられないので、今日のタッチはここで絞る。
+   シフト表に載っていない先生（unknown）は判断できないので絞らずに残す。 */
+var LS_DOW = 'komawari_dow_v1';
+var DOW_JP = ['日', '月', '火', '水', '木', '金', '土'];
+
+function dowRoster() {
+  var r = lsGet(LS_DOW, null);
+  if (!r || !r.days) return null;
+  var idx = {}, has = false;
+  Object.keys(r.days).forEach(function (day) {
+    idx[day] = {};
+    (r.days[day] || []).forEach(function (nm) { idx[day][tKey(nm)] = 1; has = true; });
+  });
+  var unk = {};
+  (r.unknown || []).forEach(function (nm) { unk[tKey(nm)] = 1; });
+  return has ? { idx: idx, unknown: unk, savedAt: r.savedAt || null } : null;
+}
+function dowOf(iso) { return DOW_JP[new Date(iso + 'T00:00:00').getDay()]; }
+
+/* その日に出勤しているか。シフトが分からない先生は true（除外しない）。 */
+function onDuty(roster, day, key) {
+  if (!roster) return true;
+  if (roster.unknown[key]) return true;
+  var m = roster.idx[day];
+  if (!m) return true;                 // その曜日のシフトが1件も無い＝データが無いので絞らない
+  return !!m[key];
+}
+
 /* ---------- 今日のタッチ ------------------------------------------------ */
 function renderTouch() {
   var host = el('p-touch');
   if (!VIEW.date) { host.innerHTML = emptyState(); return; }
   var d = VIEW.date, bk = VIEW.block, s = snapAt(d);
   var all = evalAll(d, bk).filter(function (T) { return !T.out; });
+
+  /* その日に出勤している先生だけに絞る。声をかけられない相手を出しても仕方がない。
+     シフトが読めないとき・「全員」を選んだときは絞らない。 */
+  var roster = DB.cfg.touchAll ? null : dowRoster();
+  var day = dowOf(d), offCount = 0;
+  if (roster) {
+    var kept = all.filter(function (T) { return onDuty(roster, day, T.key); });
+    offCount = all.length - kept.length;
+    if (kept.length) all = kept; else roster = null;   // 全員外れるなら絞らない（シフトが古い等）
+  }
   var scored = all.filter(function (T) { return T.score !== null; });
 
   function judgeable(T) {
@@ -1361,7 +1402,7 @@ function renderTouch() {
     '<div class="muted">この週は <b>' + (s.week ? mdOf(s.week.start) + '〜' + mdOf(s.week.end) : '—') +
     '</b>（日〜土）。配信ファイルの中身は <b>' + dataThrough(d) + 'まで</b>です。' +
     (s.finalized ? '日曜配信なので<b>前週の確定値</b>です。' : '週の途中経過なので、母数はこれから増えます。') +
-    '</div></div>';
+    '</div>' + dutyLine(roster, day, all.length, offCount) + '</div>';
 
   html += '<div class="touch">';
   good.forEach(function (T) { html += touchCard(T, 'good', '🟢 ほめる・表彰候補'); });
@@ -1379,6 +1420,27 @@ function renderTouch() {
   }
   host.innerHTML = html;
   bindNames(host);
+  var tg = el('dutyTgl');
+  if (tg) tg.onclick = function () { DB.cfg.touchAll = !DB.cfg.touchAll; saveCfg(); renderTouch(); };
+}
+/* 絞り込みの状態を必ず画面に出す。黙って人数が減っていると原因が分からなくなる。 */
+function dutyLine(roster, day, nOn, nOff) {
+  if (DB.cfg.touchAll) {
+    return '<div class="muted">出勤で絞らずに<b>全員</b>を見ています。' +
+      '<button class="btn sec noprint" id="dutyTgl">' + esc(day) + '曜の出勤者にしぼる</button></div>';
+  }
+  if (!roster) {
+    return '<div class="muted">コマ組ツールに通常コマのシフトが入っていれば、' +
+      'その曜日に出勤する先生だけにしぼれます（コマ組を一度開くと引き継がれます）。</div>';
+  }
+  var src = 'コマ組ツールのシフト' + (roster.savedAt ? '（' + esc(roster.savedAt) + '時点）' : '');
+  // その曜日の枠が空＝日曜など授業が無い日。絞ったように書くと誤解される
+  if (!roster.idx[day]) {
+    return '<div class="muted">' + esc(day) + '曜は' + src + 'に出勤の登録がないので、しぼらず全員を出しています。</div>';
+  }
+  return '<div class="muted"><b>' + esc(day) + '曜に出勤する' + nOn + '名</b>にしぼっています' +
+    (nOff ? '（' + nOff + '名は今日いないので外しました）' : '') + '。' + src +
+    '<button class="btn sec noprint" id="dutyTgl">全員を見る</button></div>';
 }
 function mdOf(iso) { return (+iso.slice(5, 7)) + '/' + (+iso.slice(8, 10)); }
 function weekChip(s) {
@@ -2625,6 +2687,18 @@ function buildCorr(scoreSrc, ssDate, bk, minN) {
 }
 
 /* ---------- 散布図 ------------------------------------------------------ */
+/* 文字の幅をだいたいで見積もる。SVGでは実測できないので、
+   全角＝フォントサイズぶん、半角＝その55%として数える。 */
+function txtW(str, fs) {
+  var w = 0;
+  for (var i = 0; i < str.length; i++) {
+    var c = str.charCodeAt(i);
+    // ASCII と半角カナは細い
+    w += (c < 0x100 || (c >= 0xff61 && c <= 0xff9f)) ? fs * 0.55 : fs;
+  }
+  return w;
+}
+
 function scatter(used, mk, w, h) {
   var pts = used.filter(function (x) { return x[mk] !== null; });
   if (pts.length < 2) return '<div class="muted">点が足りません。</div>';
@@ -2633,31 +2707,94 @@ function scatter(used, mk, w, h) {
   var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
   if (x1 - x0 < 0.02) { x0 -= 0.01; x1 += 0.01; }
   if (y1 - y0 < 2) { y0 -= 1; y1 += 1; }
-  var pad = 42, W = w, H = h;
-  var X = function (v) { return pad + (v - x0) / (x1 - x0) * (W - pad - 14); };
+
+  var FS = 9.5;
+  var names = pts.map(function (p) { return p.name.replace(/\s+/g, ''); });
+  var wide = 0;
+  names.forEach(function (n) { wide = Math.max(wide, txtW(n, FS)); });
+
+  /* ★右端の点は 100%（Fコーチ・KWTは満点の先生が多い）に固まる。
+     名前を右に出すと必ずはみ出すので、右寄りの点は名前を左側に出す。
+     そのうえで、いちばん長い名前が入るぶんだけ描画エリアを内側に寄せる。 */
+  var padL = 42, padR = Math.min(Math.max(wide * 0.5 + 16, 22), w * 0.22);
+  var W = w, H = h;
+  var plotW = W - padL - padR;
+  var X = function (v) { return padL + (v - x0) / (x1 - x0) * plotW; };
   var Y = function (v) { return H - 26 - (v - y0) / (y1 - y0) * (H - 26 - 12); };
   var maxN = Math.max.apply(null, pts.map(function (p) { return p.n; }));
   var s = '<svg width="100%" viewBox="0 0 ' + W + ' ' + H + '" style="max-width:' + W + 'px">';
   // 0点の線
-  if (y0 < 0 && y1 > 0) s += '<line x1="' + pad + '" y1="' + Y(0).toFixed(1) + '" x2="' + (W - 14) + '" y2="' + Y(0).toFixed(1) + '" stroke="#cbd5e0" stroke-dasharray="3 3"/>';
+  if (y0 < 0 && y1 > 0) s += '<line x1="' + padL + '" y1="' + Y(0).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + Y(0).toFixed(1) + '" stroke="#cbd5e0" stroke-dasharray="3 3"/>';
   // 目盛
   [x0, (x0 + x1) / 2, x1].forEach(function (v) {
     s += '<text x="' + X(v).toFixed(1) + '" y="' + (H - 8) + '" font-size="10" fill="#8494a5" text-anchor="middle">' + (v * 100).toFixed(0) + '%</text>';
   });
   [y0, 0, y1].forEach(function (v) {
     if (v < y0 || v > y1) return;
-    s += '<text x="' + (pad - 6) + '" y="' + (Y(v) + 3).toFixed(1) + '" font-size="10" fill="#8494a5" text-anchor="end">' + (v > 0 ? '+' : '') + v.toFixed(0) + '</text>';
+    s += '<text x="' + (padL - 6) + '" y="' + (Y(v) + 3).toFixed(1) + '" font-size="10" fill="#8494a5" text-anchor="end">' + (v > 0 ? '+' : '') + v.toFixed(0) + '</text>';
   });
-  pts.forEach(function (p) {
+
+  /* 名前どうしの重なりを減らす。置いた場所を覚えておいて、
+     ぶつかったら上下に少しずらす。ずらせなければそのまま描く（消さない）。 */
+  var placed = [];
+  function free(bx) {
+    for (var i = 0; i < placed.length; i++) {
+      var o = placed[i];
+      if (bx.x1 > o.x0 && bx.x0 < o.x1 && bx.y1 > o.y0 && bx.y0 < o.y1) return false;
+    }
+    return true;
+  }
+
+  // 右にある点から先に置く（はみ出しやすい側を優先して場所を確保する）
+  var order = pts.map(function (p, i) { return i; })
+    .sort(function (a, b) { return X(pts[b][mk]) - X(pts[a][mk]); });
+
+  var circles = '', labels = '';
+  order.forEach(function (i) {
+    var p = pts[i], nm = names[i];
+    var cx = X(p[mk]), cy = Y(p.delta);
     var r = 3 + 5 * Math.sqrt(p.n / maxN);
     var col = p.delta >= 0 ? '#1f9d5b' : '#d1453b';
-    s += '<circle cx="' + X(p[mk]).toFixed(1) + '" cy="' + Y(p.delta).toFixed(1) + '" r="' + r.toFixed(1) +
+    circles += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' + r.toFixed(1) +
       '" fill="' + col + '" fill-opacity="0.55" stroke="' + col + '"/>';
-    s += '<text x="' + (X(p[mk]) + r + 2).toFixed(1) + '" y="' + (Y(p.delta) + 3).toFixed(1) +
-      '" font-size="9.5" fill="#4a5b6d">' + esc(p.name.replace(/\s+/g, '')) + '</text>';
+
+    var tw = txtW(nm, FS);
+    // 右半分の点は名前を左側に。左に出すと軸にかぶるときは右へ戻す
+    var left = cx > padL + plotW * 0.55;
+    if (left && cx - r - 3 - tw < padL - 2) left = false;
+    if (!left && cx + r + 3 + tw > W) left = true;
+
+    /* KWT・Fコーチは100%の先生が10名以上いて右端に縦に積み上がる。
+       上下にずらすだけでは足りないので、何度か失敗したら横にも1段ずらす。 */
+    var pick = null, spare = null;
+    for (var k = 0; k < 20; k++) {
+      var step = Math.ceil(k / 2) * (k % 2 ? 1 : -1);
+      var lane = Math.floor(k / 8);
+      var ky = cy + 3 + step * (FS + 2.5);
+      var dx = r + 3 + lane * (tw * 0.4 + 8);
+      var kx = left ? cx - dx : cx + dx;
+      var b = { x0: left ? kx - tw : kx, x1: left ? kx : kx + tw, y0: ky - FS, y1: ky + 3 };
+      // ★ずらした先が枠の外なら採用しない。上に押し出されて名前が切れる
+      if (b.y0 < 2 || b.y1 > H - 2 || b.x0 < 0 || b.x1 > W) continue;
+      if (free(b)) { pick = { x: kx, y: ky, b: b }; break; }
+      if (!spare) spare = { x: kx, y: ky, b: b };
+    }
+    if (!pick) pick = spare || (function () {                 // 枠内に置ける場所が無いときは端に寄せる
+      var ky = Math.min(Math.max(cy + 3, FS + 2), H - 5), kx = left ? cx - r - 3 : cx + r + 3;
+      return { x: kx, y: ky, b: { x0: left ? kx - tw : kx, x1: left ? kx : kx + tw, y0: ky - FS, y1: ky + 3 } };
+    })();
+    var tx = pick.x, ty = pick.y, box = pick.b;
+    placed.push(box);
+    // ずらしたときは、どの丸の名前か分かるように細い引き出し線を引く
+    if (Math.abs(ty - (cy + 3)) > 2) {
+      labels += '<line x1="' + (left ? tx + 1 : tx - 1).toFixed(1) + '" y1="' + (ty - 3).toFixed(1) +
+        '" x2="' + (left ? cx - r : cx + r).toFixed(1) + '" y2="' + cy.toFixed(1) +
+        '" stroke="#c3cedb" stroke-width="0.7"/>';
+    }
+    labels += '<text x="' + tx.toFixed(1) + '" y="' + ty.toFixed(1) +
+      '" font-size="' + FS + '" fill="#4a5b6d"' + (left ? ' text-anchor="end"' : '') + '>' + esc(nm) + '</text>';
   });
-  s += '<text x="' + (W / 2) + '" y="' + (H - 8) + '" font-size="10" fill="#66788a" text-anchor="middle" opacity="0"></text>';
-  s += '</svg>';
+  s += circles + labels + '</svg>';
   return s;
 }
 
