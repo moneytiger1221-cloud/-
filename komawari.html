@@ -723,33 +723,27 @@ function teacherActive(tid){
   }
   return false;                                                                  // 講習はシフト表が無いのでコマの有無だけ
 }
-/* その曜日に出勤している先生を、他のツール（SS管理）から使えるように書き出す。
-   判定はこの画面の「稼働中のみ」と同じ考え方：
-     ・その曜日にコマが入っている       → 出勤
-     ・通常コマシフトに○がある         → 出勤
-     ・退職予定                         → 出勤しない
-     ・シフト表に載っていない（不明）   → 判断できないので unknown に入れ、読む側で全部出す
+/* その曜日に生徒が入っている先生を、他のツール（SS管理）から使えるように書き出す。
+   ★盤面の配置だけを見る。通常コマシフト(NORMAL_SHIFT)は使わない。
+     シフトは 2026/07/25 のPDFを焼き込んだもので実態とずれるため、
+     「実際に生徒がハマっているか」だけを出勤の根拠にする。
    名前で渡す（IDは他ツールが持っていないため）。 */
-const LSDOW='komawari_dow_v1';
+const LSDOW='komawari_dow_v2';
 function exportDowRoster(){
   try{
     if(!teachers.length)return;
     const days={};
     DOW.forEach(d=>{
-      const names=[];
-      teachers.forEach(t=>{
-        if(RETIRE.has(t.id))return;
-        const hasKoma=komasN.some(k=>k.period===d&&k.teacherId===t.id)
-                    ||groupClasses.some(g=>g.period===d&&g.teacherId===t.id);
-        const onShift=shiftKnown(t.id)&&!!(NORMAL_SHIFT[t.id]||{})[d];
-        if(hasKoma||onShift)names.push(t.name);
-      });
+      const ids={};
+      komasN.forEach(k=>{if(k.period===d&&k.teacherId)ids[k.teacherId]=1;});
+      groupClasses.forEach(g=>{if(g.period===d&&g.teacherId)ids[g.teacherId]=1;});
+      const names=teachers.filter(t=>ids[t.id]).map(t=>t.name);
       if(names.length)days[d]=names;
     });
-    const unknown=teachers.filter(t=>!RETIRE.has(t.id)&&!shiftKnown(t.id)).map(t=>t.name);
     const n=new Date();
     const savedAt=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
-    LS.set(LSDOW,JSON.stringify({savedAt,days,unknown}));
+    LS.set(LSDOW,JSON.stringify({savedAt,src:'配置',days}));
+    LS.del('komawari_dow_v1');   // シフトで作った古い書き出しは残さない
   }catch(e){}
 }
 function activeCount(){return teachers.filter(t=>teacherActive(t.id)).length;}

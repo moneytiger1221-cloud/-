@@ -1329,11 +1329,12 @@ function factsLine(T) {
   }).join(' ・ ');
 }
 
-/* ---------- コマ組ツールの出勤シフト ------------------------------------ */
-/* コマ組ツールが同じオリジンの localStorage に書き出した「曜日ごとの出勤先生」を読む。
-   その日に来ない先生の話をしても声はかけられないので、今日のタッチはここで絞る。
-   シフト表に載っていない先生（unknown）は判断できないので絞らずに残す。 */
-var LS_DOW = 'komawari_dow_v1';
+/* ---------- コマ組ツールの配置 ------------------------------------------ */
+/* コマ組ツールが同じオリジンの localStorage に書き出した
+   「その曜日に生徒が入っている先生」を読む。
+   来ない先生の話をしても声はかけられないので、今日のタッチはここで絞る。
+   ★根拠は盤面の配置だけ。通常コマシフトの表は使わない（作成時点から実態がずれるため）。 */
+var LS_DOW = 'komawari_dow_v2';
 var DOW_JP = ['日', '月', '火', '水', '木', '金', '土'];
 
 function dowRoster() {
@@ -1344,18 +1345,14 @@ function dowRoster() {
     idx[day] = {};
     (r.days[day] || []).forEach(function (nm) { idx[day][tKey(nm)] = 1; has = true; });
   });
-  var unk = {};
-  (r.unknown || []).forEach(function (nm) { unk[tKey(nm)] = 1; });
-  return has ? { idx: idx, unknown: unk, savedAt: r.savedAt || null } : null;
+  return has ? { idx: idx, savedAt: r.savedAt || null } : null;
 }
 function dowOf(iso) { return DOW_JP[new Date(iso + 'T00:00:00').getDay()]; }
 
-/* その日に出勤しているか。シフトが分からない先生は true（除外しない）。 */
 function onDuty(roster, day, key) {
   if (!roster) return true;
-  if (roster.unknown[key]) return true;
   var m = roster.idx[day];
-  if (!m) return true;                 // その曜日のシフトが1件も無い＝データが無いので絞らない
+  if (!m) return true;                 // その曜日の配置が1件も無い＝判断材料が無いので絞らない
   return !!m[key];
 }
 
@@ -1366,14 +1363,14 @@ function renderTouch() {
   var d = VIEW.date, bk = VIEW.block, s = snapAt(d);
   var all = evalAll(d, bk).filter(function (T) { return !T.out; });
 
-  /* その日に出勤している先生だけに絞る。声をかけられない相手を出しても仕方がない。
-     シフトが読めないとき・「全員」を選んだときは絞らない。 */
+  /* その曜日に生徒が入っている先生だけに絞る。声をかけられない相手を出しても仕方がない。
+     コマ組の配置が読めないとき・「全員」を選んだときは絞らない。 */
   var roster = DB.cfg.touchAll ? null : dowRoster();
   var day = dowOf(d), offCount = 0;
   if (roster) {
     var kept = all.filter(function (T) { return onDuty(roster, day, T.key); });
     offCount = all.length - kept.length;
-    if (kept.length) all = kept; else roster = null;   // 全員外れるなら絞らない（シフトが古い等）
+    if (kept.length) all = kept; else roster = null;   // 全員外れるなら絞らない（配置が古い等）
   }
   var scored = all.filter(function (T) { return T.score !== null; });
 
@@ -1426,19 +1423,19 @@ function renderTouch() {
 /* 絞り込みの状態を必ず画面に出す。黙って人数が減っていると原因が分からなくなる。 */
 function dutyLine(roster, day, nOn, nOff) {
   if (DB.cfg.touchAll) {
-    return '<div class="muted">出勤で絞らずに<b>全員</b>を見ています。' +
-      '<button class="btn sec noprint" id="dutyTgl">' + esc(day) + '曜の出勤者にしぼる</button></div>';
+    return '<div class="muted">曜日で絞らずに<b>全員</b>を見ています。' +
+      '<button class="btn sec noprint" id="dutyTgl">' + esc(day) + '曜に授業がある先生だけ</button></div>';
   }
   if (!roster) {
-    return '<div class="muted">コマ組ツールに通常コマのシフトが入っていれば、' +
-      'その曜日に出勤する先生だけにしぼれます（コマ組を一度開くと引き継がれます）。</div>';
+    return '<div class="muted">コマ組ツールの通常コマに生徒が入っていれば、' +
+      'その曜日に授業がある先生だけにしぼれます（コマ組を一度開くと引き継がれます）。</div>';
   }
-  var src = 'コマ組ツールのシフト' + (roster.savedAt ? '（' + esc(roster.savedAt) + '時点）' : '');
-  // その曜日の枠が空＝日曜など授業が無い日。絞ったように書くと誤解される
+  var src = 'コマ組ツールの配置' + (roster.savedAt ? '（' + esc(roster.savedAt) + '時点）' : '');
+  // その曜日の配置が空＝日曜など授業が無い日。絞ったように書くと誤解される
   if (!roster.idx[day]) {
-    return '<div class="muted">' + esc(day) + '曜は' + src + 'に出勤の登録がないので、しぼらず全員を出しています。</div>';
+    return '<div class="muted">' + esc(day) + '曜は' + src + 'に授業が1件も無いので、しぼらず全員を出しています。</div>';
   }
-  return '<div class="muted"><b>' + esc(day) + '曜に出勤する' + nOn + '名</b>にしぼっています' +
+  return '<div class="muted"><b>' + esc(day) + '曜に授業がある' + nOn + '名</b>にしぼっています' +
     (nOff ? '（' + nOff + '名は今日いないので外しました）' : '') + '。' + src +
     '<button class="btn sec noprint" id="dutyTgl">全員を見る</button></div>';
 }
