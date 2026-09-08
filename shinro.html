@@ -139,16 +139,27 @@ details.fold>div{padding:0 10px 10px;}
   max-height:calc(1.8em * 3);}   /* 4行目が半分見えるのを防ぐ */
 .raw:empty{display:none;}
 .rawhint{font-size:10.5px;color:#93a3b3;margin:3px 0 0;}
-/* 地区・学科をいくつでも選べるボタン */
-.frow{align-items:flex-start;margin-top:6px;}
-.fkey{width:36px;flex:0 0 auto;padding-top:5px;color:#5a6b7d;font-size:12px;font-weight:700;}
-.chips{display:flex;flex-wrap:wrap;gap:4px;flex:1 1 auto;min-width:0;}
-.fchip{border:1px solid #c8d3de;background:#fff;border-radius:999px;padding:4px 11px;font-size:12px;
-  cursor:pointer;color:#3c4d5e;line-height:1.5;white-space:nowrap;font-family:inherit;}
-.fchip .n{color:#93a3b3;margin-left:4px;font-size:10.5px;}
-.fchip.on{background:#2b6fe0;border-color:#2b6fe0;color:#fff;}
-.fchip.on .n{color:#cfe0ff;}
-.fchip.all{font-weight:700;}
+/* 地区・学科の絞り込み（スプレッドシートのフィルタと同じ形） */
+.fdrop{position:relative;display:inline-block;}
+.fbtn{border:1px solid #c3cfdb;background:#fff;border-radius:6px;padding:5px 10px;font-size:12px;
+  cursor:pointer;color:#3c4d5e;font-family:inherit;white-space:nowrap;line-height:1.5;}
+.fbtn:hover{border-color:#9fb3c8;}
+.fbtn.on{border-color:#2b6fe0;color:#2b6fe0;background:#f2f7ff;font-weight:700;}
+.fbtn .cara{margin-left:5px;font-size:9px;color:#93a3b3;}
+.fbtn.on .cara{color:#2b6fe0;}
+.fpanel{position:absolute;z-index:60;top:calc(100% + 4px);left:0;width:280px;max-width:calc(100vw - 24px);
+  background:#fff;border:1px solid #c3cfdb;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:8px;}
+.fpanel.right{left:auto;right:0;}
+.fpanel input[type="text"]{width:100%;box-sizing:border-box;margin-bottom:6px;}
+.fpanel .fact{display:flex;gap:6px;margin-bottom:4px;}
+.fpanel .fact button{flex:1 1 auto;border:1px solid #c8d3de;background:#fff;border-radius:5px;
+  padding:4px 0;font-size:11.5px;cursor:pointer;color:#3c4d5e;font-family:inherit;}
+.fpanel .flist{max-height:46vh;overflow:auto;border-top:1px solid #eef2f6;}
+.fpanel .flist label{display:flex;align-items:center;gap:7px;padding:6px 4px;font-size:12px;
+  cursor:pointer;border-bottom:1px solid #f3f6f9;margin:0;}
+.fpanel .flist label:hover{background:#f5f9ff;}
+.fpanel .flist .n{margin-left:auto;color:#93a3b3;font-size:10.5px;}
+.fpanel .fnone{padding:10px 4px;font-size:12px;color:#93a3b3;}
 .viewsw{display:flex;gap:0;border:1px solid #c3cfdb;border-radius:6px;overflow:hidden;}
 .viewsw button{border:none;background:#fff;padding:5px 11px;font-size:12px;font-weight:700;cursor:pointer;color:#5a6b7d;}
 .viewsw button.on{background:#2b6fe0;color:#fff;}
@@ -270,6 +281,8 @@ details.fold>div{padding:0 10px 10px;}
       <div class="row">
         <label>年度</label>
         <select id="pYear" style="width:96px;"></select>
+        <span class="fdrop"><button class="fbtn" id="pAreaBtn">地区<span class="cara">▼</span></button></span>
+        <span class="fdrop"><button class="fbtn" id="pKindBtn">学科<span class="cara">▼</span></button></span>
         <label>通学</label>
         <input type="number" id="pTime" min="0" max="180" step="5" value="0" style="width:64px;"> 分以内
         <label>判定</label>
@@ -286,19 +299,10 @@ details.fold>div{padding:0 10px 10px;}
           <option value="time">通学が近い順</option>
         </select>
       </div>
-      <div class="row" style="margin-top:8px;">
-        <button class="btn sm" id="pFilterFold">地区・学科をたたむ</button>
-        <span class="small" id="pFilterNow" style="color:#44566a;"></span>
-      </div>
-      <div id="pFilterBox">
-      <div class="row frow"><label class="fkey">地区</label><span class="chips" id="pAreaChips"></span></div>
-      <div class="row frow"><label class="fkey">学科</label><span class="chips" id="pKindChips"></span></div>
       <div class="hint" style="margin-top:8px;">
-        地区・学科は<b>いくつでも選べます</b>（同じ行の中はどれかに当てはまればOK、
-        地区と学科は両方に当てはまるものだけ）。もう一度押すと外れます。
-        地区は<b>普通科・総合学科だけに付いている区分</b>なので、専門学科や定時制を探すときは
-        地区を「すべて」にしてください。
-      </div>
+        <b>地区</b>と<b>学科</b>はそれぞれいくつでもチェックできます（同じ枠の中はどれかに当てはまればOK、
+        枠どうしは両方に当てはまるものだけ）。地区は<b>普通科・総合学科にしか付いていない区分</b>なので、
+        専門学科や定時制を探すときは地区のチェックを外してください。
       </div>
       <div class="hint" style="margin-top:8px;">
         通学時間は<b>戸塚から学校まで、1校ずつ乗換案内で調べた実測値</b>です（平日07:30発・IC優先・
@@ -2871,9 +2875,10 @@ each('#fView button',function(b){
     render();
   };
 });
-$('pFilterFold').onclick=function(){
-  S.settings.pubFold=!pubFilterFolded(); lsSet(K.set,S.settings); drawPubFold();
-};
+if(typeof document!=='undefined' && document.addEventListener){
+  document.addEventListener('click', function(){ closePubPanels(); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') closePubPanels(); });
+}
 ['pJudge','pSort','pNoStation','pHideNoJudge'].forEach(function(id){ $(id).onchange=renderPubTable; });
 ['pLegW','pLegB','pLegWB'].forEach(function(id){
   $(id).onchange=function(){
@@ -2907,44 +2912,86 @@ $('pWord').oninput=renderPubTable;
 var PUBF={area:{}, kind:{}};
 function pubFilterOn(g){ for(var k in PUBF[g]) if(PUBF[g][k]) return true; return false; }
 function pubFilterList(g){ var o=[]; for(var k in PUBF[g]) if(PUBF[g][k]) o.push(k); return o; }
-function pubFilterSummary(){
-  var s=[];
-  if(pubFilterOn('area')) s.push('地区 '+pubFilterList('area').map(function(v){ return v||'地区なし'; }).join('・'));
-  if(pubFilterOn('kind')) s.push('学科 '+pubFilterList('kind').join('・'));
-  return s.length? s.join('／') : 'すべての地区・学科';
+/* 絞り込みの定義。ボタンのid・選択肢の作り方・学校からの取り出し方・空欄の呼び名 */
+var PUB_FILTERS=[
+  {g:'area', btn:'pAreaBtn', label:'地区', list:function(){ return pubAreaList(); },
+   of:function(s){ return pubAreaOf(s); }, blank:'地区なし（専門学科・定時制など）'},
+  {g:'kind', btn:'pKindBtn', label:'学科', list:function(){ return pubKindList(); },
+   of:function(s){ return pubKindOf(s); }, blank:'（なし）'}
+];
+function pubFilterDef(g){ for(var i=0;i<PUB_FILTERS.length;i++) if(PUB_FILTERS[i].g===g) return PUB_FILTERS[i]; return null; }
+function pubFilterCount(f){
+  var cnt={};
+  pubSchools().forEach(function(s){ var v=f.of(s); cnt[v]=(cnt[v]||0)+1; });
+  return cnt;
 }
-function pubFilterFolded(){ return !!S.settings.pubFold; }
-function drawPubFold(){
-  var box=$('pFilterBox'), btn=$('pFilterFold');
-  if(!box||!btn) return;
-  box.hidden=pubFilterFolded();
-  btn.textContent=pubFilterFolded()? '地区・学科でしぼる' : '地区・学科をたたむ';
-  $('pFilterNow').textContent=pubFilterSummary();
-}
+/* 開いているパネルを閉じる */
+function closePubPanels(){ each('.fpanel',function(p){ p.parentNode.removeChild(p); }); }
+
 function drawPubChips(){
-  drawPubFold();
-  [['area','pAreaChips',pubAreaList,pubAreaOf,'地区なし（専門学科・定時制など）'],
-   ['kind','pKindChips',pubKindList,pubKindOf,'']].forEach(function(g){
-    var name=g[0], box=$(g[1]), list=g[2](), of=g[3], blankLabel=g[4];
-    var cnt={}; pubSchools().forEach(function(s){ var v=of(s); cnt[v]=(cnt[v]||0)+1; });
-    /* 使われていない選択肢は消しておく（年度を変えたときなど） */
-    for(var k in PUBF[name]) if(list.indexOf(k)<0) delete PUBF[name][k];
-    var h='<button class="fchip all'+(pubFilterOn(name)?'':' on')+'" data-all="1">すべて</button>';
-    list.forEach(function(v){
-      h+='<button class="fchip'+(PUBF[name][v]?' on':'')+'" data-g="'+name+'" data-v="'+esc(v)+'">'+
-         esc(v||blankLabel||'（なし）')+'<span class="n">'+(cnt[v]||0)+'</span></button>';
+  PUB_FILTERS.forEach(function(f){
+    var btn=$(f.btn); if(!btn) return;
+    var list=f.list();
+    /* 年度を変えて消えた選択肢は捨てる */
+    for(var k in PUBF[f.g]) if(list.indexOf(k)<0) delete PUBF[f.g][k];
+    var on=pubFilterList(f.g);
+    btn.className='fbtn'+(on.length?' on':'');
+    btn.innerHTML=esc(f.label)+
+      (on.length? '<span class="cara">▼</span> '+esc(on.length===1? (on[0]||'地区なし') : (on.length+'件'))
+                : '<span class="cara">▼</span>');
+    btn.title=on.length? on.map(function(v){ return v||'地区なし'; }).join('、') : 'すべて';
+    btn.onclick=function(e){
+      e.stopPropagation();
+      var open=btn.parentNode.querySelector('.fpanel');
+      closePubPanels();
+      if(!open) openPubPanel(f);
+    };
+  });
+}
+
+function openPubPanel(f){
+  var host=$(f.btn).parentNode;
+  var p=document.createElement('div');
+  p.className='fpanel';
+  host.appendChild(p);
+  /* 画面の右にはみ出すなら右寄せにする */
+  if(p.getBoundingClientRect().right > document.documentElement.clientWidth-8) p.classList.add('right');
+  var word='';
+  function draw(){
+    var list=f.list(), cnt=pubFilterCount(f);
+    var shown=list.filter(function(v){
+      if(!word) return true;
+      return (v||f.blank).indexOf(word)>=0;
     });
-    box.innerHTML=h;
-    each('.fchip',function(btn){
-      btn.onclick=function(){
-        var v=btn.dataset.v;
-        if(btn.dataset.all) PUBF[name]={};
-        else if(PUBF[name][v]) delete PUBF[name][v];
-        else PUBF[name][v]=true;
+    var h='<input type="text" placeholder="'+esc(f.label)+'名でしぼる" value="'+esc(word)+'">'+
+      '<div class="fact"><button data-act="all">すべて選択</button>'+
+      '<button data-act="none">すべて解除</button></div><div class="flist">';
+    if(!shown.length) h+='<div class="fnone">見つかりません</div>';
+    shown.forEach(function(v){
+      h+='<label><input type="checkbox" data-v="'+esc(v)+'"'+(PUBF[f.g][v]?' checked':'')+'>'+
+         '<span>'+esc(v||f.blank)+'</span><span class="n">'+(cnt[v]||0)+'</span></label>';
+    });
+    h+='</div>';
+    p.innerHTML=h;
+    var box=p.querySelector('input[type="text"]');
+    box.oninput=function(){ word=box.value.trim(); var pos=box.selectionStart; draw();
+      var nb=p.querySelector('input[type="text"]'); nb.focus(); nb.setSelectionRange(pos,pos); };
+    each('input[type="checkbox"]',function(c){
+      c.onchange=function(){
+        if(c.checked) PUBF[f.g][c.dataset.v]=true; else delete PUBF[f.g][c.dataset.v];
         drawPubChips(); renderPubTable();
       };
-    }, box);
-  });
+    }, p);
+    each('.fact button',function(b){
+      b.onclick=function(){
+        if(b.dataset.act==='none') PUBF[f.g]={};
+        else shown.forEach(function(v){ PUBF[f.g][v]=true; });   /* 検索で絞ったぶんだけ */
+        draw(); drawPubChips(); renderPubTable();
+      };
+    }, p);
+    p.onclick=function(e){ e.stopPropagation(); };
+  }
+  draw();
 }
 
 function pubEval(sc){
