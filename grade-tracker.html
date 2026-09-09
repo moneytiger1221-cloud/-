@@ -123,6 +123,31 @@
   .tantou-badges { display:flex; gap:6px; flex-wrap:wrap; margin-top:5px; }
   .tantou-badge { background:#f1f2f5; color:#333; font-size:12px; padding:3px 8px; border-radius:6px; font-weight:600; }
   .tantou-badge .tb-subj { color:#888; font-weight:500; margin-right:2px; }
+/* ===== 複数えらべる絞り込み（スプレッドシートのフィルタと同じ形）=====
+   進路ツールと同じ部品。ボタンを押すとチェックの一覧が下に開く。
+   パネルは body の直下に置く（画面を作り直しても閉じないように）。      */
+.fdrop{display:inline-block;}
+.fbtn{border:1px solid #c3cfdb;background:#fff;border-radius:8px;padding:6px 11px;font-size:13px;
+  cursor:pointer;color:#3c4d5e;font-family:inherit;white-space:nowrap;line-height:1.4;}
+.fbtn:hover{border-color:#9fb3c8;}
+.fbtn.on{border-color:#4f46e5;color:#4f46e5;background:#eef2ff;font-weight:700;}
+.fbtn .cara{margin-left:5px;font-size:9px;color:#93a3b3;}
+.fbtn.on .cara{color:#4f46e5;}
+.fpanel{position:fixed;z-index:9999;width:270px;max-width:calc(100vw - 16px);
+  background:#fff;border:1px solid #c3cfdb;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:8px;
+  text-align:left;box-sizing:border-box;}
+.fpanel input[type="text"]{width:100%;box-sizing:border-box;margin-bottom:6px;padding:6px 8px;
+  border:1px solid #dfe5ec;border-radius:6px;font-size:12.5px;font-family:inherit;}
+.fpanel .fact{display:flex;gap:6px;margin-bottom:4px;}
+.fpanel .fact button{flex:1 1 auto;border:1px solid #c8d3de;background:#fff;border-radius:6px;
+  padding:5px 0;font-size:12px;cursor:pointer;color:#3c4d5e;font-family:inherit;}
+.fpanel .fact button:hover{background:#f5f9ff;}
+.fpanel .flist{max-height:44vh;overflow:auto;border-top:1px solid #eef2f6;}
+.fpanel .flist label{display:flex;align-items:center;gap:8px;padding:7px 4px;font-size:13px;
+  cursor:pointer;border-bottom:1px solid #f3f6f9;margin:0;font-weight:400;color:#334155;}
+.fpanel .flist label:hover{background:#f5f9ff;}
+.fpanel .flist .n{margin-left:auto;color:#93a3b3;font-size:11px;}
+.fpanel .fnone{padding:10px 4px;font-size:12.5px;color:#93a3b3;}
 </style>
 </head>
 <body>
@@ -174,10 +199,10 @@
 
 <div id="filterBar" style="display:none;background:#fff;padding:10px 16px;border-bottom:1px solid #e2e4e8;">
   <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-    <select id="fSchool" class="fsel"><option value="">全学校</option></select>
-    <select id="fGrade" class="fsel"><option value="">全学年</option></select>
+    <span class="fdrop"><button type="button" class="fbtn" id="fSchool">学校<span class="cara">▼</span></button></span>
+    <span class="fdrop"><button type="button" class="fbtn" id="fGrade">学年<span class="cara">▼</span></button></span>
+    <span class="fdrop"><button type="button" class="fbtn" id="fTeacher">担任<span class="cara">▼</span></button></span>
     <select id="fSubject" class="fsel"><option value="">全科目</option></select>
-    <select id="fTeacher" class="fsel"><option value="">全担任</option></select>
     <select id="fSort" class="fsel">
       <option value="deltaAsc">危険度が高い順</option>
       <option value="deltaDesc">上昇が大きい順</option>
@@ -422,7 +447,163 @@ let TH_SUBJECT = -10;  // 受講科目下落の閾値
 let TH_TOTAL = -30;    // 5科目合計下落の閾値
 let hideNonRoster = true;  // 名簿にいない生徒を非表示
 let mainView = 'action';   // action / summary / settings
-let filters = { school:'', grade:'', subject:'', teacher:'', tantouTeacher:'', sort:'deltaAsc', urgentOnly:false };
+let filters = { subject:'', tantouTeacher:'', sort:'deltaAsc', urgentOnly:false };
+/* ===== 複数えらべる絞り込み（スプレッドシートのフィルタと同じ形）=====
+   進路ツールと同じ部品。ボタンを押すとチェックの一覧が下に開き、
+   検索・すべて選択・すべて解除ができる。チェックした瞬間に結果へ反映する。
+
+   使い方:
+     FLT.define({key:'school', btn:'fSchool', label:'学校',
+                 values:function(){ return ['A中','B中']; },
+                 counts:function(){ return {'A中':12}; },   // 省略可
+                 onChange:function(){ ... }});
+     FLT.pass('school', st.school)   // 何も選んでいなければ true
+     FLT.draw()                      // ボタンを作り直したあとに呼ぶ
+     FLT.list('school')              // 選ばれている値の配列
+
+   ・選ばれている値は FLT の中に持つので、画面を作り直しても消えない。
+   ・パネルは body の直下に置く。アンケートツールのように画面ごと
+     作り直すツールでも、チェックの途中でパネルが消えないようにするため。 */
+var FLT = (function(){
+  var defs={}, sel={}, openKey=null;
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+  function define(def){ defs[def.key]=def; if(!sel[def.key]) sel[def.key]={}; }
+  function on(key){ var o=sel[key]||{}; for(var k in o) if(o[k]) return true; return false; }
+  function list(key){ var o=sel[key]||{}, out=[]; for(var k in o) if(o[k]) out.push(k); return out; }
+  function pass(key,v){ return !on(key) || !!(sel[key]||{})[v]; }
+  function clear(key){ sel[key]={}; }
+  function panel(){ return document.querySelector('.fpanel'); }
+
+  function closeAll(){
+    var p=panel(); if(p) p.parentNode.removeChild(p);
+    openKey=null;
+  }
+  /* ボタンの真下に置く。画面の右や下からはみ出さないように寄せる。 */
+  function place(p, btn){
+    var r=btn.getBoundingClientRect(), W=document.documentElement.clientWidth, H=document.documentElement.clientHeight;
+    var w=p.offsetWidth || 270;
+    var left=Math.max(8, Math.min(r.left, W-w-8));
+    var top=r.bottom+4;
+    if(top + p.offsetHeight > H-8) top=Math.max(8, r.top - p.offsetHeight - 4);
+    p.style.left=left+'px'; p.style.top=top+'px';
+  }
+
+  function draw(only){
+    Object.keys(defs).forEach(function(key){
+      if(only && only!==key) return;
+      var f=defs[key], btn=document.getElementById(f.btn);
+      if(!btn) return;
+      var vals=f.values()||[];
+      /* 元データから消えた選択肢は捨てる（テスト回や校舎を変えたとき） */
+      var o=sel[key]||{}; for(var k in o) if(vals.indexOf(k)<0) delete o[k];
+      var chosen=list(key);
+      btn.className='fbtn'+(chosen.length?' on':'');
+      btn.innerHTML=esc(f.label)+'<span class="cara">▼</span>'+
+        (chosen.length? ' '+esc(chosen.length===1? (f.text? f.text(chosen[0]) : chosen[0]) : (chosen.length+'件')) : '');
+      btn.title=chosen.length? chosen.map(function(v){ return f.text? f.text(v) : v; }).join('、') : 'すべて';
+      btn.onclick=function(e){
+        e.preventDefault(); e.stopPropagation();
+        var was=openKey;
+        closeAll();
+        if(was!==key) open(f);
+      };
+    });
+    /* 開きっぱなしのパネルは、押しボタンが作り直されていても位置を合わせ直す */
+    var p=panel();
+    if(p && openKey){
+      var b=document.getElementById(defs[openKey].btn);
+      if(b) place(p,b); else closeAll();
+    }
+  }
+
+  function open(f){
+    var btn=document.getElementById(f.btn); if(!btn) return;
+    var p=document.createElement('div');
+    p.className='fpanel';
+    document.body.appendChild(p);
+    openKey=f.key;
+    var word='';
+    function body(){
+      var vals=f.values()||[], cnt=(f.counts? f.counts() : null);
+      var shown=vals.filter(function(v){
+        if(!word) return true;
+        return String(f.text? f.text(v) : v).indexOf(word)>=0;
+      });
+      var h='<input type="text" placeholder="'+esc(f.label)+'でしぼる" value="'+esc(word)+'">'+
+        '<div class="fact"><button type="button" data-act="all">すべて選択</button>'+
+        '<button type="button" data-act="none">すべて解除</button></div><div class="flist">';
+      if(!shown.length) h+='<div class="fnone">見つかりません</div>';
+      shown.forEach(function(v){
+        h+='<label><input type="checkbox" data-v="'+esc(v)+'"'+(sel[f.key][v]?' checked':'')+'>'+
+           '<span>'+esc(f.text? f.text(v) : v)+'</span>'+
+           (cnt? '<span class="n">'+(cnt[v]||0)+'</span>' : '')+'</label>';
+      });
+      h+='</div>';
+      p.innerHTML=h;
+      var tb=p.querySelector('input[type="text"]');
+      tb.oninput=function(){ var pos=tb.selectionStart; word=tb.value.trim(); body();
+        var nb=p.querySelector('input[type="text"]'); nb.focus();
+        try{ nb.setSelectionRange(pos,pos); }catch(e){} };
+      var cbs=p.querySelectorAll('input[type="checkbox"]');
+      for(var i=0;i<cbs.length;i++)(function(c){
+        c.onchange=function(){
+          if(c.checked) sel[f.key][c.getAttribute('data-v')]=true;
+          else delete sel[f.key][c.getAttribute('data-v')];
+          draw();                          /* 先にボタンを更新してから結果を描き直す */
+          if(f.onChange) f.onChange();     /* 画面が作り直されてもパネルは残る */
+        };
+      })(cbs[i]);
+      var bs=p.querySelectorAll('.fact button');
+      for(var j=0;j<bs.length;j++)(function(b){
+        b.onclick=function(){
+          if(b.getAttribute('data-act')==='none') sel[f.key]={};
+          else shown.forEach(function(v){ sel[f.key][v]=true; });   /* 検索で絞ったぶんだけ */
+          body(); draw(); if(f.onChange) f.onChange();
+        };
+      })(bs[j]);
+      p.onclick=function(e){ e.stopPropagation(); };
+      var b2=document.getElementById(f.btn); if(b2) place(p,b2);
+    }
+    body();
+  }
+
+  function reposition(){
+    var p=panel(); if(!p||!openKey) return;
+    var b=document.getElementById(defs[openKey].btn);
+    if(b) place(p,b); else closeAll();
+  }
+  if(typeof document!=='undefined' && document.addEventListener){
+    document.addEventListener('click', closeAll);
+    document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeAll(); });
+    document.addEventListener('scroll', reposition, true);
+    if(typeof window!=='undefined' && window.addEventListener) window.addEventListener('resize', reposition);
+  }
+  return {define:define, draw:draw, on:on, list:list, pass:pass, clear:clear, close:closeAll, sel:sel};
+})();
+
+/* 絞り込みの対象になる生徒（名簿にいない子を外したあと） */
+function filterStudents(){
+  const hasRoster = Object.keys(names).length > 0;
+  return Object.values(students).filter(st => !(hasRoster && hideNonRoster) || names[st.no]);
+}
+function gradeOf(st){ return displayGrade(selectedRound ? gradeAtRound(st.no, selectedRound) : null) || st.grade; }
+function tally(fn){
+  const o={}; filterStudents().forEach(st=>{ const v=fn(st); if(v) o[v]=(o[v]||0)+1; }); return o;
+}
+FLT.define({key:'school', btn:'fSchool', label:'学校',
+  values:function(){ return [...new Set(filterStudents().map(s=>s.school).filter(Boolean))].sort(); },
+  counts:function(){ return tally(s=>s.school); },
+  onChange:function(){ render(); }});
+FLT.define({key:'grade', btn:'fGrade', label:'学年',
+  values:function(){ return [...new Set(filterStudents().map(gradeOf).filter(Boolean))].sort(); },
+  counts:function(){ return tally(gradeOf); },
+  onChange:function(){ render(); }});
+FLT.define({key:'teacher', btn:'fTeacher', label:'担任',
+  values:function(){ return [...new Set(filterStudents().map(s=>s.teacher).filter(Boolean))].sort(); },
+  counts:function(){ return tally(s=>s.teacher); },
+  onChange:function(){ render(); }});
 
 const STORAGE_KEY = 'gradeTracker_v1';
 const NAMES_KEY = 'gradeTracker_names_v1';
@@ -985,14 +1166,16 @@ function renderClassRisk() {
     row.addEventListener('click', ()=>{
       const type=row.dataset.drill, val=row.dataset.val;
       // いったん絞り込みをリセットして対象だけ設定
-      filters.school=''; filters.grade=''; filters.subject=''; filters.teacher=''; filters.tantouTeacher='';
+      FLT.clear('school'); FLT.clear('grade'); FLT.clear('teacher');
+      filters.subject=''; filters.tantouTeacher='';
       if (type==='subject') filters.subject=val;
-      if (type==='grade') filters.grade=val;
+      if (type==='grade') FLT.sel.grade[val]=true;
       // 講師：担当データがあれば担当講師で、なければ担任で絞る
       if (type==='teacher'){
         const isTantou = Object.values(tantou).some(tm=>Object.values(tm).includes(val));
-        if (isTantou) filters.tantouTeacher=val; else filters.teacher=val;
+        if (isTantou) filters.tantouTeacher=val; else FLT.sel.teacher[val]=true;
       }
+      FLT.draw();
       activeTab='down';
       document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x.dataset.tab==='down'));
       render();
@@ -1091,12 +1274,16 @@ function render() {
   // 学年フィルターは「選択中のテスト回時点」の学年で判定する。
   // 進級後の「今の学年」で判定すると、過去のテスト回を見ているときに
   // （例:今中3の子の2025年度⑤を見ているのに）該当学年から漏れてしまうため。
-  if (filters.school) all = all.filter(st => st.school === filters.school);
-  if (filters.grade)  all = all.filter(st => {
-    const g = (selectedRound ? gradeAtRound(st.no, selectedRound) : null) || st.grade;
-    return normGrade(g) === normGrade(filters.grade);
-  });
-  if (filters.teacher) all = all.filter(st => st.teacher === filters.teacher);
+  if (FLT.on('school')) all = all.filter(st => FLT.pass('school', st.school));
+  if (FLT.on('grade')) {
+    /* 学年の表記ゆれ（中2 / 中２ / 2年）をそろえてから見比べる */
+    const want = FLT.list('grade').map(normGrade);
+    all = all.filter(st => {
+      const g = (selectedRound ? gradeAtRound(st.no, selectedRound) : null) || st.grade;
+      return want.indexOf(normGrade(g)) >= 0;
+    });
+  }
+  if (FLT.on('teacher')) all = all.filter(st => FLT.pass('teacher', st.teacher));
   if (filters.tantouTeacher) all = all.filter(st => {
     const tm = tantou[st.no];
     return tm && Object.values(tm).includes(filters.tantouTeacher);
@@ -1357,14 +1544,8 @@ async function readFileSmart(f) {
 // ===== フィルターの選択肢を生成 =====
 function populateFilters() {
   const sts = Object.values(students).filter(st => !(Object.keys(names).length>0 && hideNonRoster) || names[st.no]);
-  const schools = [...new Set(sts.map(s=>s.school).filter(Boolean))].sort();
-  // 学年候補は選択中のテスト回時点のもの（進級後の今の学年ではない）
-  const grades = [...new Set(sts.map(s => displayGrade(selectedRound ? gradeAtRound(s.no, selectedRound) : null) || s.grade).filter(Boolean))].sort();
-  const teachers = [...new Set(sts.map(s=>s.teacher).filter(Boolean))].sort();
   const subjects = ['国語','数学','英語','理科','社会'];
-  fillSelect('fSchool', schools, filters.school, '全学校');
-  fillSelect('fGrade', grades, filters.grade, '全学年');
-  fillSelect('fTeacher', teachers, filters.teacher, '全担任');
+  FLT.draw();
   fillSelect('fSubject', subjects, filters.subject, '全科目');
   document.getElementById('fSort').value = filters.sort;
 }
@@ -2290,13 +2471,10 @@ document.querySelectorAll('.mtab').forEach(t=>{
   t.addEventListener('click', ()=> switchMainView(t.dataset.main));
 });
 // フィルター
-['fSchool','fGrade','fSubject','fTeacher','fSort'].forEach(id=>{
+['fSubject','fSort'].forEach(id=>{
   const el = document.getElementById(id);
   el.addEventListener('change', ()=>{
-    filters.school = document.getElementById('fSchool').value;
-    filters.grade = document.getElementById('fGrade').value;
     filters.subject = document.getElementById('fSubject').value;
-    filters.teacher = document.getElementById('fTeacher').value;
     filters.sort = document.getElementById('fSort').value;
     render();
   });

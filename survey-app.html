@@ -29,6 +29,9 @@
   .chip { padding:2px 6px; border-radius:4px; font-size:10px; font-weight:500; display:inline-block; }
   .filterbar { display:flex; gap:7px; flex-wrap:wrap; margin-bottom:11px; background:#fff; padding:9px 12px; border-radius:10px; box-shadow:0 1px 3px rgba(0,0,0,.07); align-items:center; }
   .flagbtn { background:none; border:none; cursor:pointer; font-size:15px; padding:0; }
+  .filterbar .fsearch{ flex:1 1 220px; min-width:150px; }
+  /* スマホでは検索欄を1行まるごと使う（今までは途中で切れて読めなかった） */
+  @media (max-width:520px){ .filterbar .fsearch{ flex:1 1 100%; min-width:0; } }
   .statcard { flex:1; background:#fff; border-radius:10px; padding:12px 16px; box-shadow:0 1px 3px rgba(0,0,0,.07); min-width:88px; }
   .barwrap { display:flex; align-items:flex-end; gap:8px; height:160px; padding:10px 0; }
   .bar-col { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:4px; }
@@ -51,6 +54,31 @@
 #toastbox.on{opacity:1;}
 #toastbox.ok{background:#15803d;}
 #toastbox.ng{background:#b91c1c;}
+/* ===== 複数えらべる絞り込み（スプレッドシートのフィルタと同じ形）=====
+   進路ツールと同じ部品。ボタンを押すとチェックの一覧が下に開く。
+   パネルは body の直下に置く（画面を作り直しても閉じないように）。      */
+.fdrop{display:inline-block;}
+.fbtn{border:1px solid #c3cfdb;background:#fff;border-radius:8px;padding:6px 11px;font-size:13px;
+  cursor:pointer;color:#3c4d5e;font-family:inherit;white-space:nowrap;line-height:1.4;}
+.fbtn:hover{border-color:#9fb3c8;}
+.fbtn.on{border-color:#4f46e5;color:#4f46e5;background:#eef2ff;font-weight:700;}
+.fbtn .cara{margin-left:5px;font-size:9px;color:#93a3b3;}
+.fbtn.on .cara{color:#4f46e5;}
+.fpanel{position:fixed;z-index:9999;width:270px;max-width:calc(100vw - 16px);
+  background:#fff;border:1px solid #c3cfdb;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:8px;
+  text-align:left;box-sizing:border-box;}
+.fpanel input[type="text"]{width:100%;box-sizing:border-box;margin-bottom:6px;padding:6px 8px;
+  border:1px solid #dfe5ec;border-radius:6px;font-size:12.5px;font-family:inherit;}
+.fpanel .fact{display:flex;gap:6px;margin-bottom:4px;}
+.fpanel .fact button{flex:1 1 auto;border:1px solid #c8d3de;background:#fff;border-radius:6px;
+  padding:5px 0;font-size:12px;cursor:pointer;color:#3c4d5e;font-family:inherit;}
+.fpanel .fact button:hover{background:#f5f9ff;}
+.fpanel .flist{max-height:44vh;overflow:auto;border-top:1px solid #eef2f6;}
+.fpanel .flist label{display:flex;align-items:center;gap:8px;padding:7px 4px;font-size:13px;
+  cursor:pointer;border-bottom:1px solid #f3f6f9;margin:0;font-weight:400;color:#334155;}
+.fpanel .flist label:hover{background:#f5f9ff;}
+.fpanel .flist .n{margin-left:auto;color:#93a3b3;font-size:11px;}
+.fpanel .fnone{padding:10px 4px;font-size:12.5px;color:#93a3b3;}
 </style>
 </head>
 <body>
@@ -228,6 +256,141 @@ function scKey(v,key){ return (key==="q5"?SCORE_Q5:SCORE_Q14)[v] ?? 3; }
 const sc = v => SCORE_MAP[v] ?? 3; // 汎用（⑤の相対比較で使用）
 const avgSc = (arr,key) => arr.length ? +(arr.reduce((s,r)=>s+scKey(r[key],key),0)/arr.length).toFixed(2) : 0;
 const esc = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+/* ===== 複数えらべる絞り込み（スプレッドシートのフィルタと同じ形）=====
+   進路ツールと同じ部品。ボタンを押すとチェックの一覧が下に開き、
+   検索・すべて選択・すべて解除ができる。チェックした瞬間に結果へ反映する。
+
+   使い方:
+     FLT.define({key:'school', btn:'fSchool', label:'学校',
+                 values:function(){ return ['A中','B中']; },
+                 counts:function(){ return {'A中':12}; },   // 省略可
+                 onChange:function(){ ... }});
+     FLT.pass('school', st.school)   // 何も選んでいなければ true
+     FLT.draw()                      // ボタンを作り直したあとに呼ぶ
+     FLT.list('school')              // 選ばれている値の配列
+
+   ・選ばれている値は FLT の中に持つので、画面を作り直しても消えない。
+   ・パネルは body の直下に置く。アンケートツールのように画面ごと
+     作り直すツールでも、チェックの途中でパネルが消えないようにするため。 */
+var FLT = (function(){
+  var defs={}, sel={}, openKey=null;
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+  function define(def){ defs[def.key]=def; if(!sel[def.key]) sel[def.key]={}; }
+  function on(key){ var o=sel[key]||{}; for(var k in o) if(o[k]) return true; return false; }
+  function list(key){ var o=sel[key]||{}, out=[]; for(var k in o) if(o[k]) out.push(k); return out; }
+  function pass(key,v){ return !on(key) || !!(sel[key]||{})[v]; }
+  function clear(key){ sel[key]={}; }
+  function panel(){ return document.querySelector('.fpanel'); }
+
+  function closeAll(){
+    var p=panel(); if(p) p.parentNode.removeChild(p);
+    openKey=null;
+  }
+  /* ボタンの真下に置く。画面の右や下からはみ出さないように寄せる。 */
+  function place(p, btn){
+    var r=btn.getBoundingClientRect(), W=document.documentElement.clientWidth, H=document.documentElement.clientHeight;
+    var w=p.offsetWidth || 270;
+    var left=Math.max(8, Math.min(r.left, W-w-8));
+    var top=r.bottom+4;
+    if(top + p.offsetHeight > H-8) top=Math.max(8, r.top - p.offsetHeight - 4);
+    p.style.left=left+'px'; p.style.top=top+'px';
+  }
+
+  function draw(only){
+    Object.keys(defs).forEach(function(key){
+      if(only && only!==key) return;
+      var f=defs[key], btn=document.getElementById(f.btn);
+      if(!btn) return;
+      var vals=f.values()||[];
+      /* 元データから消えた選択肢は捨てる（テスト回や校舎を変えたとき） */
+      var o=sel[key]||{}; for(var k in o) if(vals.indexOf(k)<0) delete o[k];
+      var chosen=list(key);
+      btn.className='fbtn'+(chosen.length?' on':'');
+      btn.innerHTML=esc(f.label)+'<span class="cara">▼</span>'+
+        (chosen.length? ' '+esc(chosen.length===1? (f.text? f.text(chosen[0]) : chosen[0]) : (chosen.length+'件')) : '');
+      btn.title=chosen.length? chosen.map(function(v){ return f.text? f.text(v) : v; }).join('、') : 'すべて';
+      btn.onclick=function(e){
+        e.preventDefault(); e.stopPropagation();
+        var was=openKey;
+        closeAll();
+        if(was!==key) open(f);
+      };
+    });
+    /* 開きっぱなしのパネルは、押しボタンが作り直されていても位置を合わせ直す */
+    var p=panel();
+    if(p && openKey){
+      var b=document.getElementById(defs[openKey].btn);
+      if(b) place(p,b); else closeAll();
+    }
+  }
+
+  function open(f){
+    var btn=document.getElementById(f.btn); if(!btn) return;
+    var p=document.createElement('div');
+    p.className='fpanel';
+    document.body.appendChild(p);
+    openKey=f.key;
+    var word='';
+    function body(){
+      var vals=f.values()||[], cnt=(f.counts? f.counts() : null);
+      var shown=vals.filter(function(v){
+        if(!word) return true;
+        return String(f.text? f.text(v) : v).indexOf(word)>=0;
+      });
+      var h='<input type="text" placeholder="'+esc(f.label)+'でしぼる" value="'+esc(word)+'">'+
+        '<div class="fact"><button type="button" data-act="all">すべて選択</button>'+
+        '<button type="button" data-act="none">すべて解除</button></div><div class="flist">';
+      if(!shown.length) h+='<div class="fnone">見つかりません</div>';
+      shown.forEach(function(v){
+        h+='<label><input type="checkbox" data-v="'+esc(v)+'"'+(sel[f.key][v]?' checked':'')+'>'+
+           '<span>'+esc(f.text? f.text(v) : v)+'</span>'+
+           (cnt? '<span class="n">'+(cnt[v]||0)+'</span>' : '')+'</label>';
+      });
+      h+='</div>';
+      p.innerHTML=h;
+      var tb=p.querySelector('input[type="text"]');
+      tb.oninput=function(){ var pos=tb.selectionStart; word=tb.value.trim(); body();
+        var nb=p.querySelector('input[type="text"]'); nb.focus();
+        try{ nb.setSelectionRange(pos,pos); }catch(e){} };
+      var cbs=p.querySelectorAll('input[type="checkbox"]');
+      for(var i=0;i<cbs.length;i++)(function(c){
+        c.onchange=function(){
+          if(c.checked) sel[f.key][c.getAttribute('data-v')]=true;
+          else delete sel[f.key][c.getAttribute('data-v')];
+          draw();                          /* 先にボタンを更新してから結果を描き直す */
+          if(f.onChange) f.onChange();     /* 画面が作り直されてもパネルは残る */
+        };
+      })(cbs[i]);
+      var bs=p.querySelectorAll('.fact button');
+      for(var j=0;j<bs.length;j++)(function(b){
+        b.onclick=function(){
+          if(b.getAttribute('data-act')==='none') sel[f.key]={};
+          else shown.forEach(function(v){ sel[f.key][v]=true; });   /* 検索で絞ったぶんだけ */
+          body(); draw(); if(f.onChange) f.onChange();
+        };
+      })(bs[j]);
+      p.onclick=function(e){ e.stopPropagation(); };
+      var b2=document.getElementById(f.btn); if(b2) place(p,b2);
+    }
+    body();
+  }
+
+  function reposition(){
+    var p=panel(); if(!p||!openKey) return;
+    var b=document.getElementById(defs[openKey].btn);
+    if(b) place(p,b); else closeAll();
+  }
+  if(typeof document!=='undefined' && document.addEventListener){
+    document.addEventListener('click', closeAll);
+    document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeAll(); });
+    document.addEventListener('scroll', reposition, true);
+    if(typeof window!=='undefined' && window.addEventListener) window.addEventListener('resize', reposition);
+  }
+  return {define:define, draw:draw, on:on, list:list, pass:pass, clear:clear, close:closeAll, sel:sel};
+})();
+
 function tName(code){ return state.roster[code]?.name || ""; }
 function tLabel(code){ const n=tName(code); return n?`${code} ${n}`:code; }
 const scoreColor = function(v){ const s=sc(v); return s>=4?"#16a34a":s>=3?"#ca8a04":"#dc2626"; };
@@ -248,14 +411,27 @@ function activeRecords(){
 function responses(){ return activeRecords().filter(r=>!state.campus||r.campus===state.campus); }
 function campuses(){ return [...new Set(state.allRecords.map(r=>r.campus).filter(Boolean))].sort(); }
 function teachers(){ return [...new Set(responses().map(r=>r.teacherCode))].sort(); }
+/* 絞り込みボタン3つ。件数は「他の条件を除いた」素の回答数を出す */
+function fltCount(pick){
+  const o={}; responses().forEach(r=>{ const v=pick(r); if(v) o[v]=(o[v]||0)+1; }); return o;
+}
+FLT.define({key:'teacher', btn:'fTeacher', label:'先生',
+  values:function(){ return teachers(); }, text:function(v){ return tLabel(v); },
+  counts:function(){ return fltCount(r=>r.teacherCode); }, onChange:function(){ render(); }});
+FLT.define({key:'subject', btn:'fSubject', label:'科目',
+  values:function(){ return subjects(); },
+  counts:function(){ return fltCount(r=>r.subject); }, onChange:function(){ render(); }});
+FLT.define({key:'q5', btn:'fQ5', label:'総合',
+  values:function(){ return Q5_ORDER.filter(v=>responses().some(r=>r.q5===v)); },
+  counts:function(){ return fltCount(r=>r.q5); }, onChange:function(){ render(); }});
 function subjects(){ return [...new Set(responses().map(r=>r.subject))].sort(); }
 
 function filtered(){
   const f=state.filter;
   return responses().filter(r=>{
-    if(f.teacher && r.teacherCode!==f.teacher) return false;
-    if(f.subject && r.subject!==f.subject) return false;
-    if(f.q5 && r.q5!==f.q5) return false;
+    if(!FLT.pass('teacher', r.teacherCode)) return false;
+    if(!FLT.pass('subject', r.subject)) return false;
+    if(!FLT.pass('q5', r.q5)) return false;
     if(f.flagOnly && !state.flags[r.id]) return false;
     if(f.query){
       const hay=`${r.studentName}${r.teacherCode}${tName(r.teacherCode)}${r.subject}${r.comment}`;
@@ -656,21 +832,39 @@ async function onSurveyFile(input){
           studentMsg });
       });
     });
-    state.allRecords=recs;
     const campusList=[...new Set(recs.map(r=>r.campus).filter(Boolean))];
-    const first=campusList.includes(state.campus)?state.campus:(campusList[0]||"");
-    state.campus=first; LS.set("survey_campus",first);
-    // localStorageには選択校舎のデータだけ保存（容量節約）
-    const toSave=first ? recs.filter(r=>r.campus===first) : recs;
-    const sizeKB=Math.round(LS.sizeOf(toSave)/1024);
-    const ok=LS.set("survey_allRecords", toSave);
-    if(!ok){
-      state.err=`⚠ データの保存に失敗しました（推定${sizeKB}KB）。容量不足の可能性があります。`;
+    if(campusList.length>1){
+      // 2校舎以上入っているファイル。どれを取り込むか選んでもらう。
+      // 選ばなかった校舎は保存もしないし、メモリにも残さない（容量あふれの原因だった）
+      const cnt={}; recs.forEach(r=>{ if(r.campus) cnt[r.campus]=(cnt[r.campus]||0)+1; });
+      state.err="";
+      state.modal={ type:"pickCampus", list:campusList, cnt, pending:recs };
+      render(); input.value=""; return;
     }
-    loadWork();
-    toast(`✅ ${toSave.length} 件を取り込みました（${sizeKB}KB）${first?" · "+first:""}`); render();
+    applyImportedRecords(recs, campusList[0]||"");
   }catch(err){ state.err="読み込みエラー: "+err.message; render(); }
   input.value="";
+}
+/* 取り込んだ回答を「1校舎ぶんだけ」に絞って保存する。
+   ここでメモリ（state.allRecords）も絞るのが大事。絞らないと、あとの保存で
+   他校舎ぶんまで localStorage に書き戻されて容量があふれる。 */
+function applyImportedRecords(recs, campus){
+  const keep = campus ? recs.filter(r=>r.campus===campus) : recs;
+  const dropped = recs.length - keep.length;
+  state.allRecords = keep;
+  state.campus = campus; LS.set("survey_campus", campus);
+  const sizeKB=Math.round(LS.sizeOf(keep)/1024);
+  const ok=LS.set("survey_allRecords", keep);
+  state.err = ok ? "" : `⚠ データの保存に失敗しました（推定${sizeKB}KB）。容量不足の可能性があります。`;
+  loadWork();
+  toast(`✅ ${keep.length} 件を取り込みました（${sizeKB}KB）${campus?" · "+campus:""}`+
+        (dropped? ` ／ 他校舎 ${dropped} 件は保存していません` : ""));
+  render();
+}
+function pickCampus(c){
+  const m=state.modal; if(!m||m.type!=="pickCampus") return;
+  const recs=m.pending; state.modal=null;
+  applyImportedRecords(recs, c);
 }
 function onTeacherFile(input){
   const file=input.files[0]; if(!file) return;
@@ -746,7 +940,9 @@ async function onElemSurveyFile(input){
     if(!recs.length) throw new Error("回答データが見つかりませんでした");
     // 既存データに合流（追加）
     state.allRecords=state.allRecords.concat(recs);
-    const toSave=state.campus ? state.allRecords.filter(r=>r.campus===state.campus) : state.allRecords;
+    /* メモリも今の校舎ぶんだけにする。残しておくと、あとの保存で他校舎まで書き戻される */
+    if(state.campus) state.allRecords=state.allRecords.filter(r=>!r.campus || r.campus===state.campus);
+    const toSave=state.allRecords;
     const sizeKB=Math.round(LS.sizeOf(toSave)/1024);
     const ok=LS.set("survey_allRecords", toSave);
     if(!ok) state.err=`⚠ 保存に失敗しました（推定${sizeKB}KB）。容量不足の可能性があります。`;
@@ -906,10 +1102,27 @@ function copyBackupText(){
     toast(ok?"✅ コピーしました":"⚠ 手動で選択してコピーしてください");
   }
 }
+/* 書き出すのは今の校舎ぶんだけ。他校舎まで入れると、読み込んだ端末で
+   容量あふれ（「端末に保存できませんでした」）を起こす。 */
+function onlyCampusArchives(arc, c){
+  if(!c) return arc||{};
+  const o={};
+  Object.keys(arc||{}).forEach(k=>{ const a=arc[k]; if(!a.campus || a.campus===c) o[k]=a; });
+  return o;
+}
+function backupPayload(){
+  const c=state.campus;
+  return {
+    campus:c,
+    allRecords: c ? state.allRecords.filter(r=>!r.campus || r.campus===c) : state.allRecords,
+    archives:   onlyCampusArchives(state.archives, c),
+    roster:state.roster, assignments:state.assignments, nameAliases:state.nameAliases,
+    work:{flags:state.flags,decisions:state.decisions,notes:state.notes}
+  };
+}
 function exportBackup(){
-  const data={ campus:state.campus, allRecords:state.allRecords, roster:state.roster, archives:state.archives,
-    assignments:state.assignments, nameAliases:state.nameAliases,
-    work:{flags:state.flags,decisions:state.decisions,notes:state.notes}, exportedAt:new Date().toISOString() };
+  const data={ ...backupPayload(),
+    exportedAt:new Date().toISOString() };
   const json=JSON.stringify(data,null,2);
   let downloaded=false;
   try{
@@ -933,7 +1146,7 @@ function importBackup(input){
       const r=applyBackupData(d);
       state.err=r.failed.length
         ? "⚠ 復元しましたが端末に保存できませんでした（"+r.failed.join("・")+"／約"+r.kb+"KB）。閉じると元に戻ります。"
-        : "✅ バックアップを復元しました（約"+r.kb+"KB）";
+        : "✅ バックアップを復元しました（約"+r.kb+"KB）"+(r.skipped?"／他校舎 "+r.skipped+" 件は取り込みませんでした":"");
       render(); setTimeout(()=>{ state.err=""; render(); },4000);
     }catch(err){ state.err="復元エラー: "+err.message; render(); }
   };
@@ -948,9 +1161,23 @@ function applyBackupData(d){
     if(LS.set(key,val)===false) failed.push(label);
   };
   if(d.campus){ state.campus=d.campus; put("survey_campus",d.campus,"校舎"); }
-  if(d.allRecords){ state.allRecords=d.allRecords; put("survey_allRecords",d.allRecords,"回答"); }
+  /* 古いバックアップには全校舎ぶんが入っていることがある。
+     今の校舎のぶんだけ取り込む。そうしないとスマホで容量があふれる。 */
+  const camp=d.campus||state.campus||"";
+  let skipped=0;
+  if(d.allRecords){
+    let recs=d.allRecords;
+    if(camp){
+      const keep=recs.filter(r=>!r.campus || r.campus===camp);
+      skipped=recs.length-keep.length; recs=keep;
+    }
+    state.allRecords=recs; put("survey_allRecords",recs,"回答");
+  }
   if(d.roster){ state.roster=d.roster; put("survey_roster",d.roster,"先生名簿"); }
-  if(d.archives){ state.archives=d.archives; put("survey_archives",d.archives,"アーカイブ"); }
+  if(d.archives){
+    const arc=onlyCampusArchives(d.archives, camp);
+    state.archives=arc; put("survey_archives",arc,"アーカイブ");
+  }
   if(d.assignments){ state.assignments=d.assignments; put("survey_assignments",d.assignments,"担当"); }
   if(d.nameAliases){ state.nameAliases=d.nameAliases; put("survey_nameAliases",d.nameAliases,"名寄せ"); }
   if(d.work){
@@ -963,7 +1190,7 @@ function applyBackupData(d){
     const back=LS.get("survey_allRecords",null);
     if(!back || back.length!==d.allRecords.length) failed.push("回答（書き戻し確認に失敗）");
   }
-  return { failed, kb: Math.round(bytes/1024) };
+  return { failed, kb: Math.round(bytes/1024), skipped };
 }
 function checkStorage(){
   const el=document.getElementById("storageMsg"); if(!el) return;
@@ -1002,9 +1229,7 @@ async function syncSave(){
   const url=(LS.get('survey_syncUrl','')||'').trim(), key=(LS.get('survey_syncKey','')||'').trim();
   if(!url||!key){ syncMsgSet("接続先URLと合言葉を入力してください","#f87171"); return; }
   syncMsgSet("スプシに保存中…","#94a3b8");
-  const data={ campus:state.campus, allRecords:state.allRecords, roster:state.roster, archives:state.archives,
-    assignments:state.assignments, nameAliases:state.nameAliases,
-    work:{flags:state.flags,decisions:state.decisions,notes:state.notes} };
+  const data=backupPayload();
   try{
     const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
       body:JSON.stringify({key,tool:'survey',data:JSON.stringify(data)})});
@@ -1030,7 +1255,8 @@ async function syncLoad(){
           "／約"+r.kb+"KB）。閉じると元に戻ります。不要なアーカイブを削除するか、パソコンでお試しください。","#f87171");
         return;
       }
-      syncMsgSet("✅ 読み込んで端末に保存しました（約"+r.kb+"KB）。画面を作り直します…","#16a34a");
+      syncMsgSet("✅ 読み込んで端末に保存しました（約"+r.kb+"KB）"+
+        (r.skipped?"／他校舎 "+r.skipped+" 件は取り込みませんでした":"")+"。画面を作り直します…","#16a34a");
       // 保存した内容から画面を作り直す。こうすると「表示は出ているのに保存されていない」状態が残らない。
       setTimeout(()=>location.reload(),700);
       return;
@@ -1047,7 +1273,7 @@ function applyPasteRestore(){
     state.modal=null;
     state.err=r.failed.length
       ? "⚠ 復元しましたが端末に保存できませんでした（"+r.failed.join("・")+"／約"+r.kb+"KB）。閉じると元に戻ります。"
-      : "✅ テキストから復元しました（約"+r.kb+"KB）";
+      : "✅ テキストから復元しました（約"+r.kb+"KB）"+(r.skipped?"／他校舎 "+r.skipped+" 件は取り込みませんでした":"");
     render(); setTimeout(()=>{ state.err=""; render(); },4000);
   }catch(err){ toast("⚠ 復元できません。テキストが正しいJSONか確認してください"); }
 }
@@ -1116,7 +1342,10 @@ function debouncedSearch(v){
     const cnt=document.getElementById("listCount"); if(cnt) cnt.textContent=`${rows.length} 件 / 全 ${responses().length} 件 · 行をタップで詳細`;
   }, 300);
 }
-function clearFilter(){ state.filter={teacher:"",subject:"",q5:"",flagOnly:false,query:""}; render(); }
+function clearFilter(){
+  FLT.clear('teacher'); FLT.clear('subject'); FLT.clear('q5');
+  state.filter={teacher:"",subject:"",q5:"",flagOnly:false,query:""}; render();
+}
 function setCampus(v){ state.campus=v; LS.set("survey_campus",v); loadWork(); render(); }
 function setThreshold(v){ state.threshold=Number(v); LS.set("survey_threshold",state.threshold); render(); }
 function showComment(id){ const r=activeRecords().find(x=>x.id===id); if(r) state.modal={type:"comment",r}; render(); }
@@ -1192,6 +1421,7 @@ function render(){
         .map(([k,l])=>`<button class="tab ${state.tab===k?"active":""}" onclick="setTab('${k}')">${l}</button>`).join("")}
     </div>
     <div class="content">${renderTab()}</div>`;
+  FLT.draw();          /* 画面ごと作り直すので、絞り込みボタンも毎回つなぎ直す */
   renderModal();
 }
 
@@ -1228,10 +1458,10 @@ function renderList(){
   const f=state.filter, rows=filtered();
   return `
     <div class="filterbar">
-      <input id="listSearch" placeholder="🔍 名前・先生・科目・コメント" value="${esc(f.query)}" oninput="debouncedSearch(this.value)" style="flex:1;min-width:150px">
-      <select onchange="setFilter('teacher',this.value)"><option value="">全先生</option>${teachers().map(t=>`<option value="${t}" ${f.teacher===t?"selected":""}>${esc(tLabel(t))}</option>`).join("")}</select>
-      <select onchange="setFilter('subject',this.value)"><option value="">全科目</option>${subjects().map(s=>`<option ${f.subject===s?"selected":""}>${esc(s)}</option>`).join("")}</select>
-      <select onchange="setFilter('q5',this.value)"><option value="">総合 全て</option>${Q5_ORDER.map(v=>`<option ${f.q5===v?"selected":""}>${v}</option>`).join("")}</select>
+      <input id="listSearch" placeholder="🔍 名前・先生・科目・コメント" value="${esc(f.query)}" oninput="debouncedSearch(this.value)" class="fsearch">
+      <span class="fdrop"><button type="button" class="fbtn" id="fTeacher">先生<span class="cara">▼</span></button></span>
+      <span class="fdrop"><button type="button" class="fbtn" id="fSubject">科目<span class="cara">▼</span></button></span>
+      <span class="fdrop"><button type="button" class="fbtn" id="fQ5">総合<span class="cara">▼</span></button></span>
       <button class="decbtn" style="border:1px solid #e2e8f0;color:#64748b" onclick="clearFilter()">クリア</button>
     </div>
     <div style="border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.07)"><table id="listTable" style="width:100%;border-collapse:collapse;background:#fff;font-size:9px;table-layout:fixed">
@@ -1720,6 +1950,19 @@ function renderSettings(){
 function renderModal(){
   const m=state.modal, el=document.getElementById("modal");
   if(!m){ el.innerHTML=""; return; }
+  if(m.type==="pickCampus"){
+    el.innerHTML=`<div class="modal-bg"><div class="modal" style="max-width:360px" onclick="event.stopPropagation()">
+      <div class="sec-title">🏫 どの校舎を取り込みますか</div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:10px;line-height:1.6">
+        このファイルには ${m.list.length} 校舎ぶん入っています。<br>
+        <b>選んだ校舎だけ</b>を端末に保存します（他の校舎は保存しません）。
+      </div>
+      ${m.list.map(c=>`<button class="decbtn" style="width:100%;text-align:left;padding:11px;margin-bottom:6px;border:1px solid #e2e8f0;display:flex;justify-content:space-between" onclick="pickCampus('${esc(c).replace(/'/g,"&#39;")}')">
+        <span style="font-weight:600">${esc(c)}</span><span style="color:#94a3b8;font-size:12px">${m.cnt[c]||0} 件</span></button>`).join("")}
+      <button class="decbtn" style="width:100%;border:1px solid #cbd5e1;color:#64748b;padding:10px;margin-top:4px" onclick="closeModal()">やめる</button>
+    </div></div>`;
+    return;
+  }
   if(m.type==="pasteRestore"){
     el.innerHTML=`<div class="modal-bg" onclick="closeModal()"><div class="modal" style="max-width:380px" onclick="event.stopPropagation()">
       <div class="sec-title">📋 テキストから復元</div>
