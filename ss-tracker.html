@@ -56,6 +56,18 @@ select,input[type=text],input[type=password],input[type=date]{font-family:inheri
 .tc .facts{font-size:11.5px;color:#66788a;line-height:1.75;}
 .tc .facts b{color:#33465a;}
 .tblwrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+/* 今日のタッチの曜日切り替え。押した曜日に授業がある先生だけを出す */
+.dowbar{display:flex;gap:6px;flex-wrap:wrap;align-items:stretch;margin:10px 0 8px;}
+.dtab{flex:0 0 auto;border:1px solid #cfdae6;background:#fff;color:#4a5b6d;border-radius:7px;
+  padding:6px 11px;font-size:13px;font-weight:800;cursor:pointer;line-height:1.25;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;min-width:52px;}
+.dtab:hover{background:#eef4fb;border-color:#9fbde0;}
+.dtab .n{font-size:9.5px;font-weight:700;color:#8494a5;}
+.dtab .td{font-size:9px;font-weight:800;color:#1b62c9;letter-spacing:.5px;}
+.dtab.on{background:#1b62c9;border-color:#1b62c9;color:#fff;}
+.dtab.on .n,.dtab.on .td{color:#cfe0f7;}
+.dtab.none{color:#a3b0bd;background:#f7f9fb;}
+.dtab.none.on{color:#fff;background:#7d8fa3;border-color:#7d8fa3;}
 table{border-collapse:collapse;width:100%;font-size:12.5px;}
 th,td{border:1px solid #e2e8f0;padding:5px 8px;text-align:right;white-space:nowrap;}
 th{background:#f4f7fa;color:#4a5b6d;font-weight:700;font-size:11.5px;}
@@ -739,8 +751,8 @@ var DEF_CFG = {
   autoOut: true,   // 最新データに載っていない先生を自動で在籍外にする
   tests:   true,   // テスト回別（③④⑤など）も取り込む
   keepDays: 70,    // 「古い日を間引く」を押したとき、これより新しい日はそのまま残す
-  showOut: false,  // 在籍外の先生を画面に出すか（既定は出さない）
-  touchAll: false  // 今日のタッチを出勤者で絞らず全員出すか（既定は絞る）
+  showOut: false   // 在籍外の先生を画面に出すか（既定は出さない）
+  /* 曜日の絞り込みは保存しない。開いたときは必ず今日の曜日から始めたいため（VIEW.dow） */
 };
 
 /* ---------- localStorage の読み書き ------------------------------------ */
@@ -1239,7 +1251,12 @@ function schoolSeries(bk, m, which) {
    SS管理ツール — 表示層その1（今日のタッチ / 先生一覧 / 先生カルテ）
    ========================================================================== */
 
-var VIEW = { date: null, block: null, teacher: null, sort: 'score', sortDir: -1 };
+/* dow は「今日のタッチ」で見る曜日。'全' なら絞らない。
+   ★開いたときは必ず今日の曜日から始める。保存しないのはそのため
+   （前に見ていた曜日が残っていると、翌日に開いて別の曜日を見てしまう）。
+   DOW_JP はこの下で宣言するので、ここでは直接書く。 */
+var VIEW = { date: null, block: null, teacher: null, sort: 'score', sortDir: -1,
+             dow: ['日', '月', '火', '水', '木', '金', '土'][new Date().getDay()] };
 
 function esc(s) {
   return String(s === null || s === undefined ? '' : s)
@@ -1347,13 +1364,35 @@ function dowRoster() {
   });
   return has ? { idx: idx, savedAt: r.savedAt || null } : null;
 }
-function dowOf(iso) { return DOW_JP[new Date(iso + 'T00:00:00').getDay()]; }
 
 function onDuty(roster, day, key) {
   if (!roster) return true;
+  if (day === '全') return true;
   var m = roster.idx[day];
   if (!m) return true;                 // その曜日の配置が1件も無い＝判断材料が無いので絞らない
   return !!m[key];
+}
+function todayDow() { return DOW_JP[new Date().getDay()]; }
+
+/* 曜日の切り替えボタン。その曜日に授業がある人数も出す（0名の曜日が一目で分かる） */
+function dowTabs(roster, all) {
+  var days = ['月', '火', '水', '木', '金', '土'];
+  if (VIEW.dow === '日' || (roster && roster.idx['日'])) days.push('日');
+  var td = todayDow();
+  var h = '<div class="dowbar noprint">';
+  days.forEach(function (day) {
+    var n = null;
+    if (roster) n = all.filter(function (T) { return onDuty(roster, day, T.key); }).length;
+    var none = roster && !roster.idx[day];
+    h += '<button class="dtab' + (VIEW.dow === day ? ' on' : '') + (none ? ' none' : '') +
+      '" data-dow="' + day + '">' + day +
+      (day === td ? '<span class="td">今日</span>' : '') +
+      (none ? '<span class="n">授業なし</span>' : (n === null ? '' : '<span class="n">' + n + '名</span>')) +
+      '</button>';
+  });
+  h += '<button class="dtab' + (VIEW.dow === '全' ? ' on' : '') + '" data-dow="全">全員' +
+    '<span class="n">' + all.length + '名</span></button>';
+  return h + '</div>';
 }
 
 /* ---------- 今日のタッチ ------------------------------------------------ */
@@ -1361,16 +1400,18 @@ function renderTouch() {
   var host = el('p-touch');
   if (!VIEW.date) { host.innerHTML = emptyState(); return; }
   var d = VIEW.date, bk = VIEW.block, s = snapAt(d);
-  var all = evalAll(d, bk).filter(function (T) { return !T.out; });
+  var everyone = evalAll(d, bk).filter(function (T) { return !T.out; });
+  var all = everyone;
 
   /* その曜日に生徒が入っている先生だけに絞る。声をかけられない相手を出しても仕方がない。
      コマ組の配置が読めないとき・「全員」を選んだときは絞らない。 */
-  var roster = DB.cfg.touchAll ? null : dowRoster();
-  var day = dowOf(d), offCount = 0;
-  if (roster) {
+  var roster = dowRoster();
+  var day = VIEW.dow, offCount = 0;
+  if (roster && day !== '全') {
     var kept = all.filter(function (T) { return onDuty(roster, day, T.key); });
     offCount = all.length - kept.length;
-    if (kept.length) all = kept; else roster = null;   // 全員外れるなら絞らない（配置が古い等）
+    if (kept.length) all = kept;    // 全員外れるなら絞らない（配置が古い等）
+    else offCount = 0;
   }
   var scored = all.filter(function (T) { return T.score !== null; });
 
@@ -1399,7 +1440,8 @@ function renderTouch() {
     '<div class="muted">この週は <b>' + (s.week ? mdOf(s.week.start) + '〜' + mdOf(s.week.end) : '—') +
     '</b>（日〜土）。配信ファイルの中身は <b>' + dataThrough(d) + 'まで</b>です。' +
     (s.finalized ? '日曜配信なので<b>前週の確定値</b>です。' : '週の途中経過なので、母数はこれから増えます。') +
-    '</div>' + dutyLine(roster, day, all.length, offCount) + '</div>';
+    '</div>' + dowTabs(roster, everyone) +
+    dutyLine(roster, day, all.length, offCount) + '</div>';
 
   html += '<div class="touch">';
   good.forEach(function (T) { html += touchCard(T, 'good', '🟢 ほめる・表彰候補'); });
@@ -1417,27 +1459,29 @@ function renderTouch() {
   }
   host.innerHTML = html;
   bindNames(host);
-  var tg = el('dutyTgl');
-  if (tg) tg.onclick = function () { DB.cfg.touchAll = !DB.cfg.touchAll; saveCfg(); renderTouch(); };
+  Array.prototype.forEach.call(host.querySelectorAll('[data-dow]'), function (b) {
+    b.onclick = function () { VIEW.dow = b.getAttribute('data-dow'); renderTouch(); };
+  });
 }
 /* 絞り込みの状態を必ず画面に出す。黙って人数が減っていると原因が分からなくなる。 */
 function dutyLine(roster, day, nOn, nOff) {
-  if (DB.cfg.touchAll) {
-    return '<div class="muted">曜日で絞らずに<b>全員</b>を見ています。' +
-      '<button class="btn sec noprint" id="dutyTgl">' + esc(day) + '曜に授業がある先生だけ</button></div>';
-  }
+  var td = todayDow();
   if (!roster) {
     return '<div class="muted">コマ組ツールの通常コマに生徒が入っていれば、' +
       'その曜日に授業がある先生だけにしぼれます（コマ組を一度開くと引き継がれます）。</div>';
   }
   var src = 'コマ組ツールの配置' + (roster.savedAt ? '（' + esc(roster.savedAt) + '時点）' : '');
+  if (day === '全') {
+    return '<div class="muted">曜日で絞らずに<b>全員' + nOn + '名</b>を見ています。</div>';
+  }
   // その曜日の配置が空＝日曜など授業が無い日。絞ったように書くと誤解される
   if (!roster.idx[day]) {
     return '<div class="muted">' + esc(day) + '曜は' + src + 'に授業が1件も無いので、しぼらず全員を出しています。</div>';
   }
-  return '<div class="muted"><b>' + esc(day) + '曜に授業がある' + nOn + '名</b>にしぼっています' +
-    (nOff ? '（' + nOff + '名は今日いないので外しました）' : '') + '。' + src +
-    '<button class="btn sec noprint" id="dutyTgl">全員を見る</button></div>';
+  return '<div class="muted"><b>' + esc(day) + '曜' + (day === td ? '（今日）' : '') +
+    'に授業がある' + nOn + '名</b>にしぼっています' +
+    (nOff ? '（' + nOff + '名は' + esc(day) + '曜にいないので外しました）' : '') + '。' + src +
+    '。数字は' + fmtDate(VIEW.date) + '時点のSSです。</div>';
 }
 function mdOf(iso) { return (+iso.slice(5, 7)) + '/' + (+iso.slice(8, 10)); }
 function weekChip(s) {
