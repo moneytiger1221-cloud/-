@@ -306,6 +306,8 @@ var FLT = (function(){
       var vals=f.values()||[];
       /* 元データから消えた選択肢は捨てる（テスト回や校舎を変えたとき） */
       var o=sel[key]||{}; for(var k in o) if(vals.indexOf(k)<0) delete o[k];
+      /* 選べるものが無い絞り込みは、ボタンごと出さない */
+      btn.style.display = vals.length? '' : 'none';
       var chosen=list(key);
       btn.className='fbtn'+(chosen.length?' on':'');
       btn.innerHTML=esc(f.label)+'<span class="cara">▼</span>'+
@@ -411,13 +413,47 @@ function activeRecords(){
 function responses(){ return activeRecords().filter(r=>!state.campus||r.campus===state.campus); }
 function campuses(){ return [...new Set(state.allRecords.map(r=>r.campus).filter(Boolean))].sort(); }
 function teachers(){ return [...new Set(responses().map(r=>r.teacherCode))].sort(); }
+/* 回答の生徒がどの学校か。回答自体に学校が入っていれば それ、
+   無ければ担当ペア名簿（時間割）から名前で引く。どちらも無ければ空。 */
+var SCHOOL_CACHE={key:"",map:null};
+function schoolMap(){
+  const key=state.assignments.length+":"+Object.keys(state.nameAliases).length;
+  if(SCHOOL_CACHE.key===key && SCHOOL_CACHE.map) return SCHOOL_CACHE.map;
+  const m={};
+  state.assignments.forEach(a=>{
+    if(!a.school) return;
+    if(a.fullHira && !m[a.fullHira]) m[a.fullHira]=a.school;
+    if(a.fullKanji && !m[a.fullKanji]) m[a.fullKanji]=a.school;
+  });
+  SCHOOL_CACHE={key, map:m};
+  return m;
+}
+function schoolOf(r){
+  if(r.school) return r.school;
+  const m=schoolMap();
+  const rn=respNameNorm(r);
+  return m[rn] || m[state.nameAliases[rn]] || "";
+}
+/* 学年は 小1→中3→高3 の順に並べたい（あいうえお順だと高校が先に来てしまう） */
+function gradeRank(g){
+  const s=String(g||"").replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));
+  const n=(s.match(/(\d)/)||[])[1]||"9";
+  if(/小/.test(s)) return "1"+n;
+  if(/中/.test(s)) return "2"+n;
+  if(/高/.test(s)) return "3"+n;
+  return "9"+n;
+}
 /* 絞り込みボタン3つ。件数は「他の条件を除いた」素の回答数を出す */
 function fltCount(pick){
   const o={}; responses().forEach(r=>{ const v=pick(r); if(v) o[v]=(o[v]||0)+1; }); return o;
 }
-FLT.define({key:'teacher', btn:'fTeacher', label:'先生',
-  values:function(){ return teachers(); }, text:function(v){ return tLabel(v); },
-  counts:function(){ return fltCount(r=>r.teacherCode); }, onChange:function(){ render(); }});
+FLT.define({key:'school', btn:'fSchool', label:'学校',
+  values:function(){ return [...new Set(responses().map(schoolOf).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ja')); },
+  counts:function(){ return fltCount(schoolOf); }, onChange:function(){ render(); }});
+FLT.define({key:'grade', btn:'fGrade', label:'学年',
+  values:function(){ return [...new Set(responses().map(r=>r.grade).filter(Boolean))]
+    .sort((a,b)=>gradeRank(a).localeCompare(gradeRank(b))); },
+  counts:function(){ return fltCount(r=>r.grade); }, onChange:function(){ render(); }});
 FLT.define({key:'subject', btn:'fSubject', label:'科目',
   values:function(){ return subjects(); },
   counts:function(){ return fltCount(r=>r.subject); }, onChange:function(){ render(); }});
@@ -429,7 +465,8 @@ function subjects(){ return [...new Set(responses().map(r=>r.subject))].sort(); 
 function filtered(){
   const f=state.filter;
   return responses().filter(r=>{
-    if(!FLT.pass('teacher', r.teacherCode)) return false;
+    if(!FLT.pass('school', schoolOf(r))) return false;
+    if(!FLT.pass('grade', r.grade)) return false;
     if(!FLT.pass('subject', r.subject)) return false;
     if(!FLT.pass('q5', r.q5)) return false;
     if(f.flagOnly && !state.flags[r.id]) return false;
@@ -818,14 +855,17 @@ async function onSurveyFile(input){
     let lastReasonCol=-1;
     headers.forEach((h,i)=>{ if(String(h).includes("理由も書いて")) lastReasonCol=i; });
     let msgCol = lastReasonCol>=0 ? lastReasonCol+1 : headers.length-1;
+    /* 「学校」だけの列があれば拾う（設問文に「学校」が含まれる列を拾わないよう完全一致で探す） */
+    const schoolCol=headers.findIndex(x=>/^(在籍)?学校(名)?$/.test(String(x).replace(/[\s　]/g,"")));
     const recs=[]; let uid=0;
     raw.slice(1).forEach(row=>{
       const camp=row[1];
+      const school=schoolCol>=0 ? String(row[schoolCol]||"").trim() : "";
       const studentMsg=String(row[msgCol]||"").trim();
       tcCols.forEach(base=>{
         const tc=row[base]; if(!tc) return;
         uid++;
-        recs.push({ id:uid,campus:camp||"",studentName:row[2]||"",grade:row[3]||"",
+        recs.push({ id:uid,campus:camp||"",studentName:row[2]||"",grade:row[3]||"",school,
           teacherCode:normCode(tc),subject:row[base+1]||"",
           q1:row[base+2]||"",q2:row[base+3]||"",q3:row[base+4]||"",q4:row[base+5]||"",q5:row[base+6]||"",
           comment:String(row[base+7]||"").trim(),
@@ -977,6 +1017,8 @@ async function onAssignFile(input){
     const seiKanjiCol=H.findIndex(h=>h==="姓");
     const meiKanjiCol=H.findIndex(h=>h==="名");
     const gradeCol=idx("学年");
+    /* 「学校」列があれば拾う。無ければ空のまま（一覧タブの学校ボタンが出ないだけ） */
+    const schoolCol=H.findIndex(h=>/^(在籍)?学校(名)?$/.test(h.replace(/[\s　]/g,"")));
     // 通常授業の「科目(通常授業)①」位置から、6枠×3列を取得
     let normStart=H.findIndex(h=>h.includes("科目(通常授業)")||h.includes("科目（通常授業）"));
     if(normStart<0) normStart=H.findIndex(h=>h.includes("科目")); // フォールバック
@@ -1005,6 +1047,7 @@ async function onAssignFile(input){
         if(SUBJECT_IGNORE.some(x=>subjStr.includes(x))) continue;
         const ym=String(yobiRaw||"").match(/[月火水木金土日]/);
         assigns.push({ seiHira, fullHira, fullKanji, grade:String(grade||""), subject:String(subj),
+          school: schoolCol>=0 ? String(r[schoolCol]||"").trim() : "",
           core:toCoreSubject(subj), yobi:ym?ym[0]:"", teacher:String(tch).trim() });
       }
     });
@@ -1343,7 +1386,7 @@ function debouncedSearch(v){
   }, 300);
 }
 function clearFilter(){
-  FLT.clear('teacher'); FLT.clear('subject'); FLT.clear('q5');
+  FLT.clear('school'); FLT.clear('grade'); FLT.clear('subject'); FLT.clear('q5');
   state.filter={teacher:"",subject:"",q5:"",flagOnly:false,query:""}; render();
 }
 function setCampus(v){ state.campus=v; LS.set("survey_campus",v); loadWork(); render(); }
@@ -1459,7 +1502,8 @@ function renderList(){
   return `
     <div class="filterbar">
       <input id="listSearch" placeholder="🔍 名前・先生・科目・コメント" value="${esc(f.query)}" oninput="debouncedSearch(this.value)" class="fsearch">
-      <span class="fdrop"><button type="button" class="fbtn" id="fTeacher">先生<span class="cara">▼</span></button></span>
+      <span class="fdrop"><button type="button" class="fbtn" id="fSchool">学校<span class="cara">▼</span></button></span>
+      <span class="fdrop"><button type="button" class="fbtn" id="fGrade">学年<span class="cara">▼</span></button></span>
       <span class="fdrop"><button type="button" class="fbtn" id="fSubject">科目<span class="cara">▼</span></button></span>
       <span class="fdrop"><button type="button" class="fbtn" id="fQ5">総合<span class="cara">▼</span></button></span>
       <button class="decbtn" style="border:1px solid #e2e8f0;color:#64748b" onclick="clearFilter()">クリア</button>
