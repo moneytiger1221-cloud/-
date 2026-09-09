@@ -13676,6 +13676,11 @@ ${[...unmatchedTeachers].join("\n")}
       };
       reader.readAsText(file, "Shift_JIS");
     };
+    window.JUKU_IMPORT = {
+      ys: (f) => handleReferralListCSV({ target: { files: [f], value: "" } }),
+      ysStudent: (f) => handleStudentCSV({ target: { files: [f], value: "" } }),
+      ysTeacher: (f) => handleTeacherCSV({ target: { files: [f], value: "" } })
+    };
     if (locked) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LockScreen, { onUnlock: () => setLocked(false) });
     if (!loaded) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { minHeight: "100vh", background: "#080f1a", display: "flex", alignItems: "center", justifyContent: "center", color: "#475569", fontFamily: "'Hiragino Sans','Yu Gothic',sans-serif" }, children: "\u8AAD\u307F\u8FBC\u307F\u4E2D..." });
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { minHeight: "100vh", background: "#080f1a", fontFamily: "'Hiragino Sans','Yu Gothic',sans-serif", color: "#e2e8f0", overflowX: "hidden" }, children: [
