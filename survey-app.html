@@ -222,7 +222,8 @@ let state = {
   tab: "list",
   threshold: LS.get("survey_threshold", 1),
   archives: LS.get("survey_archives", {}),   // {archiveName: {records, work, savedAt}}
-  assignments: LS.get("survey_assignments", []), // 担当ペア [{seiHira,name,grade,subject,core,yobi,teacher}]
+  assignAll: {},   // 学期ごとの担当ペア {学期:[…]}。loadAssignAll() で読む
+  assignments: [], // 今見ている学期の担当ペア [{seiHira,name,grade,subject,core,yobi,teacher,school}]
   viewingArchive: null,                       // 閲覧中アーカイブ名（nullなら現役）
   filter: { teacher:"",subject:"",q5:"",flagOnly:false,query:"" },
   err: "",
@@ -578,11 +579,53 @@ function normCode(v){
 }
 
 // 現役 or アーカイブ閲覧中かでデータ源を切替
+/* ===== 学期ごとの担当ペア名簿 =====
+   state.assignAll に学期ごとに持ち、state.assignments は「今見ている学期のぶん」。
+   突合の関数はこれまでどおり state.assignments を見るだけでよい。 */
+function curTerm(){ return JUKU_TERM.mark('survey') || JUKU_TERM.want('survey'); }
+function termOf(r){ return r.term || ''; }
+function loadAssignAll(){
+  const raw = LS.get("survey_assignments", null);
+  if(Array.isArray(raw)){
+    /* 前のかたち（1セットだけ）。今の学期のぶんとして引き継ぐ */
+    state.assignAll = {}; state.assignAll[curTerm()] = raw;
+    LS.set("survey_assignments", state.assignAll);
+  }else{
+    state.assignAll = raw || {};
+  }
+  syncAssignments();
+}
+function syncAssignments(){ state.assignments = state.assignAll[curTerm()] || []; }
+function setAssignments(list, term){
+  term = term || curTerm();
+  state.assignAll[term] = list;
+  LS.set("survey_assignments", state.assignAll);
+  syncAssignments();
+}
+/* 学期のしるしが無い回答に、今の学期を書き込む（一度だけ）。
+   これまでの回答は全部「今見ている学期のもの」として扱う。 */
+function migrateTerms(){
+  if(LS.get("survey_termmigrated_v1", false)) return;
+  const t = curTerm();
+  let n = 0;
+  state.allRecords.forEach(r=>{ if(!r.term){ r.term = t; n++; } });
+  if(n) LS.set("survey_allRecords", state.allRecords);
+  LS.set("survey_termmigrated_v1", true);
+}
+
 function activeRecords(){
   if(state.viewingArchive){ return state.archives[state.viewingArchive]?.records || []; }
   return state.allRecords;
 }
-function responses(){ return activeRecords().filter(r=>!state.campus||r.campus===state.campus); }
+function responses(){
+  const t = curTerm();
+  return activeRecords().filter(r=>{
+    if(state.campus && r.campus!==state.campus) return false;
+    /* アーカイブはその学期ぶんだけなので、学期での絞り込みはしない */
+    if(state.viewingArchive) return true;
+    return termOf(r)===t;
+  });
+}
 function campuses(){ return [...new Set(state.allRecords.map(r=>r.campus).filter(Boolean))].sort(); }
 function teachers(){ return [...new Set(responses().map(r=>r.teacherCode))].sort(); }
 /* 回答の生徒がどの学校か。回答自体に学校が入っていれば それ、
@@ -1063,6 +1106,8 @@ async function onSurveyFile(input){
 function applyImportedRecords(recs, campus){
   const keep = campus ? recs.filter(r=>r.campus===campus) : recs;
   const dropped = recs.length - keep.length;
+  const t = curTerm();
+  keep.forEach(r=>{ if(!r.term) r.term = t; });   /* いつの学期に集めた回答かを焼き付ける */
   state.allRecords = keep;
   state.campus = campus; LS.set("survey_campus", campus);
   const sizeKB=Math.round(LS.sizeOf(keep)/1024);
@@ -1151,6 +1196,8 @@ async function onElemSurveyFile(input){
     });
     if(!recs.length) throw new Error("回答データが見つかりませんでした");
     // 既存データに合流（追加）
+    const et = curTerm();
+    recs.forEach(r=>{ if(!r.term) r.term = et; });   /* 小学生ぶんも学期を焼き付ける */
     state.allRecords=state.allRecords.concat(recs);
     /* メモリも今の校舎ぶんだけにする。残しておくと、あとの保存で他校舎まで書き戻される */
     if(state.campus) state.allRecords=state.allRecords.filter(r=>!r.campus || r.campus===state.campus);
@@ -1223,8 +1270,8 @@ async function onAssignFile(input){
           core:toCoreSubject(subj), yobi:ym?ym[0]:"", teacher:String(tch).trim() });
       }
     });
-    state.assignments=assigns; LS.set("survey_assignments",assigns);
-    JUKU_TERM.setMark('survey', JUKU_TERM.want('survey'));
+    if(!JUKU_TERM.mark('survey')) JUKU_TERM.setMark('survey', JUKU_TERM.want('survey'));
+    setAssignments(assigns);
     toast(`✅ 担当ペア ${assigns.length}件（生徒${students}名）を取り込みました${skipped?`／小学生${skipped}名を除外`:""}`);
     render();
   }catch(err){ state.err="担当ペア読み込みエラー: "+err.message; render(); }
@@ -1241,6 +1288,7 @@ function doArchiveAndReset(){
   const campusRecords=state.allRecords.filter(r=>!state.campus||r.campus===state.campus);
   const archiveName = state.campus ? `${name}／${state.campus}` : name;
   state.archives[archiveName]={
+    term: curTerm(),
     campus: state.campus,
     records: campusRecords,
     work: {flags:state.flags,decisions:state.decisions,notes:state.notes},
@@ -1332,7 +1380,7 @@ function backupPayload(){
     campus:c,
     allRecords: c ? state.allRecords.filter(r=>!r.campus || r.campus===c) : state.allRecords,
     archives:   onlyCampusArchives(state.archives, c),
-    roster:state.roster, assignments:state.assignments, nameAliases:state.nameAliases,
+    roster:state.roster, assignments:state.assignAll, nameAliases:state.nameAliases,
     work:{flags:state.flags,decisions:state.decisions,notes:state.notes}
   };
 }
@@ -1394,7 +1442,12 @@ function applyBackupData(d){
     const arc=onlyCampusArchives(d.archives, camp);
     state.archives=arc; put("survey_archives",arc,"アーカイブ");
   }
-  if(d.assignments){ state.assignments=d.assignments; put("survey_assignments",d.assignments,"担当"); }
+  if(d.assignments){
+    /* 古いバックアップは1セットだけの配列。今の学期のぶんとして受け取る */
+    state.assignAll = Array.isArray(d.assignments) ? (function(){ const o={}; o[curTerm()]=d.assignments; return o; })() : d.assignments;
+    put("survey_assignments", state.assignAll, "担当");
+    syncAssignments();
+  }
   if(d.nameAliases){ state.nameAliases=d.nameAliases; put("survey_nameAliases",d.nameAliases,"名寄せ"); }
   if(d.work){
     state.flags=d.work.flags||{}; state.decisions=d.work.decisions||{}; state.notes=d.work.notes||{};
@@ -1639,7 +1692,7 @@ function render(){
     </div>
     <div class="content">${renderTab()}</div>`;
   FLT.draw();          /* 画面ごと作り直すので、絞り込みボタンも毎回つなぎ直す */
-  JUKU_TERM.paint('jtBar','survey', function(){ pullRoster(true); });
+  JUKU_TERM.paint('jtBar','survey', function(){ syncAssignments(); pullRoster(true); render(); });
   renderModal();
 }
 
@@ -2373,6 +2426,8 @@ function pullRoster(force){
     onAssignFile(shim(text, info.file||'student.csv'));
   });
 }
+loadAssignAll();
+migrateTerms();
 render();
 pullRoster(false);
 
