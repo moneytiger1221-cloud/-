@@ -347,6 +347,14 @@ body.trayh-x .traycnt2{top:2px;}
 .lkhint{margin:3px 0 0 15px;color:#8a93a0;font-size:11.5px;}
 /* 退塾生登録 */
 .wbadge{position:absolute;top:2px;right:2px;background:#8a6a06;color:#fff;font-size:9px;font-weight:700;padding:1px 4px;border-radius:4px;line-height:1.4;}
+/* ===== 学期の表示（塾ツール共通）===== */
+.jt{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:#5a6b7d;
+  background:#f1f5f9;border:1px solid #dde3ea;border-radius:999px;padding:3px 9px;white-space:nowrap;}
+.jt .jt-l{font-weight:700;color:#8497a8;}
+.jt .jt-s{font-size:11.5px;padding:1px 4px;border:1px solid #cbd5e1;border-radius:5px;
+  background:#fff;color:#334155;font-family:inherit;max-width:150px;}
+.jt .jt-w{color:#8497a8;}
+.jt .jt-w.jt-ng{color:#b45309;font-weight:700;}
 
 /* ===== スマホ表示（幅820px以下）=====
    PCの見た目は一切変えない。狭い画面のときだけ、
@@ -402,6 +410,7 @@ body.trayh-x .traycnt2{top:2px;}
 </script>
 <div class="topbar">
   <span class="title">2026年 夏期講習 コマ割</span>
+  <span class="jt" id="jtBar"></span>
   <span class="modeswitch" id="modeSwitch"></span>
   <span class="modeswitch" id="fltSwitch"></span>
   <button class="toolbtn" id="btnTeachers" title="先生情報（スキル・追加・削除）">先生情報</button>
@@ -1498,6 +1507,97 @@ function renderModeUI(){
   const ttl=document.querySelector('.title');
   if(ttl)ttl.textContent=MODE==='tsu'?'通常コマ割':'2026年 夏期講習 コマ割';
 }
+/* ===== 学期の共通部品（塾ツール共通・6ツールに同じものを入れる）=====
+   「今このツールはいつの名簿で動いているか」を持って、画面に出す。
+
+   1年の流れ（聞き取り）:
+     コマ組は先を組む。7月に2学期、12月に3学期、3月には次年度1学期のコマを組む。
+     アンケートは6〜10月に1学期の結果を見て、11〜1月は2学期、2〜3月は3学期。
+     成績はテスト①②＝1学期、③④＝2学期、⑤＝3学期の担当とセット。
+   なので「今の学期」は1つに決まらない。ツールごとに別々に持つ。         */
+var JUKU_TERM = (function(){
+  var MARK='juku_roster_mark_v1';        /* {koma:'2026年度2学期', grade:…, survey:…} */
+
+  function get(){ try{ return JSON.parse(localStorage.getItem(MARK)||'{}')||{}; }catch(e){ return {}; } }
+  function put(o){ try{ localStorage.setItem(MARK, JSON.stringify(o)); }catch(e){} }
+
+  /* 年度は4月始まり */
+  function nendo(d){ return (d.getMonth()+1) >= 4 ? d.getFullYear() : d.getFullYear()-1; }
+
+  /* そのツールが「その月に使うべき学期」。上の表のとおり。 */
+  function want(tool, d){
+    d = d || new Date();
+    var m = d.getMonth()+1, y = nendo(d);
+    if(tool==='koma'){                                    /* コマ組は先を組む */
+      if(m>=4 && m<=6)  return y+'年度1学期';
+      if(m>=7 && m<=11) return y+'年度2学期';
+      if(m===12||m===1||m===2) return y+'年度3学期';
+      return (y+1)+'年度1学期';                            /* 3月は次年度1学期 */
+    }
+    if(tool==='survey'){                                  /* 集計は6月・11月・2月 */
+      if(m>=4 && m<=10) return y+'年度1学期';
+      if(m>=11 || m===1) return y+'年度2学期';
+      return y+'年度3学期';                                /* 2〜3月 */
+    }
+    /* 成績ほか。テスト回が分かるときは termOfKai() が優先 */
+    if(m>=4 && m<=7)  return y+'年度1学期';
+    if(m>=8 && m<=12) return y+'年度2学期';
+    return y+'年度3学期';
+  }
+
+  /* テスト回 → 学期。①②＝1学期、③④＝2学期、⑤＝3学期 */
+  function termOfKai(year, kai){
+    var n = +kai || 0;
+    var g = n<=2 ? 1 : (n<=4 ? 2 : 3);
+    return year+'年度'+g+'学期';
+  }
+
+  /* 講習は通常とは別軸。社内ツール上で開いている期間で決まる。
+     4月2週〜8月＝夏期 / 9月〜1月1週＝冬期 / 1月2週〜4月1週＝春期 */
+  function kousyu(d){
+    d = d || new Date();
+    var m = d.getMonth()+1, day = d.getDate();
+    if((m===1 && day>=8) || m===2 || m===3 || (m===4 && day<=7)){
+      /* 春期は1〜4月にまたがるが、どれも同じ年度の終わりぶん */
+      return (d.getFullYear()-1)+'年度春期';
+    }
+    if((m===4 && day>=8) || (m>=5 && m<=8)) return nendo(d)+'年度夏期';
+    return nendo(d)+'年度冬期';                            /* 9月〜1月1週 */
+  }
+
+  /* 選べる学期の一覧（前年度3学期 〜 次年度1学期） */
+  function list(d){
+    var y = nendo(d||new Date());
+    return [(y-1)+'年度3学期', y+'年度1学期', y+'年度2学期', y+'年度3学期', (y+1)+'年度1学期'];
+  }
+
+  function mark(tool){ return get()[tool] || ''; }
+  function setMark(tool, term){ var o=get(); if(term) o[tool]=term; else delete o[tool]; put(o); }
+
+  /* ヘッダに出す小さな表示。id の要素の中身を作る。
+     何も記録が無ければ「未設定」、今の月とずれていれば ⚠ を付ける。 */
+  function paint(elId, tool){
+    var el = document.getElementById(elId); if(!el) return;
+    var cur = mark(tool), w = want(tool);
+    var opts = list();
+    if(cur && opts.indexOf(cur)<0) opts = [cur].concat(opts);
+    var h = '<span class="jt-l">名簿</span>' +
+      '<select class="jt-s" title="このツールが今どの学期の名簿で動いているか">' +
+      '<option value="">未設定</option>' +
+      opts.map(function(t){
+        return '<option value="'+t+'"'+(t===cur?' selected':'')+'>'+t+'</option>';
+      }).join('') + '</select>';
+    if(!cur) h += '<span class="jt-w" title="今の月ならこの学期です">今は '+w+'</span>';
+    else if(cur!==w) h += '<span class="jt-w jt-ng" title="今の月に合っていません">⚠ 今は '+w+'</span>';
+    el.innerHTML = h;
+    var sel = el.querySelector('.jt-s');
+    sel.onchange = function(){ setMark(tool, sel.value); paint(elId, tool); };
+  }
+
+  return { want:want, kousyu:kousyu, termOfKai:termOfKai, list:list,
+           mark:mark, setMark:setMark, paint:paint, nendo:nendo };
+})();
+
 function readFileAs(file,cb){const rd=new FileReader();
   rd.onload=ev=>{try{cb(decodeCsvBuffer(ev.target.result));}catch(err){alert('CSVの読み込みに失敗しました: '+err.message);}};
   rd.readAsArrayBuffer(file);}
@@ -1506,6 +1606,8 @@ document.getElementById('fileImport').addEventListener('change',e=>{
   readFileAs(f,text=>{
     if(!confirm(f.name+' を生徒名簿として取り込みます。\n現在の配置（保存済みの移動）は新しい名簿の内容に置き換わります。よろしいですか？')){e.target.value='';return;}
     curStudentCsv=text;try{LS.set(LSSCSV,text);}catch(err){}
+    JUKU_TERM.setMark('koma', JUKU_TERM.want('koma'));
+    JUKU_TERM.paint('jtBar','koma');
     rebuildAll(true);
     const i=lastImportInfo;
     alert(f.name+' を取り込みました。\n期: '+PERIODS.join('/')+'\n時限: '+LIMITS.length+'コマ制\n生徒 '+i.students+'名 / コマ '+i.komas+' / 集団枠 '+i.groups+
@@ -2571,6 +2673,7 @@ if(!curStudentCsv){
     '</div>';
 }
 console.log('komas on board:',komas.length,'skipped(no teacher match):',skipped);
+JUKU_TERM.paint('jtBar','koma');
 </script>
 </body>
 </html>
