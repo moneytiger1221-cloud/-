@@ -503,6 +503,7 @@ async function runImport(){
         await w.JUKU_IMPORT[k.fn](q.file);
         say('✅ '+esc(q.name)+' → '+esc(k.to)+' に取り込みました');
       }
+      markSeenFile(q.name, Date.now());
     }catch(e){
       say('⚠ '+esc(q.name)+'：'+esc(e && e.message ? e.message : String(e)));
     }
@@ -538,6 +539,151 @@ function drawShelf(){
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+/* ===== フォルダ監視 =====
+   社内システムのリンクからは自動でファイルを取れないので、
+   「いつも通りダウンロードする」ところまでは人がやり、そこから先を自動にする。
+   SSツールで動いている仕組みをそのまま持ってきて、行き先を増やしたもの。
+
+   ・一度フォルダを許可すれば、取込タブを開くだけで未取込のファイルを拾う
+   ・**名簿以外は、そのまま取り込む**（毎日のSSやYSを1手も掛けずに入れるため）
+   ・**名簿は取り込まず、確認の一覧に残す**（どの学期のぶんかを人が決める必要があるため） */
+var IDB_NAME='juku_import', IDB_STORE='kv';
+function idb(){
+  return new Promise(function(res,rej){
+    var r=indexedDB.open(IDB_NAME,1);
+    r.onupgradeneeded=function(){ r.result.createObjectStore(IDB_STORE); };
+    r.onsuccess=function(){ res(r.result); };
+    r.onerror=function(){ rej(r.error); };
+  });
+}
+async function idbSet(k,v){
+  var db=await idb();
+  return new Promise(function(res,rej){
+    var tx=db.transaction(IDB_STORE,'readwrite');
+    tx.objectStore(IDB_STORE).put(v,k);
+    tx.oncomplete=function(){res();}; tx.onerror=function(){rej(tx.error);};
+  });
+}
+async function idbGet(k){
+  var db=await idb();
+  return new Promise(function(res,rej){
+    var tx=db.transaction(IDB_STORE,'readonly');
+    var q=tx.objectStore(IDB_STORE).get(k);
+    q.onsuccess=function(){res(q.result);}; q.onerror=function(){rej(q.error);};
+  });
+}
+function fsSupported(){ return typeof window.showDirectoryPicker==='function'; }
+
+const SEEN_KEY='juku_seen_files_v1';
+function seenFiles(){ try{ return JSON.parse(localStorage.getItem(SEEN_KEY)||'{}')||{}; }catch(e){ return {}; } }
+function markSeenFile(name, at){
+  var o=seenFiles(); o[name]=at||1;
+  try{ localStorage.setItem(SEEN_KEY, JSON.stringify(o)); }catch(e){}
+}
+
+function watchMsg(t, ng){
+  var el=document.getElementById('impWatchMsg'); if(!el) return;
+  el.textContent=t||''; el.className='imp-log'+(ng?' imp-ng':'');
+}
+
+async function pickWatchDir(){
+  if(!fsSupported()){
+    watchMsg('この開き方ではフォルダ監視が使えません。START-TOOL.bat（localhost）か公開版のURLから、ChromeかEdgeで開いてください。', true);
+    return;
+  }
+  try{
+    var h=await window.showDirectoryPicker({ id:'jukudl', mode:'read' });
+    await idbSet('dir', h);
+    watchMsg('フォルダを登録しました。未取込のファイルを見にいきます…');
+    await scanWatchDir(true);
+    drawWatch();
+  }catch(e){
+    if(e && e.name==='AbortError') return;
+    watchMsg('登録できませんでした: '+(e&&e.message?e.message:e), true);
+  }
+}
+async function forgetWatchDir(){
+  await idbSet('dir', null);
+  watchMsg('フォルダの登録を解除しました。');
+  drawWatch();
+}
+
+async function scanWatchDir(verbose){
+  if(!fsSupported()){ if(verbose) watchMsg('この開き方では使えません。', true); return; }
+  var h=null;
+  try{ h=await idbGet('dir'); }catch(e){ h=null; }
+  if(!h){ if(verbose) watchMsg('まだフォルダが登録されていません。', true); return; }
+
+  var perm=await h.queryPermission({ mode:'read' });
+  if(perm!=='granted'){
+    if(!verbose){ watchMsg('フォルダの読み取り許可が切れています。「今すぐ見にいく」を押して許可してください。', true); return; }
+    perm=await h.requestPermission({ mode:'read' });
+    if(perm!=='granted'){ watchMsg('許可されませんでした。', true); return; }
+  }
+
+  var seen=seenFiles(), picks=[];
+  for await (var ent of h.values()){
+    if(ent.kind!=='file') continue;
+    if(!/\.(csv|xlsx?|pdf)$/i.test(ent.name)) continue;
+    if(seen[ent.name]) continue;
+    picks.push(ent);
+  }
+  if(!picks.length){ if(verbose) watchMsg('新しいファイルはありませんでした。'); return; }
+
+  /* 種類を見分けて、名簿以外はそのまま取り込む */
+  var auto=[], wait=[];
+  for(var i=0;i<picks.length;i++){
+    var f=await picks[i].getFile();
+    var head=await headOf(f);
+    var kind=detectKind(f.name, head);
+    var k=KINDS[kind];
+    if(k && !k.shelf) auto.push({file:f, name:f.name, kind:kind});
+    else if(k) wait.push({file:f, name:f.name, kind:kind, term:guessTerm(f.name, kind)});
+    /* 種類が分からないものは触らない（毎日フォルダに増える無関係なファイルを拾わないため） */
+  }
+
+  var done=0, ngs=[];
+  for(const q of auto){
+    const k=KINDS[q.kind];
+    try{
+      const w=await toolWindow(k.tool);
+      await w.JUKU_IMPORT[k.fn](q.file);
+      markSeenFile(q.name, Date.now());
+      done++;
+    }catch(e){ ngs.push(q.name+'（'+(e&&e.message?e.message:e)+'）'); }
+  }
+  wait.forEach(q=>QUEUE.push(q));
+  drawQueue();
+
+  var msg=[];
+  if(done) msg.push('新しく '+done+'件 取り込みました');
+  if(wait.length) msg.push('名簿 '+wait.length+'件は、学期を確かめてから取り込みます（上の一覧）');
+  if(ngs.length) msg.push('読めなかったもの: '+ngs.join('、'));
+  if(!msg.length) msg.push('新しく取り込めるファイルはありませんでした');
+  watchMsg(msg.join('／'), ngs.length>0);
+}
+
+async function drawWatch(){
+  var box=document.getElementById('impWatch'); if(!box) return;
+  var has=false;
+  try{ has=!!(await idbGet('dir')); }catch(e){}
+  var n=Object.keys(seenFiles()).length;
+  box.innerHTML =
+    '<div class="imp-dim" style="margin-bottom:8px;line-height:1.8;">'+
+      'ダウンロード先のフォルダを一度だけ許可しておくと、<b>この取込タブを開くだけ</b>で新しいファイルを拾います。<br>'+
+      'SSの成績進捗やYSの名前聞きリストなど<b>毎日のぶんはそのまま取り込み</b>、'+
+      '<b>名簿は学期を確かめてから</b>にします。'+
+    '</div>'+
+    '<button class="imp-btn" id="impPick">'+(has?'フォルダを選び直す':'フォルダを登録する')+'</button> '+
+    '<button class="imp-btn" id="impScan" style="background:#64748b;">今すぐ見にいく</button> '+
+    (has?'<button class="imp-btn danger" id="impForget">登録を解除</button>':'')+
+    '<span class="imp-dim"> 取り込み済み '+n+'件</span>'+
+    '<div id="impWatchMsg" class="imp-log"></div>';
+  var p=document.getElementById('impPick'); if(p) p.onclick=pickWatchDir;
+  var s=document.getElementById('impScan'); if(s) s.onclick=()=>scanWatchDir(true);
+  var g=document.getElementById('impForget'); if(g) g.onclick=forgetWatchDir;
+}
+
 function mountImport(pane){
   const local = location.protocol === 'file:';
   pane.innerHTML =
@@ -553,6 +699,10 @@ function mountImport(pane){
         '<div id="impQueue" style="margin-top:10px;"></div>'+
         '<div style="margin-top:10px;"><button id="impRun" class="imp-btn" disabled>この内容で取り込む</button></div>'+
         '<div id="impLog" class="imp-log"></div>'+
+      '</div>'+
+      '<div class="imp-card">'+
+        '<h3>フォルダを見張る <span class="imp-dim">毎日のぶんを自動で</span></h3>'+
+        '<div id="impWatch"></div>'+
       '</div>'+
       '<div class="imp-card">'+
         '<h3>各ツールが今見ている学期 <span class="imp-dim">7月・8月・1月はツールごとに違うのが正しい</span></h3>'+
@@ -581,6 +731,9 @@ function mountImport(pane){
     JUKU_ROSTER.clearAll(); drawShelf();
   };
   drawQueue(); drawShelf(); drawTools();
+  drawWatch();
+  /* 開いたときに一度だけ見にいく（許可が生きていれば黙って取り込む） */
+  scanWatchDir(false);
 }
 
 /* 各ツールが今どの学期の名簿を見ているか。ここで直すこともできる。 */
