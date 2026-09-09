@@ -156,12 +156,14 @@
   background:#fff;color:#334155;font-family:inherit;max-width:150px;}
 .jt .jt-w{color:#8497a8;}
 .jt .jt-w.jt-ng{color:#b45309;font-weight:700;}
+.jt-round{font-size:11.5px;color:#94a3b8;white-space:nowrap;}
+.jt-round.ng{color:#fbbf24;font-weight:700;}
 </style>
 </head>
 <body>
 <div class="header">
   <h1>成績推移トラッカー</h1>
-  <div class="sub">戸塚西口校 — 校長専用 <span class="jt" id="jtBar"></span></div>
+  <div class="sub">戸塚西口校 — 校長専用 <span class="jt" id="jtBar"></span> <span id="jtRound" class="jt-round"></span></div>
 </div>
 
 <div class="maintabs" id="maintabs">
@@ -784,6 +786,70 @@ const TANTOU_KEY = 'gradeTracker_tantou_v1';
 const TANTOU_HIGH_KEY = 'gradeTracker_tantouHigh_v1';
 const SCHEDULE_KEY = 'gradeTracker_schedule_v1';
 const SCHEDULE_HIGH_KEY = 'gradeTracker_scheduleHigh_v1';
+/* 学期ごとの担当・曜日・名簿学年。中身は {学期: {生徒番号: …}} */
+const BYTERM_KEY = 'gradeTracker_rosterByTerm_v1';
+let rosterByTerm = { tantou:{}, tantouHigh:{}, schedule:{}, scheduleHigh:{}, rosterGrade:{} };
+let termFallback = '';     /* その回の学期の名簿が無くて別の学期で代用したときに入る */
+
+/* テスト回（"2026-3" の形）から学期を出す。①②＝1学期、③④＝2学期、⑤＝3学期 */
+function termOfRound(key){
+  const m = String(key||'').match(/^(\d{4})-(\d+)$/);
+  if(!m) return JUKU_TERM.mark('grade') || JUKU_TERM.want('grade');
+  return JUKU_TERM.termOfKai(+m[1], +m[2]);
+}
+/* 今見ているテスト回に合わせて、担当などを入れ替える */
+function useTermMaps(){
+  const want = termOfRound(selectedRound);
+  /* 中身のある学期だけを数える（空の入れ物は無いものとして扱う） */
+  const keys = Object.keys(rosterByTerm.tantou||{})
+    .filter(k => Object.keys(rosterByTerm.tantou[k]||{}).length > 0);
+  let use = want;
+  termFallback = '';
+  if(!rosterByTerm.tantou[want] || !Object.keys(rosterByTerm.tantou[want]).length){
+    if(keys.length===1){ use = keys[0]; termFallback = keys[0]; }   /* 1学期ぶんしか無ければそれで代用 */
+    else use = null;
+  }
+  const pick = (k)=> (use && rosterByTerm[k] && rosterByTerm[k][use]) ? rosterByTerm[k][use] : {};
+  tantou       = pick('tantou');
+  tantouHigh   = pick('tantouHigh');
+  schedule     = pick('schedule');
+  scheduleHigh = pick('scheduleHigh');
+  rosterGrade  = pick('rosterGrade');
+  paintRoundNote(want, use);
+  return want;
+}
+/* 「テスト③＝2026年度2学期の担当で集計」を出す。代用中ならはっきり書く。 */
+function paintRoundNote(want, use){
+  const el = document.getElementById('jtRound'); if(!el) return;
+  const m = String(selectedRound||'').match(/^(\d{4})-(\d+)$/);
+  if(!m){ el.textContent=''; el.className='jt-round'; return; }
+  const kai = '①②③④⑤⑥'[(+m[2])-1] || m[2];
+  if(!use){
+    el.className='jt-round ng';
+    el.textContent = 'テスト'+kai+'は '+want+' の担当で集計します（その学期の名簿がありません）';
+  }else if(termFallback){
+    el.className='jt-round ng';
+    el.textContent = 'テスト'+kai+'＝'+want+' の担当ですが、'+termFallback+' の名簿で代用中';
+  }else{
+    el.className='jt-round';
+    el.textContent = 'テスト'+kai+'＝'+want+' の担当';
+  }
+}
+function saveByTerm(){ try{ localStorage.setItem(BYTERM_KEY, JSON.stringify(rosterByTerm)); }catch(e){} }
+/* 前のかたち（1セットだけ）を、今の学期のぶんとして引き継ぐ */
+function migrateByTerm(){
+  try{ const r=localStorage.getItem(BYTERM_KEY); if(r){ rosterByTerm=JSON.parse(r); return; } }catch(e){}
+  const t = JUKU_TERM.mark('grade') || JUKU_TERM.want('grade');
+  rosterByTerm = { tantou:{}, tantouHigh:{}, schedule:{}, scheduleHigh:{}, rosterGrade:{} };
+  if(!tantou || !Object.keys(tantou).length){ saveByTerm(); return; }   /* まだ名簿が無いなら空のまま */
+  rosterByTerm.tantou[t]       = tantou       || {};
+  rosterByTerm.tantouHigh[t]   = tantouHigh   || {};
+  rosterByTerm.schedule[t]     = schedule     || {};
+  rosterByTerm.scheduleHigh[t] = scheduleHigh || {};
+  rosterByTerm.rosterGrade[t]  = rosterGrade  || {};
+  saveByTerm();
+}
+
 const NOTIMPL_KEY = 'gradeTracker_notimpl_v1';
 const MANUAL_COL_KEY = 'gradeTracker_manualCol_v1';
 const ACTIONS_KEY = 'gradeTracker_actions_v1';
@@ -1536,12 +1602,12 @@ function render() {
   const chips = document.getElementById('roundChips');
   if (rounds.length > 0) {
     roundBar.style.display = 'block';
-    if (!selectedRound) selectedRound = rounds[0].key; // 既定は最新回
+    if (!selectedRound) { selectedRound = rounds[0].key; useTermMaps(); } // 既定は最新回
     chips.innerHTML = rounds.map(r =>
       `<div class="round-chip ${r.key===selectedRound?'active':''}" data-round="${r.key}">${kaiLabel(r)}</div>`
     ).join('');
     chips.querySelectorAll('.round-chip').forEach(ch=>{
-      ch.addEventListener('click', ()=>{ selectedRound = ch.dataset.round; render(); });
+      ch.addEventListener('click', ()=>{ selectedRound = ch.dataset.round; useTermMaps(); render(); });
     });
   }
   document.getElementById('threshBar').style.display = (rounds.length>0) ? 'block' : 'none';
@@ -2605,6 +2671,16 @@ function importNameCSV(text) {
   saveTantouHigh();
   saveSchedule();
   saveScheduleHigh();
+  /* 取り込んだ担当・曜日は「今の学期のぶん」としてしまう */
+  {
+    const t = JUKU_TERM.mark('grade') || JUKU_TERM.want('grade');
+    rosterByTerm.tantou[t]       = tantou;
+    rosterByTerm.tantouHigh[t]   = tantouHigh;
+    rosterByTerm.schedule[t]     = schedule;
+    rosterByTerm.scheduleHigh[t] = scheduleHigh;
+    rosterByTerm.rosterGrade[t]  = rosterGrade;
+    saveByTerm();
+  }
   return matched;
 }
 
@@ -2719,6 +2795,8 @@ document.getElementById('detailModal').addEventListener('click', (e)=>{
 });
 
 load();
+migrateByTerm();
+useTermMaps();
 render();
 
 /* 取込センターの棚に、今見ている学期の名簿があれば読み込む。
@@ -2732,7 +2810,7 @@ function pullRoster(force){
     const n = importNameCSV(text);
     dbg('取込センターの棚から名簿を読み込みました: ' + n + '名');
   });
-  if(got){ render(); JUKU_TERM.paint('jtBar','grade', function(){ pullRoster(true); JUKU_TERM.paint('jtBar','grade'); }); }
+  if(got){ useTermMaps(); render(); JUKU_TERM.paint('jtBar','grade', function(){ pullRoster(true); JUKU_TERM.paint('jtBar','grade'); }); }
 }
 JUKU_TERM.paint('jtBar','grade', function(){ pullRoster(true); JUKU_TERM.paint('jtBar','grade'); });
 pullRoster(false);
