@@ -470,7 +470,7 @@ var JUKU_TERM = (function(){
 
   /* ヘッダに出す小さな表示。id の要素の中身を作る。
      何も記録が無ければ「未設定」、今の月とずれていれば ⚠ を付ける。 */
-  function paint(elId, tool){
+  function paint(elId, tool, cb){
     var el = document.getElementById(elId); if(!el) return;
     var cur = mark(tool), w = want(tool);
     var opts = list();
@@ -485,12 +485,85 @@ var JUKU_TERM = (function(){
     else if(cur!==w) h += '<span class="jt-w jt-ng" title="今の月に合っていません">⚠ 今は '+w+'</span>';
     el.innerHTML = h;
     var sel = el.querySelector('.jt-s');
-    sel.onchange = function(){ setMark(tool, sel.value); paint(elId, tool); };
+    sel.onchange = function(){ setMark(tool, sel.value); paint(elId, tool, cb); if(cb) cb(sel.value); };
   }
 
   return { want:want, kousyu:kousyu, termOfKai:termOfKai, list:list,
            mark:mark, setMark:setMark, paint:paint, nendo:nendo };
 })();
+
+/* ===== 名簿の棚（塾ツール共通・6ツールに同じものを入れる）=====
+   生徒CSVと先生CSVを「学期ごと」にしまっておく場所。取込センターが書き、各ツールが読む。
+   同じオリジンの localStorage なので、iframe をまたいでも共有される。
+
+   しまうのは**デコード済みのテキストそのもの**。各ツールのパーサはそれぞれ癖があるので、
+   ここでは解釈せず、生のまま渡す。（PDFやxlsxは大きすぎるので棚には置かない） */
+var JUKU_ROSTER = (function(){
+  var SHELF='juku_roster_v1';        /* {学期:{student:{file,at,text}, teacher:{…}, kousyu:'2026年度夏期'}} */
+  var SEEN ='juku_roster_seen_v1';   /* {tool:{term, at}} どこまで取り込み済みか */
+
+  function rd(k){ try{ return JSON.parse(localStorage.getItem(k)||'{}')||{}; }catch(e){ return {}; } }
+  function wr(k,o){ try{ localStorage.setItem(k, JSON.stringify(o)); return true; }catch(e){ return false; } }
+
+  function all(){ return rd(SHELF); }
+  function terms(){ return Object.keys(all()).sort(); }
+  function entry(term, kind){ var t=all()[term]; return (t && t[kind]) ? t[kind] : null; }
+
+  function put(term, kind, file, text, kousyu){
+    var o=rd(SHELF);
+    if(!o[term]) o[term]={};
+    o[term][kind]={ file:file||'', at:Date.now(), text:String(text||'') };
+    if(kousyu) o[term].kousyu=kousyu;
+    return wr(SHELF,o);
+  }
+  function drop(term){ var o=rd(SHELF); delete o[term]; wr(SHELF,o); }
+  function clearAll(){
+    try{ localStorage.removeItem(SHELF); localStorage.removeItem(SEEN); }catch(e){}
+  }
+  function sizeKB(){
+    try{ return Math.round((localStorage.getItem(SHELF)||'').length/1024); }catch(e){ return 0; }
+  }
+
+  /* どこまで取り込んだかの印。生徒と先生で別々に持つ（片方だけ更新されることがある） */
+  function sk(tool, kind){ return tool+':'+kind; }
+  function seen(tool, kind){ return rd(SEEN)[sk(tool,kind)] || null; }
+  function markSeen(tool, kind, term, at){
+    var o=rd(SEEN); o[sk(tool,kind)]={term:term, at:at}; wr(SEEN,o);
+  }
+
+  /* 棚に「まだ取り込んでいない新しいもの」があるか */
+  function pending(tool, kind, term){
+    term = term || (typeof JUKU_TERM!=='undefined' ? JUKU_TERM.mark(tool) : '');
+    if(!term) return null;
+    var e = entry(term, kind);
+    if(!e || !e.text) return null;
+    var s = seen(tool, kind);
+    if(s && s.term===term && s.at===e.at) return null;    /* もう取り込んである */
+    return e;
+  }
+
+  /* 棚から読んで、まだ取り込んでいなければ apply(text, info) を呼ぶ。
+     term を省くと、そのツールが今見ている学期（JUKU_TERM.mark）を使う。
+     戻り値: 取り込んだら info、何もしなければ null */
+  function pull(tool, kind, apply, term){
+    term = term || (typeof JUKU_TERM!=='undefined' ? JUKU_TERM.mark(tool) : '');
+    var e = pending(tool, kind, term);
+    if(!e) return null;
+    try{ apply(e.text, e); }catch(err){ return null; }
+    markSeen(tool, kind, term, e.at);
+    return e;
+  }
+  /* 学期を変えたときなど、取り込み済みの印を消してもう一度読ませる */
+  function forget(tool){
+    var o=rd(SEEN);
+    Object.keys(o).forEach(function(k){ if(k.indexOf(tool+':')===0) delete o[k]; });
+    wr(SEEN,o);
+  }
+
+  return { all:all, terms:terms, entry:entry, put:put, drop:drop, clearAll:clearAll,
+           sizeKB:sizeKB, pull:pull, pending:pending, forget:forget, seen:seen, markSeen:markSeen };
+})();
+
 
 function tName(code){ return state.roster[code]?.name || ""; }
 function tLabel(code){ const n=tName(code); return n?`${code} ${n}`:code; }
@@ -1566,7 +1639,7 @@ function render(){
     </div>
     <div class="content">${renderTab()}</div>`;
   FLT.draw();          /* 画面ごと作り直すので、絞り込みボタンも毎回つなぎ直す */
-  JUKU_TERM.paint('jtBar','survey');
+  JUKU_TERM.paint('jtBar','survey', function(){ pullRoster(true); });
   renderModal();
 }
 
@@ -2283,7 +2356,32 @@ function radarSVG(data, series){
   }
 })();
 
+/* 取込センターの棚から、担当ペア名簿と先生名簿を読み込む。
+   どちらも「名簿から作り直すだけ」のデータなので、読み直しても手作業のぶんは消えない。
+   棚に入っているのはデコード済みのテキストなので、いったんファイルの形にして
+   既存の取り込み処理にそのまま渡す（文字コードの判定はそちらに任せる）。 */
+function pullRoster(force){
+  if(force) JUKU_ROSTER.forget('survey');
+  /* 学期がまだ決まっていなくても、棚に今の月ぶんがあればそれを使う（使ったら記録する） */
+  if(!JUKU_TERM.mark('survey') && JUKU_ROSTER.entry(JUKU_TERM.want('survey'),'student'))
+    JUKU_TERM.setMark('survey', JUKU_TERM.want('survey'));
+  const shim = (text,name) => ({ files:[ new File([text], name, {type:'text/csv'}) ], value:'' });
+  JUKU_ROSTER.pull('survey','teacher', function(text,info){
+    onTeacherFile(shim(text, info.file||'teacher.csv'));
+  });
+  JUKU_ROSTER.pull('survey','student', function(text,info){
+    onAssignFile(shim(text, info.file||'student.csv'));
+  });
+}
 render();
+pullRoster(false);
+
+/* 取込センターから呼ばれる窓口。既存の取り込み処理は input を受けるので、
+   ファイル1つを入れた入れ物の形にして渡す。 */
+window.JUKU_IMPORT = {
+  survey: function(f){ return onSurveyFile({files:[f], value:''}); },
+  elem:   function(f){ return onElemSurveyFile({files:[f], value:''}); }
+};
 </script>
 </body>
 </html>

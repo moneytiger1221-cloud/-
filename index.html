@@ -56,6 +56,41 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;
   #navright button{padding:4px 8px;font-size:10.5px;}
   #btnOpen{display:none;}                  /* 別窓はスマホでは使わないので、タブに幅を回す */
 }
+/* ===== 取込センター ===== */
+.imp{padding:14px;overflow:auto;height:100%;box-sizing:border-box;background:#f6f8fa;
+  font-size:13px;color:#334155;-webkit-overflow-scrolling:touch;}
+.imp-card{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:12px;
+  box-shadow:0 1px 3px rgba(0,0,0,.05);}
+.imp-card h3{margin:0 0 10px;font-size:14px;color:#1e293b;}
+.imp-warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:10px;
+  padding:12px 14px;margin-bottom:12px;line-height:1.7;}
+.imp-drop{border:2px dashed #cbd5e1;border-radius:10px;padding:26px 14px;text-align:center;
+  color:#64748b;cursor:pointer;background:#fbfdff;line-height:1.9;}
+.imp-drop.on{border-color:#2b6fe0;background:#eff6ff;}
+.imp-dim{color:#94a3b8;font-size:11.5px;font-weight:400;}
+.imp-empty{color:#94a3b8;font-size:12.5px;padding:10px 2px;}
+.imp-ng{color:#b45309;font-weight:700;}
+.imp-tbl{width:100%;border-collapse:collapse;font-size:12.5px;}
+.imp-tbl th{text-align:left;font-weight:700;color:#64748b;font-size:11.5px;
+  border-bottom:1px solid #e2e8f0;padding:5px 6px;white-space:nowrap;}
+.imp-tbl td{border-bottom:1px solid #f1f5f9;padding:6px;vertical-align:middle;}
+.imp-tbl tr.imp-unknown{background:#fffbeb;}
+.imp-name{word-break:break-all;max-width:230px;}
+.imp-tbl select{font-size:12px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;
+  background:#fff;font-family:inherit;max-width:160px;}
+.imp-x{border:1px solid #e2e8f0;background:#fff;color:#94a3b8;border-radius:5px;
+  width:24px;height:24px;line-height:1;cursor:pointer;font-size:14px;font-family:inherit;}
+.imp-x:hover{border-color:#f87171;color:#dc2626;}
+.imp-btn{background:#2b6fe0;color:#fff;border:none;border-radius:8px;padding:9px 18px;
+  font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+.imp-btn:disabled{background:#cbd5e1;cursor:default;}
+.imp-btn.danger{background:#fff;color:#dc2626;border:1px solid #fecaca;font-weight:400;padding:7px 14px;}
+.imp-log{margin-top:10px;font-size:12px;line-height:1.9;color:#475569;}
+@media (max-width:820px){
+  .imp{padding:10px;}
+  .imp-name{max-width:120px;font-size:11.5px;}
+  .imp-tbl select{max-width:110px;font-size:11.5px;}
+}
 </style>
 </head>
 <body>
@@ -69,6 +104,7 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;
       <button class="navtab" data-k="ys">YSボード<span class="ld">友人紹介</span></button>
       <button class="navtab" data-k="ss">SS<span class="ld">成績進捗</span></button>
       <button class="navtab" data-k="shinro">進路<span class="ld">私立・公立</span></button>
+      <button class="navtab" data-k="import">取込<span class="ld">ファイル</span></button>
     </div>
     <div id="navright">
       <span id="hint">タブを切り替えても各ツールの状態は保持されます</span>
@@ -91,7 +127,9 @@ const TOOLS=[
   {k:'survey', label:'アンケート', src:'survey-app.html'},
   {k:'ys',     label:'YSボード',   src:'ys-board-sync.html'},
   {k:'ss',     label:'SS',         src:'ss-tracker.html'},
-  {k:'shinro', label:'進路',       src:'shinro.html'}
+  {k:'shinro', label:'進路',       src:'shinro.html'},
+  /* 取込センターだけは中身をここに直接書く（iframeではない） */
+  {k:'import', label:'取込',       local:true}
 ];
 const LSTAB='jukutool_tab_v1';
 const panes=document.getElementById('panes');
@@ -102,7 +140,7 @@ let cur=null;
 TOOLS.forEach(t=>{
   const d=document.createElement('div');
   d.className='pane';d.id='pane-'+t.k;
-  d.innerHTML='<div class="ph"><div class="sp"></div><div class="msg">'+t.label+'を読み込んでいます…</div></div>';
+  if(!t.local) d.innerHTML='<div class="ph"><div class="sp"></div><div class="msg">'+t.label+'を読み込んでいます…</div></div>';
   panes.appendChild(d);
 });
 
@@ -115,7 +153,10 @@ function show(k){
   const at=document.querySelector(".navtab[data-k='"+k+"']");
   if(at&&at.scrollIntoView)try{at.scrollIntoView({inline:"nearest",block:"nearest"});}catch(e){}
   document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id==='pane-'+k));
-  if(!loaded[k])mount(t);
+  if(!loaded[k]){
+    if(t.local){ loaded[k]=true; mountImport(document.getElementById('pane-'+k)); }
+    else mount(t);
+  }
 }
 function mount(t){
   loaded[t.k]=true;
@@ -141,11 +182,447 @@ document.querySelectorAll('.navtab').forEach(b=>b.onclick=()=>show(b.dataset.k))
 document.getElementById('btnReload').onclick=()=>{
   const pane=document.getElementById('pane-'+cur);
   const fr=pane.querySelector('iframe');
-  if(fr)fr.contentWindow.location.reload();
+  if(fr) fr.contentWindow.location.reload();
+  else if(cur==='import') mountImport(pane);      /* 取込タブは作り直す */
 };
 document.getElementById('btnOpen').onclick=()=>{
-  const t=TOOLS.find(x=>x.k===cur); if(t)window.open(t.src,'_blank');
+  const t=TOOLS.find(x=>x.k===cur); if(t&&t.src)window.open(t.src,'_blank');
 };
+/* ===== 学期の共通部品（塾ツール共通・6ツールに同じものを入れる）=====
+   「今このツールはいつの名簿で動いているか」を持って、画面に出す。
+
+   1年の流れ（聞き取り）:
+     コマ組は先を組む。7月に2学期、12月に3学期、3月には次年度1学期のコマを組む。
+     アンケートは6〜10月に1学期の結果を見て、11〜1月は2学期、2〜3月は3学期。
+     成績はテスト①②＝1学期、③④＝2学期、⑤＝3学期の担当とセット。
+   なので「今の学期」は1つに決まらない。ツールごとに別々に持つ。         */
+var JUKU_TERM = (function(){
+  var MARK='juku_roster_mark_v1';        /* {koma:'2026年度2学期', grade:…, survey:…} */
+
+  function get(){ try{ return JSON.parse(localStorage.getItem(MARK)||'{}')||{}; }catch(e){ return {}; } }
+  function put(o){ try{ localStorage.setItem(MARK, JSON.stringify(o)); }catch(e){} }
+
+  /* 年度は4月始まり */
+  function nendo(d){ return (d.getMonth()+1) >= 4 ? d.getFullYear() : d.getFullYear()-1; }
+
+  /* そのツールが「その月に使うべき学期」。上の表のとおり。 */
+  function want(tool, d){
+    d = d || new Date();
+    var m = d.getMonth()+1, y = nendo(d);
+    if(tool==='koma'){                                    /* コマ組は先を組む */
+      if(m>=4 && m<=6)  return y+'年度1学期';
+      if(m>=7 && m<=11) return y+'年度2学期';
+      if(m===12||m===1||m===2) return y+'年度3学期';
+      return (y+1)+'年度1学期';                            /* 3月は次年度1学期 */
+    }
+    if(tool==='survey'){                                  /* 集計は6月・11月・2月 */
+      if(m>=4 && m<=10) return y+'年度1学期';
+      if(m>=11 || m===1) return y+'年度2学期';
+      return y+'年度3学期';                                /* 2〜3月 */
+    }
+    /* 成績ほか。テスト回が分かるときは termOfKai() が優先 */
+    if(m>=4 && m<=7)  return y+'年度1学期';
+    if(m>=8 && m<=12) return y+'年度2学期';
+    return y+'年度3学期';
+  }
+
+  /* テスト回 → 学期。①②＝1学期、③④＝2学期、⑤＝3学期 */
+  function termOfKai(year, kai){
+    var n = +kai || 0;
+    var g = n<=2 ? 1 : (n<=4 ? 2 : 3);
+    return year+'年度'+g+'学期';
+  }
+
+  /* 講習は通常とは別軸。社内ツール上で開いている期間で決まる。
+     4月2週〜8月＝夏期 / 9月〜1月1週＝冬期 / 1月2週〜4月1週＝春期 */
+  function kousyu(d){
+    d = d || new Date();
+    var m = d.getMonth()+1, day = d.getDate();
+    if((m===1 && day>=8) || m===2 || m===3 || (m===4 && day<=7)){
+      /* 春期は1〜4月にまたがるが、どれも同じ年度の終わりぶん */
+      return (d.getFullYear()-1)+'年度春期';
+    }
+    if((m===4 && day>=8) || (m>=5 && m<=8)) return nendo(d)+'年度夏期';
+    return nendo(d)+'年度冬期';                            /* 9月〜1月1週 */
+  }
+
+  /* 選べる学期の一覧（前年度3学期 〜 次年度1学期） */
+  function list(d){
+    var y = nendo(d||new Date());
+    return [(y-1)+'年度3学期', y+'年度1学期', y+'年度2学期', y+'年度3学期', (y+1)+'年度1学期'];
+  }
+
+  function mark(tool){ return get()[tool] || ''; }
+  function setMark(tool, term){ var o=get(); if(term) o[tool]=term; else delete o[tool]; put(o); }
+
+  /* ヘッダに出す小さな表示。id の要素の中身を作る。
+     何も記録が無ければ「未設定」、今の月とずれていれば ⚠ を付ける。 */
+  function paint(elId, tool){
+    var el = document.getElementById(elId); if(!el) return;
+    var cur = mark(tool), w = want(tool);
+    var opts = list();
+    if(cur && opts.indexOf(cur)<0) opts = [cur].concat(opts);
+    var h = '<span class="jt-l">名簿</span>' +
+      '<select class="jt-s" title="このツールが今どの学期の名簿で動いているか">' +
+      '<option value="">未設定</option>' +
+      opts.map(function(t){
+        return '<option value="'+t+'"'+(t===cur?' selected':'')+'>'+t+'</option>';
+      }).join('') + '</select>';
+    if(!cur) h += '<span class="jt-w" title="今の月ならこの学期です">今は '+w+'</span>';
+    else if(cur!==w) h += '<span class="jt-w jt-ng" title="今の月に合っていません">⚠ 今は '+w+'</span>';
+    el.innerHTML = h;
+    var sel = el.querySelector('.jt-s');
+    sel.onchange = function(){ setMark(tool, sel.value); paint(elId, tool); };
+  }
+
+  return { want:want, kousyu:kousyu, termOfKai:termOfKai, list:list,
+           mark:mark, setMark:setMark, paint:paint, nendo:nendo };
+})();
+
+/* ===== 名簿の棚（塾ツール共通・6ツールに同じものを入れる）=====
+   生徒CSVと先生CSVを「学期ごと」にしまっておく場所。取込センターが書き、各ツールが読む。
+   同じオリジンの localStorage なので、iframe をまたいでも共有される。
+
+   しまうのは**デコード済みのテキストそのもの**。各ツールのパーサはそれぞれ癖があるので、
+   ここでは解釈せず、生のまま渡す。（PDFやxlsxは大きすぎるので棚には置かない） */
+var JUKU_ROSTER = (function(){
+  var SHELF='juku_roster_v1';        /* {学期:{student:{file,at,text}, teacher:{…}, kousyu:'2026年度夏期'}} */
+  var SEEN ='juku_roster_seen_v1';   /* {tool:{term, at}} どこまで取り込み済みか */
+
+  function rd(k){ try{ return JSON.parse(localStorage.getItem(k)||'{}')||{}; }catch(e){ return {}; } }
+  function wr(k,o){ try{ localStorage.setItem(k, JSON.stringify(o)); return true; }catch(e){ return false; } }
+
+  function all(){ return rd(SHELF); }
+  function terms(){ return Object.keys(all()).sort(); }
+  function entry(term, kind){ var t=all()[term]; return (t && t[kind]) ? t[kind] : null; }
+
+  function put(term, kind, file, text, kousyu){
+    var o=rd(SHELF);
+    if(!o[term]) o[term]={};
+    o[term][kind]={ file:file||'', at:Date.now(), text:String(text||'') };
+    if(kousyu) o[term].kousyu=kousyu;
+    return wr(SHELF,o);
+  }
+  function drop(term){ var o=rd(SHELF); delete o[term]; wr(SHELF,o); }
+  function clearAll(){
+    try{ localStorage.removeItem(SHELF); localStorage.removeItem(SEEN); }catch(e){}
+  }
+  function sizeKB(){
+    try{ return Math.round((localStorage.getItem(SHELF)||'').length/1024); }catch(e){ return 0; }
+  }
+
+  /* どこまで取り込んだかの印。生徒と先生で別々に持つ（片方だけ更新されることがある） */
+  function sk(tool, kind){ return tool+':'+kind; }
+  function seen(tool, kind){ return rd(SEEN)[sk(tool,kind)] || null; }
+  function markSeen(tool, kind, term, at){
+    var o=rd(SEEN); o[sk(tool,kind)]={term:term, at:at}; wr(SEEN,o);
+  }
+
+  /* 棚に「まだ取り込んでいない新しいもの」があるか */
+  function pending(tool, kind, term){
+    term = term || (typeof JUKU_TERM!=='undefined' ? JUKU_TERM.mark(tool) : '');
+    if(!term) return null;
+    var e = entry(term, kind);
+    if(!e || !e.text) return null;
+    var s = seen(tool, kind);
+    if(s && s.term===term && s.at===e.at) return null;    /* もう取り込んである */
+    return e;
+  }
+
+  /* 棚から読んで、まだ取り込んでいなければ apply(text, info) を呼ぶ。
+     term を省くと、そのツールが今見ている学期（JUKU_TERM.mark）を使う。
+     戻り値: 取り込んだら info、何もしなければ null */
+  function pull(tool, kind, apply, term){
+    term = term || (typeof JUKU_TERM!=='undefined' ? JUKU_TERM.mark(tool) : '');
+    var e = pending(tool, kind, term);
+    if(!e) return null;
+    try{ apply(e.text, e); }catch(err){ return null; }
+    markSeen(tool, kind, term, e.at);
+    return e;
+  }
+  /* 学期を変えたときなど、取り込み済みの印を消してもう一度読ませる */
+  function forget(tool){
+    var o=rd(SEEN);
+    Object.keys(o).forEach(function(k){ if(k.indexOf(tool+':')===0) delete o[k]; });
+    wr(SEEN,o);
+  }
+
+  return { all:all, terms:terms, entry:entry, put:put, drop:drop, clearAll:clearAll,
+           sizeKB:sizeKB, pull:pull, pending:pending, forget:forget, seen:seen, markSeen:markSeen };
+})();
+
+/* ===== 取込センター =====
+   ファイルを置くと、種類と行き先を見分けて一覧にする。確認してから取り込む。
+
+   ・生徒名簿・先生名簿は「棚」（juku_roster_v1）に学期ごとにしまう。
+     各ツールは自分の学期に合わせて棚から読む。
+   ・それ以外（PDF・xlsx・成績CSV・アンケート回答）は大きいので棚には置かず、
+     担当ツールのiframeに直接ファイルを渡して、いつもどおり解析させる。 */
+
+const KINDS = {
+  student: { label:'生徒名簿CSV',   to:'棚（コマ組・成績・アンケート）', shelf:true  },
+  teacher: { label:'先生名簿CSV',   to:'棚（コマ組・アンケート）',       shelf:true  },
+  grade:   { label:'成績CSV',       to:'成績',   tool:'grade',  fn:'grade'   },
+  survey:  { label:'アンケート回答', to:'アンケート', tool:'survey', fn:'survey' },
+  elem:    { label:'小学生アンケート', to:'アンケート', tool:'survey', fn:'elem' },
+  ss:      { label:'SSの成績進捗',   to:'SS',     tool:'ss',     fn:'ss'      },
+  kouken:  { label:'貢献シート',     to:'SS',     tool:'ss',     fn:'kouken'  },
+  dashin:  { label:'私立の打診値',   to:'進路',   tool:'shinro', fn:'dashin'  },
+  koritsu: { label:'公立の合格判定', to:'進路',   tool:'shinro', fn:'koritsu' }
+};
+
+/* ファイル名と中身の先頭から種類を当てる。当たらなければ手で選んでもらう。 */
+function detectKind(name, head){
+  const n = String(name||'');
+  if(/^student.*\.csv$/i.test(n)) return 'student';
+  if(/^teacher.*\.csv$/i.test(n)) return 'teacher';
+  if(/成績進捗.*\.xlsx?$/i.test(n)) return 'ss';
+  if(/貢献/.test(n) && /\.pdf$/i.test(n)) return 'kouken';
+  if(/打診値/.test(n) && /\.pdf$/i.test(n)) return 'dashin';
+  if(/公立.*(合格判定|判定)/.test(n) && /\.xlsx?$/i.test(n)) return 'koritsu';
+  /* 中身の見出しで判断（社内システムの出力は見出しが決まっている） */
+  const h = String(head||'').slice(0,400);
+  if(/Ｎｏ|^No,/.test(h) && /姓/.test(h) && /学年/.test(h) && /科目/.test(h)) return 'student';
+  if(/先生番号/.test(h) && /姓名/.test(h)) return 'teacher';
+  if(/先生コード/.test(h)) return 'survey';
+  if(/YS名前聞いた日|紹介者/.test(h)) return 'ys';
+  return '';
+}
+/* 学期を推測する。ファイル名の日付が使えればそれ、無ければ今日。 */
+function guessTerm(name, kind){
+  const m = String(name||'').match(/(20\d\d)[-_./]?(\d{2})[-_./]?(\d{2})/);
+  const d = m ? new Date(+m[1], +m[2]-1, +m[3]) : new Date();
+  return JUKU_TERM.want(kind==='survey' ? 'survey' : 'koma', d);
+}
+function guessKousyu(name){
+  const m = String(name||'').match(/(20\d\d)[-_./]?(\d{2})[-_./]?(\d{2})/);
+  return JUKU_TERM.kousyu(m ? new Date(+m[1], +m[2]-1, +m[3]) : new Date());
+}
+
+let QUEUE = [];   /* [{file, name, kind, term, head}] */
+
+async function headOf(file){
+  if(!/\.(csv|txt)$/i.test(file.name)) return '';
+  try{
+    const buf = await file.slice(0, 3000).arrayBuffer();
+    const u8 = new Uint8Array(buf);
+    const utf8 = new TextDecoder('utf-8').decode(u8);
+    if((utf8.match(/�/g)||[]).length === 0) return utf8;
+    try{ return new TextDecoder('shift_jis').decode(u8); }catch(e){ return utf8; }
+  }catch(e){ return ''; }
+}
+/* 棚に入れるときは、文字コードを1回だけ判定してテキストにしてしまう */
+async function readText(file){
+  const buf = await file.arrayBuffer();
+  const u8 = new Uint8Array(buf);
+  const utf8 = new TextDecoder('utf-8').decode(u8);
+  const bad = (utf8.match(/�/g)||[]).length;
+  if(bad === 0) return utf8;
+  try{
+    const sjis = new TextDecoder('shift_jis').decode(u8);
+    if(((sjis.match(/�/g)||[]).length) <= bad) return sjis;
+  }catch(e){}
+  return utf8;
+}
+
+async function addFiles(files){
+  for(const f of files){
+    const head = await headOf(f);
+    const kind = detectKind(f.name, head);
+    QUEUE.push({ file:f, name:f.name, kind, term:guessTerm(f.name, kind) });
+  }
+  drawQueue();
+}
+
+function drawQueue(){
+  const box = document.getElementById('impQueue');
+  if(!QUEUE.length){ box.innerHTML='<div class="imp-empty">ここにファイルを置くと、種類と行き先を見分けて一覧にします。</div>'; return; }
+  let h = '<table class="imp-tbl"><thead><tr><th>ファイル</th><th>種類</th><th>行き先</th><th>学期</th><th></th></tr></thead><tbody>';
+  QUEUE.forEach((q,i)=>{
+    const k = KINDS[q.kind];
+    const opts = Object.keys(KINDS).map(kk=>
+      '<option value="'+kk+'"'+(kk===q.kind?' selected':'')+'>'+KINDS[kk].label+'</option>').join('');
+    const terms = JUKU_TERM.list().map(t=>
+      '<option value="'+t+'"'+(t===q.term?' selected':'')+'>'+t+'</option>').join('');
+    h += '<tr'+(k?'':' class="imp-unknown"')+'>'+
+      '<td class="imp-name">'+esc(q.name)+'</td>'+
+      '<td><select data-i="'+i+'" class="imp-kind"><option value="">— 選んでください —</option>'+opts+'</select></td>'+
+      '<td class="imp-to">'+(k? esc(k.to) : '<span class="imp-ng">種類が分かりません</span>')+'</td>'+
+      '<td>'+(k&&k.shelf? '<select data-i="'+i+'" class="imp-term">'+terms+'</select>' : '<span class="imp-dim">—</span>')+'</td>'+
+      '<td><button class="imp-x" data-i="'+i+'" title="この行をやめる">×</button></td></tr>';
+  });
+  h += '</tbody></table>';
+  box.innerHTML = h;
+  box.querySelectorAll('.imp-kind').forEach(s=>s.onchange=()=>{
+    QUEUE[+s.dataset.i].kind = s.value; drawQueue(); });
+  box.querySelectorAll('.imp-term').forEach(s=>s.onchange=()=>{
+    QUEUE[+s.dataset.i].term = s.value; });
+  box.querySelectorAll('.imp-x').forEach(b=>b.onclick=()=>{
+    QUEUE.splice(+b.dataset.i,1); drawQueue(); });
+  document.getElementById('impRun').disabled = !QUEUE.some(q=>KINDS[q.kind]);
+}
+
+/* 行き先ツールのiframeを用意して、窓口が使えるようになるまで待つ */
+function toolWindow(k){
+  return new Promise((resolve,reject)=>{
+    const t = TOOLS.find(x=>x.k===k);
+    if(!t) return reject(new Error(k+' というツールがありません'));
+    if(!loaded[k]) mount(t);
+    const pane = document.getElementById('pane-'+k);
+    const started = Date.now();
+    (function wait(){
+      const fr = pane.querySelector('iframe');
+      let w = null;
+      try{ w = fr && fr.contentWindow; }catch(e){ w = null; }
+      if(w && w.JUKU_IMPORT) return resolve(w);
+      if(Date.now()-started > 20000) return reject(new Error(t.label+'の準備ができませんでした'));
+      setTimeout(wait, 200);
+    })();
+  });
+}
+
+async function runImport(){
+  const log = document.getElementById('impLog');
+  const btn = document.getElementById('impRun');
+  btn.disabled = true;
+  const lines = [];
+  const say = (s)=>{ lines.push(s); log.innerHTML = lines.join('<br>'); };
+
+  for(const q of QUEUE){
+    const k = KINDS[q.kind];
+    if(!k){ say('⏭ '+esc(q.name)+'：種類が分からないので飛ばしました'); continue; }
+    try{
+      if(k.shelf){
+        const text = await readText(q.file);
+        const ok = JUKU_ROSTER.put(q.term, q.kind, q.name, text,
+                                   q.kind==='student' ? guessKousyu(q.name) : '');
+        if(!ok) throw new Error('端末に保存できませんでした（容量不足の可能性）');
+        say('✅ '+esc(q.name)+' → 棚（'+esc(q.term)+'）に入れました');
+      }else{
+        const w = await toolWindow(k.tool);
+        await w.JUKU_IMPORT[k.fn](q.file);
+        say('✅ '+esc(q.name)+' → '+esc(k.to)+' に取り込みました');
+      }
+    }catch(e){
+      say('⚠ '+esc(q.name)+'：'+esc(e && e.message ? e.message : String(e)));
+    }
+  }
+  QUEUE = [];
+  drawQueue();
+  drawShelf();
+  drawTools();
+  say('— おわり —　各ツールのタブを開くと反映されます');
+}
+
+function drawShelf(){
+  const box = document.getElementById('impShelf');
+  const all = JUKU_ROSTER.all();
+  const terms = Object.keys(all).sort();
+  if(!terms.length){ box.innerHTML='<div class="imp-empty">棚はまだ空です。</div>'; return; }
+  let h = '<table class="imp-tbl"><thead><tr><th>学期</th><th>生徒名簿</th><th>先生名簿</th><th>講習</th><th></th></tr></thead><tbody>';
+  terms.forEach(t=>{
+    const e = all[t];
+    const f = (x)=> x ? (esc(x.file||'（名前なし）')+'<span class="imp-dim"> '+new Date(x.at).toLocaleDateString('ja-JP')+'</span>') : '<span class="imp-dim">—</span>';
+    h += '<tr><td><b>'+esc(t)+'</b></td><td>'+f(e.student)+'</td><td>'+f(e.teacher)+'</td>'+
+         '<td class="imp-dim">'+esc(e.kousyu||'—')+'</td>'+
+         '<td><button class="imp-x" data-t="'+esc(t)+'" title="この学期を棚から消す">×</button></td></tr>';
+  });
+  h += '</tbody></table><div class="imp-dim" style="margin-top:6px;">棚の大きさ '+JUKU_ROSTER.sizeKB()+'KB</div>';
+  box.innerHTML = h;
+  box.querySelectorAll('.imp-x').forEach(b=>b.onclick=()=>{
+    if(!confirm(b.dataset.t+' を棚から消します。よろしいですか？')) return;
+    JUKU_ROSTER.drop(b.dataset.t); drawShelf();
+  });
+}
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function mountImport(pane){
+  const local = location.protocol === 'file:';
+  pane.innerHTML =
+    '<div class="imp">'+
+      (local ? '<div class="imp-warn"><b>この開き方では取り込みが動きません。</b><br>'+
+        'ファイルを直接ダブルクリックで開くと、各ツールが別々の場所として扱われて連携できません。<br>'+
+        '<b>START-TOOL.bat</b> から開くか、公開版（https）を使ってください。</div>' : '')+
+      '<div class="imp-card">'+
+        '<h3>取り込む</h3>'+
+        '<div id="impDrop" class="imp-drop">ここにファイルをドラッグ＆ドロップ<br>'+
+          '<span class="imp-dim">またはクリックしてファイルを選ぶ（まとめて選べます）</span>'+
+          '<input type="file" id="impFile" multiple style="display:none"></div>'+
+        '<div id="impQueue" style="margin-top:10px;"></div>'+
+        '<div style="margin-top:10px;"><button id="impRun" class="imp-btn" disabled>この内容で取り込む</button></div>'+
+        '<div id="impLog" class="imp-log"></div>'+
+      '</div>'+
+      '<div class="imp-card">'+
+        '<h3>各ツールが今見ている学期 <span class="imp-dim">7月・8月・1月はツールごとに違うのが正しい</span></h3>'+
+        '<div id="impTools"></div>'+
+      '</div>'+
+      '<div class="imp-card">'+
+        '<h3>棚にある名簿 <span class="imp-dim">学期ごとにしまってあります</span></h3>'+
+        '<div id="impShelf"></div>'+
+        '<div style="margin-top:10px;"><button id="impWipe" class="imp-btn danger">棚を全部消す</button>'+
+          '<span class="imp-dim"> 生徒の氏名・電話番号が入っているので、使わなくなったら消してください</span></div>'+
+      '</div>'+
+    '</div>';
+
+  const drop = document.getElementById('impDrop');
+  const file = document.getElementById('impFile');
+  drop.onclick = ()=> file.click();
+  file.onchange = ()=>{ addFiles([...file.files]); file.value=''; };
+  ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{
+    e.preventDefault(); drop.classList.add('on'); }));
+  ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{
+    e.preventDefault(); drop.classList.remove('on'); }));
+  drop.addEventListener('drop', e=>{ addFiles([...e.dataTransfer.files]); });
+  document.getElementById('impRun').onclick = runImport;
+  document.getElementById('impWipe').onclick = ()=>{
+    if(!confirm('棚にしまってある名簿を全部消します。よろしいですか？\n（各ツールが今持っているデータは消えません）')) return;
+    JUKU_ROSTER.clearAll(); drawShelf();
+  };
+  drawQueue(); drawShelf(); drawTools();
+}
+
+/* 各ツールが今どの学期の名簿を見ているか。ここで直すこともできる。 */
+const TOOLTERMS = [
+  {k:'koma',   label:'コマ組',     note:'通常コマ。7月に2学期、12月に3学期、3月に次年度1学期'},
+  {k:'grade',  label:'成績',       note:'テスト①②＝1学期、③④＝2学期、⑤＝3学期'},
+  {k:'survey', label:'アンケート', note:'6〜10月は1学期、11〜1月は2学期、2〜3月は3学期'}
+];
+function drawTools(){
+  const box=document.getElementById('impTools'); if(!box) return;
+  let h='<table class="imp-tbl"><thead><tr><th>ツール</th><th>今見ている学期</th><th>棚</th><th>目安</th></tr></thead><tbody>';
+  TOOLTERMS.forEach(t=>{
+    const cur=JUKU_TERM.mark(t.k), want=JUKU_TERM.want(t.k);
+    const look=cur||want;                                   /* 未設定なら目安の学期を見る */
+    const has=!!JUKU_ROSTER.entry(look,'student');
+    const opts=JUKU_TERM.list().map(x=>'<option value="'+x+'"'+(x===cur?' selected':'')+'>'+x+'</option>').join('');
+    const shelfCell = has
+      ? '<span class="imp-dim">'+esc(look)+'の名簿あり</span>'
+      : '<span class="imp-ng">'+esc(look)+'の名簿が棚にありません</span>';
+    h+='<tr><td><b>'+esc(t.label)+'</b></td>'+
+       '<td><select data-k="'+t.k+'" class="imp-tt"><option value="">未設定（目安を使う）</option>'+opts+'</select></td>'+
+       '<td>'+shelfCell+'</td>'+
+       '<td class="imp-dim">'+esc(want)+(cur&&cur!==want?'<br><span class="imp-ng">目安とちがいます</span>':'')+'</td></tr>'+
+       '<tr><td colspan="4" class="imp-dim" style="padding-top:0;border:none;">'+esc(t.note)+'</td></tr>';
+  });
+  h+='</tbody></table>';
+  box.innerHTML=h;
+  box.querySelectorAll('.imp-tt').forEach(s=>s.onchange=()=>{
+    const k=s.dataset.k;
+    JUKU_TERM.setMark(k, s.value);
+    JUKU_ROSTER.forget(k);                /* 学期を変えたら、そのツールに読み直させる */
+    /* そのツールを既に開いていれば、その場で読み直させる（開き直さなくて済むように） */
+    try{
+      const fr=document.querySelector('#pane-'+k+' iframe');
+      const w=fr && fr.contentWindow;
+      if(w && typeof w.pullRoster==='function') w.pullRoster(true);
+      else if(w && typeof w.shelfNotice==='function') w.shelfNotice();
+    }catch(e){}
+    drawTools();
+  });
+}
+
 // 前回開いていたタブを復元
 let init='koma';
 try{const v=localStorage.getItem(LSTAB); if(v&&TOOLS.some(t=>t.k===v))init=v;}catch(e){}

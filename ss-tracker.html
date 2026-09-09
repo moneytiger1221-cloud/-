@@ -3346,6 +3346,12 @@ function boot(reload) {
 }
 
 if (typeof document !== 'undefined' && document.getElementById('selDate')) boot();
+
+/* 取込センターから呼ばれる窓口。既存の取り込み処理をそのまま呼ぶ。 */
+window.JUKU_IMPORT = {
+  ss:     async function (f) { var r = await importFiles([f], 'impmsg'); refreshAll(); return r; },
+  kouken: function (f) { return importKouken(f); }
+};
 </script>
 </body>
 </html>

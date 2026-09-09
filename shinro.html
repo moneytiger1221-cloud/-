@@ -3621,6 +3621,11 @@ curStu=S.students[0]||null;
 var v0=curVersion(); if(v0) syncStations(v0.rows);
 render();
 
+/* 取込センターから呼ばれる窓口。既存の取り込み処理をそのまま呼ぶ。 */
+window.JUKU_IMPORT = {
+  dashin:  function(f){ return handleFile(f); },      /* 私立打診値のPDF */
+  koritsu: function(f){ return pubHandleFile(f); }    /* 公立の合格判定xlsx */
+};
 </script>
 </body>
 </html>
