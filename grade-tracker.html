@@ -158,6 +158,19 @@
 .jt .jt-w.jt-ng{color:#b45309;font-weight:700;}
 .jt-round{font-size:11.5px;color:#94a3b8;white-space:nowrap;}
 .jt-round.ng{color:#fbbf24;font-weight:700;}
+/* ===== 同期の状態表示（塾ツール共通）===== */
+.js-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
+.js-l{color:#94a3b8;font-size:11.5px;font-weight:700;}
+.js-dim{color:#94a3b8;}
+.js-ng{color:#b45309;}
+.js-st{font-size:12px;line-height:2;color:#475569;background:#f8fafc;border:1px solid #e6ecf3;
+  border-radius:8px;padding:8px 10px;}
+.js-row input.js-dev{font-size:12px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;
+  font-family:inherit;color:#334155;background:#fff;}
+.js-row button.js-peek{font-size:12px;padding:5px 11px;border:1px solid #c8d3de;background:#fff;
+  border-radius:6px;cursor:pointer;color:#3c4d5e;font-family:inherit;}
+.js-row button.js-peek:hover{border-color:#2b6fe0;color:#2b6fe0;}
+.js-row button.js-peek:disabled{color:#94a3b8;cursor:default;}
 </style>
 </head>
 <body>
@@ -350,6 +363,7 @@
         <button class="btn btn-primary" id="syncSaveBtn" style="flex:1">⬆️ スプシに保存</button>
       </div>
       <div id="syncMsg" style="font-size:12px;margin-top:8px;color:#888;"></div>
+      <div id="syncInfo" style="margin-top:10px;"></div>
     </div>
 
     <div style="font-weight:700;margin:20px 0 8px;">未実施テストの設定</div>
@@ -872,6 +886,109 @@ function refileGuessed(newTerm){
   return true;
 }
 
+/* ===== 同期の「いつ・どの端末で保存したか」（塾ツール共通）=====
+   今の同期は「まるごと置き換え」なので、どっちが新しいかを人が知っている必要がある。
+   ・端末に名前を付ける（このPC／スマホ など）
+   ・保存するデータに「いつ・どの端末で」を1行だけ入れる
+   ・スプシ側の最終保存時刻（Code.gs が返す updatedAt）と見比べて出す
+   Code.gs には手を入れないので、Apps Script を入れ直す必要はない。 */
+var JUKU_SYNC = (function(){
+  var DEV='juku_device_v1';          /* 端末の名前（全ツール共通） */
+  var LAST='juku_sync_last_v1';      /* {tool: {at, by}} この端末が最後に保存した時刻 */
+
+  function rd(k,d){ try{ return JSON.parse(localStorage.getItem(k)||'null') || d; }catch(e){ return d; } }
+  function wr(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+
+  function deviceName(){
+    var n = rd(DEV,'');
+    if(n) return n;
+    /* 初回はそれらしい名前を当てておく（設定で直せる） */
+    var ua = navigator.userAgent||'';
+    var guess = /iPhone|Android|iPad/i.test(ua) ? 'スマホ' : 'パソコン';
+    wr(DEV, guess);
+    return guess;
+  }
+  function setDeviceName(n){ wr(DEV, String(n||'').trim() || 'この端末'); }
+
+  /* 保存するデータに1行だけ足す。中身は触らない。 */
+  function stamp(payload){
+    payload = payload || {};
+    payload._meta = { savedAt: new Date().toISOString(), savedBy: deviceName() };
+    return payload;
+  }
+  /* 保存できたら、この端末の記録に残す */
+  function noteSaved(tool){
+    var o = rd(LAST,{}); o[tool] = { at:new Date().toISOString(), by:deviceName() }; wr(LAST,o);
+  }
+  function lastSaved(tool){ return (rd(LAST,{})||{})[tool] || null; }
+
+  function fmt(iso){
+    if(!iso) return '';
+    var d = new Date(iso);
+    if(isNaN(d)) return String(iso);
+    var p=function(n){ return (n<10?'0':'')+n; };
+    return (d.getMonth()+1)+'/'+d.getDate()+' '+p(d.getHours())+':'+p(d.getMinutes());
+  }
+
+  /* スプシの今の状態を見にいく。中身は読み捨てて、いつ・誰が保存したかだけ返す。 */
+  async function peek(url, key, tool){
+    var res = await fetch(url, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ key:key, tool:tool, action:'load' }) });
+    var d = await res.json();
+    if(!d.ok) throw new Error(d.error||'不明なエラー');
+    var by='';
+    try{ by = (JSON.parse(d.data||'{}')._meta||{}).savedBy || ''; }catch(e){}
+    return { updatedAt: d.updatedAt||'', savedBy: by, bytes: (d.data||'').length };
+  }
+
+  /* 画面に出す1行。remote は peek() の結果（null なら未確認）。 */
+  function statusHtml(tool, remote){
+    var mine = lastSaved(tool);
+    var out = [];
+    out.push('<span class="js-l">この端末が最後に保存</span> '+(mine? fmt(mine.at) : '<span class="js-dim">まだ保存していません</span>'));
+    if(remote){
+      var newer = remote.updatedAt && (!mine || new Date(remote.updatedAt) > new Date(mine.at));
+      var other = remote.savedBy && remote.savedBy!==deviceName();
+      out.push('<span class="js-l">スプシの最終保存</span> '+
+        (remote.updatedAt? fmt(remote.updatedAt) : '（まだ何も入っていません）')+
+        (remote.savedBy? '（'+esc0(remote.savedBy)+'）' : '')+
+        (newer? ' <b class="js-ng">'+(other?'この端末より新しいです':'この端末で保存した最新です')+'</b>' : ''));
+    }
+    return out.join('<br>');
+  }
+  function esc0(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+  /* 端末名の入力欄＋状態表示をまとめて作る。
+     el: 置き場所のid / tool: 'grade' など / getCfg: ()=>({url,key}) */
+  function mount(elId, tool, getCfg){
+    var box=document.getElementById(elId); if(!box) return;
+    function draw(remote){
+      box.innerHTML =
+        '<div class="js-row"><span class="js-l">この端末の名前</span>'+
+          '<input type="text" class="js-dev" value="'+esc0(deviceName())+'" style="width:120px;">'+
+          '<button type="button" class="js-peek">スプシの状態を見る</button></div>'+
+        '<div class="js-st">'+statusHtml(tool, remote)+'</div>';
+      var inp=box.querySelector('.js-dev');
+      inp.onchange=function(){ setDeviceName(inp.value); draw(remote); };
+      box.querySelector('.js-peek').onclick=async function(){
+        var b=this; var cfg=getCfg()||{};
+        if(!cfg.url||!cfg.key){ box.querySelector('.js-st').innerHTML='<span class="js-ng">接続先URLと合言葉を先に入れてください</span>'; return; }
+        b.disabled=true; b.textContent='見にいっています…';
+        try{ draw(await peek(cfg.url, cfg.key, tool)); }
+        catch(e){ box.querySelector('.js-st').innerHTML='<span class="js-ng">見にいけませんでした: '+esc0(e&&e.message?e.message:e)+'</span>'; b.disabled=false; b.textContent='スプシの状態を見る'; }
+      };
+    }
+    draw(null);
+    box.__redraw = draw;
+  }
+  function refresh(elId){ var b=document.getElementById(elId); if(b&&b.__redraw) b.__redraw(null); }
+
+  return { deviceName:deviceName, setDeviceName:setDeviceName, stamp:stamp,
+           noteSaved:noteSaved, lastSaved:lastSaved, peek:peek, fmt:fmt,
+           statusHtml:statusHtml, mount:mount, refresh:refresh };
+})();
+
 const NOTIMPL_KEY = 'gradeTracker_notimpl_v1';
 const MANUAL_COL_KEY = 'gradeTracker_manualCol_v1';
 const ACTIONS_KEY = 'gradeTracker_actions_v1';
@@ -932,6 +1049,7 @@ function applySyncPayload(d){
   if(d.settings){ localStorage.setItem(SETTINGS_KEY, JSON.stringify(d.settings)); }
 }
 async function syncSave(){
+  /* いつ・どの端末で保存したかを1行だけ入れる（読むときの手がかり） */
   const url=document.getElementById('syncUrl').value.trim(), key=document.getElementById('syncKey').value.trim();
   const msg=document.getElementById('syncMsg');
   if(!url||!key){ msg.textContent='接続先URLと合言葉を入力してください'; msg.style.color='#dc2626'; return; }
@@ -939,9 +1057,12 @@ async function syncSave(){
   msg.textContent='スプシに保存中…'; msg.style.color='#888';
   try{
     const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({key,tool:'grade',data:JSON.stringify(syncPayload())})});
+      body:JSON.stringify({key,tool:'grade',data:JSON.stringify(JUKU_SYNC.stamp(syncPayload()))})});
     const data=await res.json();
-    if(data.ok){ msg.textContent='✅ 保存しました（'+new Date().toLocaleTimeString()+'）'; msg.style.color='#16a34a'; }
+    if(data.ok){
+      JUKU_SYNC.noteSaved('grade'); JUKU_SYNC.refresh('syncInfo');
+      msg.textContent='✅ 保存しました（'+new Date().toLocaleTimeString()+'／'+JUKU_SYNC.deviceName()+'）'; msg.style.color='#16a34a';
+    }
     else{ msg.textContent='エラー: '+(data.error||'不明'); msg.style.color='#dc2626'; }
   }catch(e){ msg.textContent='通信エラー: ネット接続を確認してください'; msg.style.color='#dc2626'; }
 }
@@ -2544,6 +2665,10 @@ document.getElementById('pasteBtn').addEventListener('click', ()=>{
 document.getElementById('syncUrl').value = loadSyncCfg().url || '';
 document.getElementById('syncKey').value = loadSyncCfg().key || '';
 document.getElementById('syncSaveBtn').addEventListener('click', syncSave);
+JUKU_SYNC.mount('syncInfo','grade', ()=>({
+  url:(document.getElementById('syncUrl').value||'').trim(),
+  key:(document.getElementById('syncKey').value||'').trim()
+}));
 document.getElementById('syncLoadBtn').addEventListener('click', syncLoad);
 document.getElementById('searchBox').addEventListener('input', renderSearch);
 document.getElementById('clearBtn').addEventListener('click', ()=>{
