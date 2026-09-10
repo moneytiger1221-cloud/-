@@ -2342,7 +2342,7 @@ function newStudent(name){
           mo_score:'', mo_hensachi:'', mo_tokushoku:'',
           katen:{}, bonus:0, memo:''};
 }
-function saveStudents(){ lsSet(K.stu,S.students); }
+function saveStudents(){ JUKU_SYNC.touch('shinro'); lsSet(K.stu,S.students); }
 function stuNum(k){ var v=curStu? curStu[k] : ''; return (v===''||v==null)? null : +v; }
 
 function renderStuChips(boxId){
@@ -3514,9 +3514,12 @@ function syncPayload(){
 function applySyncPayload(d){
   if(d.versions){ S.versions=d.versions; lsSet(K.ver,S.versions); }
   if(d.curId!=null){ S.curId=d.curId; lsSet(K.cur,S.curId); }
-  if(d.edits){ S.edits=d.edits; lsSet(K.edit,S.edits); }
-  if(d.stations){ S.stations=d.stations; mergeSeedStations(); lsSet(K.sta,S.stations); }
-  if(d.students){ S.students=d.students; lsSet(K.stu,S.students); }
+  /* ここから3つは手で入れたもの。上書きせずに混ぜる。
+     片方にしか無いものは両方残し、同じところがぶつかったら あとから触ったほうを採る。 */
+  var mineNewer = JUKU_SYNC.iAmNewer('shinro', d._touchedAt);
+  if(d.edits){ S.edits=JUKU_SYNC.merge(S.edits, d.edits, mineNewer); lsSet(K.edit,S.edits); }
+  if(d.stations){ S.stations=JUKU_SYNC.merge(S.stations, d.stations, mineNewer); mergeSeedStations(); lsSet(K.sta,S.stations); }
+  if(d.students){ S.students=JUKU_SYNC.merge(S.students, d.students, mineNewer); lsSet(K.stu,S.students); }
   if(d.settings){ S.settings=Object.assign({},DEF_SET,d.settings); lsSet(K.set,S.settings); }
   if(d.pub){ PUB=d.pub; refreshPubStations(); savePub(); }
 }
@@ -3624,6 +3627,71 @@ var JUKU_SYNC = (function(){
            statusHtml:statusHtml, mount:mount, refresh:refresh };
 })();
 
+/* ===== 手で入れたものを守る混ぜ方（塾ツール共通）=====
+   今までの読込は「まるごと置き換え」だった。スマホで入れた面談メモが、
+   PCで保存した内容を読み込んだ瞬間に消える。
+
+   混ぜ方のきまり：
+     ・片方にしか無いものは、両方残す（PCで生徒Aに、スマホで生徒Bに書いた → 両方生きる）
+     ・同じところを両方いじっていたら、**あとから触ったほうを採る**
+   1項目ずつの時刻は持っていないので、「あとから触ったほう」は
+   ツールごとの「最後に手入力した時刻」（touch）で決める。 */
+(function(){
+  var TOUCH='juku_touched_v1';    /* {tool: ISO} この端末で最後に手入力した時刻 */
+  function rd(){ try{ return JSON.parse(localStorage.getItem(TOUCH)||'{}')||{}; }catch(e){ return {}; } }
+
+  /* 手で入れたものを保存したときに呼ぶ */
+  JUKU_SYNC.touch = function(tool){
+    var o=rd(); o[tool]=new Date().toISOString();
+    try{ localStorage.setItem(TOUCH, JSON.stringify(o)); }catch(e){}
+  };
+  JUKU_SYNC.touchedAt = function(tool){ return rd()[tool] || ''; };
+
+  /* この端末のほうが「あとから触った」か */
+  JUKU_SYNC.iAmNewer = function(tool, theirTouchedAt){
+    var mine = JUKU_SYNC.touchedAt(tool);
+    if(!theirTouchedAt) return true;      /* 相手が一度も手入力していない */
+    if(!mine) return false;               /* こちらが一度も手入力していない */
+    return new Date(mine) > new Date(theirTouchedAt);
+  };
+
+  function isPlain(v){ return v && typeof v==='object' && !Array.isArray(v); }
+  function same(a,b){ try{ return JSON.stringify(a)===JSON.stringify(b); }catch(e){ return false; } }
+
+  /* 木をたどって混ぜる。mineNewer が true なら、ぶつかったときこちらを採る。 */
+  function mergeTree(mine, theirs, mineNewer){
+    if(theirs===undefined || theirs===null) return mine;
+    if(mine===undefined || mine===null) return theirs;
+
+    /* 配列で、両方とも id を持つものの並びなら、id ごとに混ぜる */
+    if(Array.isArray(mine) && Array.isArray(theirs)){
+      var hasId = function(a){ return a.length===0 || a.every(function(x){ return x && x.id!==undefined; }); };
+      if(hasId(mine) && hasId(theirs)){
+        var by={}, order=[];
+        theirs.forEach(function(x){ by[x.id]=x; order.push(x.id); });
+        mine.forEach(function(x){
+          if(by[x.id]===undefined){ by[x.id]=x; order.push(x.id); }
+          else by[x.id]=mergeTree(x, by[x.id], mineNewer);
+        });
+        return order.map(function(k){ return by[k]; });
+      }
+      return same(mine,theirs) ? mine : (mineNewer ? mine : theirs);
+    }
+
+    if(isPlain(mine) && isPlain(theirs)){
+      var out={}, keys={};
+      Object.keys(mine).forEach(function(k){ keys[k]=1; });
+      Object.keys(theirs).forEach(function(k){ keys[k]=1; });
+      Object.keys(keys).forEach(function(k){ out[k]=mergeTree(mine[k], theirs[k], mineNewer); });
+      return out;
+    }
+
+    if(same(mine,theirs)) return mine;
+    return mineNewer ? mine : theirs;
+  }
+  JUKU_SYNC.merge = mergeTree;
+})();
+
 function syncMsg(t,color){ var m=$('syncMsg'); m.textContent=t; m.style.color=color||'#7a8b9c'; }
 async function syncPost(body){
   var url=$('syncUrl').value.trim(), key=$('syncKey').value.trim();
@@ -3637,7 +3705,7 @@ JUKU_SYNC.mount('syncInfo','shinro', function(){
   return { url:($('syncUrl').value||'').trim(), key:($('syncKey').value||'').trim() };
 });
 $('syncSaveBtn').onclick=async function(){
-  var payload=JSON.stringify(JUKU_SYNC.stamp(syncPayload()));
+  var payload=JSON.stringify(Object.assign(JUKU_SYNC.stamp(syncPayload()), {_touchedAt:JUKU_SYNC.touchedAt('shinro')}));
   syncMsg('スプシに保存中…（'+Math.round(payload.length/1024)+'KB）');
   try{
     var d=await syncPost({data:payload});

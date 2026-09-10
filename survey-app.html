@@ -254,7 +254,7 @@ function loadWork(){
   const w=LS.get(workKey(),{flags:{},decisions:{},notes:{}});
   state.flags=w.flags||{}; state.decisions=w.decisions||{}; state.notes=w.notes||{};
 }
-function saveWork(){
+function saveWork(){ JUKU_SYNC.touch('survey');
   const ok=LS.set(workKey(),{flags:state.flags,decisions:state.decisions,notes:state.notes});
   if(ok===false){
     flashSave("⚠ 保存失敗（容量不足？）");
@@ -680,6 +680,71 @@ var JUKU_SYNC = (function(){
   return { deviceName:deviceName, setDeviceName:setDeviceName, stamp:stamp,
            noteSaved:noteSaved, lastSaved:lastSaved, peek:peek, fmt:fmt,
            statusHtml:statusHtml, mount:mount, refresh:refresh };
+})();
+
+/* ===== 手で入れたものを守る混ぜ方（塾ツール共通）=====
+   今までの読込は「まるごと置き換え」だった。スマホで入れた面談メモが、
+   PCで保存した内容を読み込んだ瞬間に消える。
+
+   混ぜ方のきまり：
+     ・片方にしか無いものは、両方残す（PCで生徒Aに、スマホで生徒Bに書いた → 両方生きる）
+     ・同じところを両方いじっていたら、**あとから触ったほうを採る**
+   1項目ずつの時刻は持っていないので、「あとから触ったほう」は
+   ツールごとの「最後に手入力した時刻」（touch）で決める。 */
+(function(){
+  var TOUCH='juku_touched_v1';    /* {tool: ISO} この端末で最後に手入力した時刻 */
+  function rd(){ try{ return JSON.parse(localStorage.getItem(TOUCH)||'{}')||{}; }catch(e){ return {}; } }
+
+  /* 手で入れたものを保存したときに呼ぶ */
+  JUKU_SYNC.touch = function(tool){
+    var o=rd(); o[tool]=new Date().toISOString();
+    try{ localStorage.setItem(TOUCH, JSON.stringify(o)); }catch(e){}
+  };
+  JUKU_SYNC.touchedAt = function(tool){ return rd()[tool] || ''; };
+
+  /* この端末のほうが「あとから触った」か */
+  JUKU_SYNC.iAmNewer = function(tool, theirTouchedAt){
+    var mine = JUKU_SYNC.touchedAt(tool);
+    if(!theirTouchedAt) return true;      /* 相手が一度も手入力していない */
+    if(!mine) return false;               /* こちらが一度も手入力していない */
+    return new Date(mine) > new Date(theirTouchedAt);
+  };
+
+  function isPlain(v){ return v && typeof v==='object' && !Array.isArray(v); }
+  function same(a,b){ try{ return JSON.stringify(a)===JSON.stringify(b); }catch(e){ return false; } }
+
+  /* 木をたどって混ぜる。mineNewer が true なら、ぶつかったときこちらを採る。 */
+  function mergeTree(mine, theirs, mineNewer){
+    if(theirs===undefined || theirs===null) return mine;
+    if(mine===undefined || mine===null) return theirs;
+
+    /* 配列で、両方とも id を持つものの並びなら、id ごとに混ぜる */
+    if(Array.isArray(mine) && Array.isArray(theirs)){
+      var hasId = function(a){ return a.length===0 || a.every(function(x){ return x && x.id!==undefined; }); };
+      if(hasId(mine) && hasId(theirs)){
+        var by={}, order=[];
+        theirs.forEach(function(x){ by[x.id]=x; order.push(x.id); });
+        mine.forEach(function(x){
+          if(by[x.id]===undefined){ by[x.id]=x; order.push(x.id); }
+          else by[x.id]=mergeTree(x, by[x.id], mineNewer);
+        });
+        return order.map(function(k){ return by[k]; });
+      }
+      return same(mine,theirs) ? mine : (mineNewer ? mine : theirs);
+    }
+
+    if(isPlain(mine) && isPlain(theirs)){
+      var out={}, keys={};
+      Object.keys(mine).forEach(function(k){ keys[k]=1; });
+      Object.keys(theirs).forEach(function(k){ keys[k]=1; });
+      Object.keys(keys).forEach(function(k){ out[k]=mergeTree(mine[k], theirs[k], mineNewer); });
+      return out;
+    }
+
+    if(same(mine,theirs)) return mine;
+    return mineNewer ? mine : theirs;
+  }
+  JUKU_SYNC.merge = mergeTree;
 })();
 
 function tName(code){ return state.roster[code]?.name || ""; }
@@ -1564,9 +1629,17 @@ function applyBackupData(d){
     put("survey_assignments", state.assignAll, "担当");
     syncAssignments();
   }
-  if(d.nameAliases){ state.nameAliases=d.nameAliases; put("survey_nameAliases",d.nameAliases,"名寄せ"); }
+  if(d.nameAliases){
+    /* 名寄せも手作業。混ぜる。 */
+    state.nameAliases=JUKU_SYNC.merge(state.nameAliases, d.nameAliases, JUKU_SYNC.iAmNewer('survey', d._touchedAt));
+    put("survey_nameAliases",state.nameAliases,"名寄せ");
+  }
   if(d.work){
-    state.flags=d.work.flags||{}; state.decisions=d.work.decisions||{}; state.notes=d.work.notes||{};
+    /* 判断・メモ・フラグは手で入れたもの。上書きせずに混ぜる。 */
+    const mineNewer = JUKU_SYNC.iAmNewer('survey', d._touchedAt);
+    state.flags     = JUKU_SYNC.merge(state.flags,     d.work.flags||{},     mineNewer);
+    state.decisions = JUKU_SYNC.merge(state.decisions, d.work.decisions||{}, mineNewer);
+    state.notes     = JUKU_SYNC.merge(state.notes,     d.work.notes||{},     mineNewer);
     bytes+=LS.sizeOf(d.work);
     if(LS.set(workKey(),{flags:state.flags,decisions:state.decisions,notes:state.notes})===false) failed.push("判断・メモ");
   }
@@ -1617,7 +1690,8 @@ async function syncSave(){
   const data=backupPayload();
   try{
     const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({key,tool:'survey',data:JSON.stringify(JUKU_SYNC.stamp(data))})});
+      body:JSON.stringify({key,tool:'survey',data:JSON.stringify(Object.assign(
+        JUKU_SYNC.stamp(data), {_touchedAt:JUKU_SYNC.touchedAt('survey')}))})});
     const d=await res.json();
     if(d.ok){ JUKU_SYNC.noteSaved('survey'); JUKU_SYNC.refresh('syncInfo');
       syncMsgSet("✅ 保存しました（"+new Date().toLocaleTimeString()+"／"+JUKU_SYNC.deviceName()+"）","#16a34a"); }

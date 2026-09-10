@@ -989,6 +989,71 @@ var JUKU_SYNC = (function(){
            statusHtml:statusHtml, mount:mount, refresh:refresh };
 })();
 
+/* ===== 手で入れたものを守る混ぜ方（塾ツール共通）=====
+   今までの読込は「まるごと置き換え」だった。スマホで入れた面談メモが、
+   PCで保存した内容を読み込んだ瞬間に消える。
+
+   混ぜ方のきまり：
+     ・片方にしか無いものは、両方残す（PCで生徒Aに、スマホで生徒Bに書いた → 両方生きる）
+     ・同じところを両方いじっていたら、**あとから触ったほうを採る**
+   1項目ずつの時刻は持っていないので、「あとから触ったほう」は
+   ツールごとの「最後に手入力した時刻」（touch）で決める。 */
+(function(){
+  var TOUCH='juku_touched_v1';    /* {tool: ISO} この端末で最後に手入力した時刻 */
+  function rd(){ try{ return JSON.parse(localStorage.getItem(TOUCH)||'{}')||{}; }catch(e){ return {}; } }
+
+  /* 手で入れたものを保存したときに呼ぶ */
+  JUKU_SYNC.touch = function(tool){
+    var o=rd(); o[tool]=new Date().toISOString();
+    try{ localStorage.setItem(TOUCH, JSON.stringify(o)); }catch(e){}
+  };
+  JUKU_SYNC.touchedAt = function(tool){ return rd()[tool] || ''; };
+
+  /* この端末のほうが「あとから触った」か */
+  JUKU_SYNC.iAmNewer = function(tool, theirTouchedAt){
+    var mine = JUKU_SYNC.touchedAt(tool);
+    if(!theirTouchedAt) return true;      /* 相手が一度も手入力していない */
+    if(!mine) return false;               /* こちらが一度も手入力していない */
+    return new Date(mine) > new Date(theirTouchedAt);
+  };
+
+  function isPlain(v){ return v && typeof v==='object' && !Array.isArray(v); }
+  function same(a,b){ try{ return JSON.stringify(a)===JSON.stringify(b); }catch(e){ return false; } }
+
+  /* 木をたどって混ぜる。mineNewer が true なら、ぶつかったときこちらを採る。 */
+  function mergeTree(mine, theirs, mineNewer){
+    if(theirs===undefined || theirs===null) return mine;
+    if(mine===undefined || mine===null) return theirs;
+
+    /* 配列で、両方とも id を持つものの並びなら、id ごとに混ぜる */
+    if(Array.isArray(mine) && Array.isArray(theirs)){
+      var hasId = function(a){ return a.length===0 || a.every(function(x){ return x && x.id!==undefined; }); };
+      if(hasId(mine) && hasId(theirs)){
+        var by={}, order=[];
+        theirs.forEach(function(x){ by[x.id]=x; order.push(x.id); });
+        mine.forEach(function(x){
+          if(by[x.id]===undefined){ by[x.id]=x; order.push(x.id); }
+          else by[x.id]=mergeTree(x, by[x.id], mineNewer);
+        });
+        return order.map(function(k){ return by[k]; });
+      }
+      return same(mine,theirs) ? mine : (mineNewer ? mine : theirs);
+    }
+
+    if(isPlain(mine) && isPlain(theirs)){
+      var out={}, keys={};
+      Object.keys(mine).forEach(function(k){ keys[k]=1; });
+      Object.keys(theirs).forEach(function(k){ keys[k]=1; });
+      Object.keys(keys).forEach(function(k){ out[k]=mergeTree(mine[k], theirs[k], mineNewer); });
+      return out;
+    }
+
+    if(same(mine,theirs)) return mine;
+    return mineNewer ? mine : theirs;
+  }
+  JUKU_SYNC.merge = mergeTree;
+})();
+
 const NOTIMPL_KEY = 'gradeTracker_notimpl_v1';
 const MANUAL_COL_KEY = 'gradeTracker_manualCol_v1';
 const ACTIONS_KEY = 'gradeTracker_actions_v1';
@@ -1021,10 +1086,10 @@ function saveTantou(){ try{localStorage.setItem(TANTOU_KEY,JSON.stringify(tantou
 function saveTantouHigh(){ try{localStorage.setItem(TANTOU_HIGH_KEY,JSON.stringify(tantouHigh));}catch(e){} }
 function saveSchedule(){ try{localStorage.setItem(SCHEDULE_KEY,JSON.stringify(schedule));}catch(e){} }
 function saveScheduleHigh(){ try{localStorage.setItem(SCHEDULE_HIGH_KEY,JSON.stringify(scheduleHigh));}catch(e){} }
-function saveNotImplemented(){ try{localStorage.setItem(NOTIMPL_KEY,JSON.stringify(notImplemented));}catch(e){} }
-function saveManualCollected(){ try{localStorage.setItem(MANUAL_COL_KEY,JSON.stringify(manualCollected));}catch(e){} }
-function saveActions(){ try{localStorage.setItem(ACTIONS_KEY,JSON.stringify(actions));}catch(e){} }
-function saveNotes(){ try{localStorage.setItem(NOTES_KEY,JSON.stringify(notes));}catch(e){} }
+function saveNotImplemented(){ JUKU_SYNC.touch('grade'); try{localStorage.setItem(NOTIMPL_KEY,JSON.stringify(notImplemented));}catch(e){} }
+function saveManualCollected(){ JUKU_SYNC.touch('grade'); try{localStorage.setItem(MANUAL_COL_KEY,JSON.stringify(manualCollected));}catch(e){} }
+function saveActions(){ JUKU_SYNC.touch('grade'); try{localStorage.setItem(ACTIONS_KEY,JSON.stringify(actions));}catch(e){} }
+function saveNotes(){ JUKU_SYNC.touch('grade'); try{localStorage.setItem(NOTES_KEY,JSON.stringify(notes));}catch(e){} }
 const SYNC_CFG_KEY = 'gradeTracker_syncConfig_v1';
 function loadSyncCfg(){ try{ return JSON.parse(localStorage.getItem(SYNC_CFG_KEY)||'{}'); }catch(e){ return {}; } }
 function saveSyncCfg(cfg){ try{ localStorage.setItem(SYNC_CFG_KEY, JSON.stringify(cfg)); }catch(e){} }
@@ -1042,10 +1107,13 @@ function applySyncPayload(d){
   if(d.tantouHigh){ tantouHigh=d.tantouHigh; localStorage.setItem(TANTOU_HIGH_KEY, JSON.stringify(tantouHigh)); }
   if(d.schedule){ schedule=d.schedule; localStorage.setItem(SCHEDULE_KEY, JSON.stringify(schedule)); }
   if(d.scheduleHigh){ scheduleHigh=d.scheduleHigh; localStorage.setItem(SCHEDULE_HIGH_KEY, JSON.stringify(scheduleHigh)); }
-  if(d.notImplemented){ notImplemented=d.notImplemented; localStorage.setItem(NOTIMPL_KEY, JSON.stringify(notImplemented)); }
-  if(d.manualCollected){ manualCollected=d.manualCollected; localStorage.setItem(MANUAL_COL_KEY, JSON.stringify(manualCollected)); }
-  if(d.actions){ actions=d.actions; localStorage.setItem(ACTIONS_KEY, JSON.stringify(actions)); }
-  if(d.notes){ notes=d.notes; localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); }
+  /* ここから下は「手で入れたもの」。上書きせずに混ぜる。
+     片方にしか無いものは両方残し、同じところがぶつかったら あとから触ったほうを採る。 */
+  const mineNewer = JUKU_SYNC.iAmNewer('grade', d._touchedAt);
+  if(d.notImplemented){ notImplemented=JUKU_SYNC.merge(notImplemented, d.notImplemented, mineNewer); localStorage.setItem(NOTIMPL_KEY, JSON.stringify(notImplemented)); }
+  if(d.manualCollected){ manualCollected=JUKU_SYNC.merge(manualCollected, d.manualCollected, mineNewer); localStorage.setItem(MANUAL_COL_KEY, JSON.stringify(manualCollected)); }
+  if(d.actions){ actions=JUKU_SYNC.merge(actions, d.actions, mineNewer); localStorage.setItem(ACTIONS_KEY, JSON.stringify(actions)); }
+  if(d.notes){ notes=JUKU_SYNC.merge(notes, d.notes, mineNewer); localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); }
   if(d.settings){ localStorage.setItem(SETTINGS_KEY, JSON.stringify(d.settings)); }
 }
 async function syncSave(){
@@ -1057,7 +1125,8 @@ async function syncSave(){
   msg.textContent='スプシに保存中…'; msg.style.color='#888';
   try{
     const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({key,tool:'grade',data:JSON.stringify(JUKU_SYNC.stamp(syncPayload()))})});
+      body:JSON.stringify({key,tool:'grade',data:JSON.stringify(Object.assign(
+        JUKU_SYNC.stamp(syncPayload()), {_touchedAt:JUKU_SYNC.touchedAt('grade')}))})});
     const data=await res.json();
     if(data.ok){
       JUKU_SYNC.noteSaved('grade'); JUKU_SYNC.refresh('syncInfo');
