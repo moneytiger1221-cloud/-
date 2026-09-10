@@ -254,7 +254,7 @@ function loadWork(){
   const w=LS.get(workKey(),{flags:{},decisions:{},notes:{}});
   state.flags=w.flags||{}; state.decisions=w.decisions||{}; state.notes=w.notes||{};
 }
-function saveWork(){ JUKU_SYNC.touch('survey');
+function saveWork(){ JUKU_SYNC.touch('survey'); JUKU_SYNC.queueSave('survey', syncSave);
   const ok=LS.set(workKey(),{flags:state.flags,decisions:state.decisions,notes:state.notes});
   if(ok===false){
     flashSave("⚠ 保存失敗（容量不足？）");
@@ -745,6 +745,51 @@ var JUKU_SYNC = (function(){
     return mineNewer ? mine : theirs;
   }
   JUKU_SYNC.merge = mergeTree;
+})();
+
+/* ===== 自動で保存・読込（塾ツール共通）=====
+   ③で「読込は手入力を上書きしない（混ぜる）」ようにしたので、自動にしても消えない。
+
+   ・開いたとき：スプシのほうが新しければ、自動で読み込む（混ぜるので消えない）
+   ・変わったとき：少し待ってからまとめて保存する（打つたびに送らない）
+   ・切りたい人のために、入／切のスイッチを付ける（既定は入） */
+(function(){
+  var AUTO='juku_auto_sync_v1';       /* {tool: true/false} */
+  function rd(){ try{ return JSON.parse(localStorage.getItem(AUTO)||'{}')||{}; }catch(e){ return {}; } }
+
+  JUKU_SYNC.autoOn = function(tool){ var v=rd()[tool]; return v===undefined ? true : !!v; };
+  JUKU_SYNC.setAuto = function(tool, on){
+    var o=rd(); o[tool]=!!on;
+    try{ localStorage.setItem(AUTO, JSON.stringify(o)); }catch(e){}
+  };
+
+  /* まとめて保存。呼ばれ続けても、静かになってから1回だけ送る。 */
+  var timers={}, busy={};
+  JUKU_SYNC.queueSave = function(tool, doSave, wait){
+    if(!JUKU_SYNC.autoOn(tool)) return;
+    clearTimeout(timers[tool]);
+    timers[tool]=setTimeout(async function(){
+      if(busy[tool]) { JUKU_SYNC.queueSave(tool, doSave, wait); return; }   /* 送信中なら後回し */
+      busy[tool]=true;
+      try{ await doSave({auto:true}); }catch(e){}
+      busy[tool]=false;
+    }, wait||4000);
+  };
+
+  /* 開いたときに1回だけ。スプシのほうが新しいときだけ読み込む。 */
+  JUKU_SYNC.autoLoad = async function(tool, cfg, doLoad, say){
+    if(!JUKU_SYNC.autoOn(tool)) return;
+    if(!cfg || !cfg.url || !cfg.key) return;
+    try{
+      var st = await JUKU_SYNC.peek(cfg.url, cfg.key, tool);
+      if(!st.updatedAt) return;
+      var mine = JUKU_SYNC.lastSaved(tool);
+      var newer = !mine || new Date(st.updatedAt) > new Date(mine.at);
+      if(!newer) return;                       /* こちらが最新なら何もしない */
+      if(say) say('スプシのほうが新しいので読み込みます（'+(st.savedBy||'別の端末')+'が'+JUKU_SYNC.fmt(st.updatedAt)+'に保存）');
+      await doLoad({auto:true});
+    }catch(e){ /* つながらないときは黙って何もしない（オフラインでも使えるように） */ }
+  };
 })();
 
 function tName(code){ return state.roster[code]?.name || ""; }
@@ -1683,9 +1728,10 @@ function syncMsgSet(text,color){
   if(el){ el.textContent=text; el.style.color=color||"#94a3b8"; }
   showToast(text,toastKind(text));   // 画面下にも出して見逃さないようにする
 }
-async function syncSave(){
+async function syncSave(opts){
+  opts = opts || {};
   const url=(LS.get('survey_syncUrl','')||'').trim(), key=(LS.get('survey_syncKey','')||'').trim();
-  if(!url||!key){ syncMsgSet("接続先URLと合言葉を入力してください","#f87171"); return; }
+  if(!url||!key){ if(!opts.auto) syncMsgSet("接続先URLと合言葉を入力してください","#f87171"); return; }
   syncMsgSet("スプシに保存中…","#94a3b8");
   const data=backupPayload();
   try{
@@ -1698,10 +1744,12 @@ async function syncSave(){
     else syncMsgSet("エラー: "+(d.error||"不明"),"#f87171");
   }catch(e){ syncMsgSet("通信エラー: ネット接続を確認してください","#f87171"); }
 }
-async function syncLoad(){
+async function syncLoad(opts){
+  opts = opts || {};
   const url=(LS.get('survey_syncUrl','')||'').trim(), key=(LS.get('survey_syncKey','')||'').trim();
-  if(!url||!key){ syncMsgSet("接続先URLと合言葉を入力してください","#f87171"); return; }
-  if(!confirm('スプシの内容で、この端末のデータを上書きします。よろしいですか？'))return;
+  if(!url||!key){ if(!opts.auto) syncMsgSet("接続先URLと合言葉を入力してください","#f87171"); return; }
+  /* 自動のときは確認を出さない。手で入れたもの（判断・メモ）は混ぜるので消えない。 */
+  if(!opts.auto && !confirm('スプシの内容をこの端末に取り込みます。\n手で入れたもの（判断・メモ）は残ります。よろしいですか？'))return;
   syncMsgSet("スプシから読込中…","#94a3b8");
   try{
     const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
@@ -1715,10 +1763,16 @@ async function syncLoad(){
           "／約"+r.kb+"KB）。閉じると元に戻ります。不要なアーカイブを削除するか、パソコンでお試しください。","#f87171");
         return;
       }
-      syncMsgSet("✅ 読み込んで端末に保存しました（約"+r.kb+"KB）"+
-        (r.skipped?"／他校舎 "+r.skipped+" 件は取り込みませんでした":"")+"。画面を作り直します…","#16a34a");
-      // 保存した内容から画面を作り直す。こうすると「表示は出ているのに保存されていない」状態が残らない。
-      setTimeout(()=>location.reload(),700);
+      JUKU_SYNC.refresh('syncInfo');
+      if(opts.auto){
+        /* 自動のときは画面を作り直さない（開くたびに再読込されると煩わしい） */
+        syncMsgSet("✅ スプシのほうが新しかったので読み込みました（約"+r.kb+"KB）","#16a34a");
+        loadAssignAll(); render();
+      }else{
+        syncMsgSet("✅ 読み込んで端末に保存しました（約"+r.kb+"KB）"+
+          (r.skipped?"／他校舎 "+r.skipped+" 件は取り込みませんでした":"")+"。画面を作り直します…","#16a34a");
+        setTimeout(()=>location.reload(),700);
+      }
       return;
     } else { syncMsgSet("エラー: "+(d.error||"不明"),"#f87171"); }
   }catch(e){ syncMsgSet("通信エラー: ネット接続を確認してください","#f87171"); }
@@ -1885,6 +1939,7 @@ function render(){
   FLT.draw();          /* 画面ごと作り直すので、絞り込みボタンも毎回つなぎ直す */
   JUKU_TERM.paint('jtBar','survey', function(){ syncAssignments(); pullRoster(true); render(); });
   /* 設定タブを開いているときだけ、同期の状態表示を組み立てる */
+  if(document.getElementById('syncAuto')) document.getElementById('syncAuto').checked = JUKU_SYNC.autoOn('survey');
   if(document.getElementById('syncInfo')) JUKU_SYNC.mount('syncInfo','survey', ()=>({
     url:(LS.get('survey_syncUrl','')||'').trim(), key:(LS.get('survey_syncKey','')||'').trim()
   }));
@@ -2363,6 +2418,8 @@ function renderSettings(){
         <button class="btn" style="background:#059669;flex:1" onclick="syncSave()">⬆️ スプシに保存</button>
       </div>
       <div id="syncMsg2" style="font-size:12px;margin-top:8px;color:#94a3b8"></div>
+      <label style="display:block;margin-top:8px;font-size:12px;color:#475569;">
+        <input type="checkbox" id="syncAuto" onchange="JUKU_SYNC.setAuto('survey', this.checked)"> 自動でやりとりする</label>
       <div id="syncInfo" style="margin-top:10px;"></div>
       <div style="margin-top:10px;padding-top:10px;border-top:1px dashed #d1d5db">
         <button class="decbtn" style="border:1px solid #cbd5e1;color:#64748b" onclick="checkStorage()">端末の保存状況をしらべる</button>
@@ -2626,6 +2683,8 @@ loadAssignAll();
 migrateTerms();
 render();
 pullRoster(false);
+JUKU_SYNC.autoLoad('survey', {url:(LS.get('survey_syncUrl','')||'').trim(), key:(LS.get('survey_syncKey','')||'').trim()},
+  syncLoad, (t)=>syncMsgSet(t,'#94a3b8'));
 
 /* 取込センターから呼ばれる窓口。既存の取り込み処理は input を受けるので、
    ファイル1つを入れた入れ物の形にして渡す。 */

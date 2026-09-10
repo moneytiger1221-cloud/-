@@ -458,6 +458,8 @@ details.fold>div{padding:0 10px 10px;}
         <span class="grow"></span>
         <span class="small" id="syncMsg"></span>
       </div>
+      <label style="display:block;margin-top:8px;font-size:12px;color:#5a6b7d;">
+        <input type="checkbox" id="syncAuto"> 自動でやりとりする</label>
       <div id="syncInfo" style="margin-top:10px;"></div>
       <div class="warnbox" style="margin-top:8px;">
         保存すると<b>打診値と生徒の内申がご自身のスプレッドシートに入ります</b>。
@@ -2342,7 +2344,7 @@ function newStudent(name){
           mo_score:'', mo_hensachi:'', mo_tokushoku:'',
           katen:{}, bonus:0, memo:''};
 }
-function saveStudents(){ JUKU_SYNC.touch('shinro'); lsSet(K.stu,S.students); }
+function saveStudents(){ JUKU_SYNC.touch('shinro'); JUKU_SYNC.queueSave('shinro', function(o){ return shinroSyncSave(o); }); lsSet(K.stu,S.students); }
 function stuNum(k){ var v=curStu? curStu[k] : ''; return (v===''||v==null)? null : +v; }
 
 function renderStuChips(boxId){
@@ -3692,43 +3694,102 @@ var JUKU_SYNC = (function(){
   JUKU_SYNC.merge = mergeTree;
 })();
 
+/* ===== 自動で保存・読込（塾ツール共通）=====
+   ③で「読込は手入力を上書きしない（混ぜる）」ようにしたので、自動にしても消えない。
+
+   ・開いたとき：スプシのほうが新しければ、自動で読み込む（混ぜるので消えない）
+   ・変わったとき：少し待ってからまとめて保存する（打つたびに送らない）
+   ・切りたい人のために、入／切のスイッチを付ける（既定は入） */
+(function(){
+  var AUTO='juku_auto_sync_v1';       /* {tool: true/false} */
+  function rd(){ try{ return JSON.parse(localStorage.getItem(AUTO)||'{}')||{}; }catch(e){ return {}; } }
+
+  JUKU_SYNC.autoOn = function(tool){ var v=rd()[tool]; return v===undefined ? true : !!v; };
+  JUKU_SYNC.setAuto = function(tool, on){
+    var o=rd(); o[tool]=!!on;
+    try{ localStorage.setItem(AUTO, JSON.stringify(o)); }catch(e){}
+  };
+
+  /* まとめて保存。呼ばれ続けても、静かになってから1回だけ送る。 */
+  var timers={}, busy={};
+  JUKU_SYNC.queueSave = function(tool, doSave, wait){
+    if(!JUKU_SYNC.autoOn(tool)) return;
+    clearTimeout(timers[tool]);
+    timers[tool]=setTimeout(async function(){
+      if(busy[tool]) { JUKU_SYNC.queueSave(tool, doSave, wait); return; }   /* 送信中なら後回し */
+      busy[tool]=true;
+      try{ await doSave({auto:true}); }catch(e){}
+      busy[tool]=false;
+    }, wait||4000);
+  };
+
+  /* 開いたときに1回だけ。スプシのほうが新しいときだけ読み込む。 */
+  JUKU_SYNC.autoLoad = async function(tool, cfg, doLoad, say){
+    if(!JUKU_SYNC.autoOn(tool)) return;
+    if(!cfg || !cfg.url || !cfg.key) return;
+    try{
+      var st = await JUKU_SYNC.peek(cfg.url, cfg.key, tool);
+      if(!st.updatedAt) return;
+      var mine = JUKU_SYNC.lastSaved(tool);
+      var newer = !mine || new Date(st.updatedAt) > new Date(mine.at);
+      if(!newer) return;                       /* こちらが最新なら何もしない */
+      if(say) say('スプシのほうが新しいので読み込みます（'+(st.savedBy||'別の端末')+'が'+JUKU_SYNC.fmt(st.updatedAt)+'に保存）');
+      await doLoad({auto:true});
+    }catch(e){ /* つながらないときは黙って何もしない（オフラインでも使えるように） */ }
+  };
+})();
+
 function syncMsg(t,color){ var m=$('syncMsg'); m.textContent=t; m.style.color=color||'#7a8b9c'; }
-async function syncPost(body){
-  var url=$('syncUrl').value.trim(), key=$('syncKey').value.trim();
-  if(!url||!key){ syncMsg('接続先URLと合言葉を入れてください','#b83b34'); return null; }
+async function syncPost(body, opts){
+  opts = opts || {};
+  var c = syncCfg() || {};
+  /* 設定タブを開いていないと入力欄は空なので、保存してある設定を使う */
+  var url=(($('syncUrl')||{}).value || c.url || '').trim();
+  var key=(($('syncKey')||{}).value || c.key || '').trim();
+  if(!url||!key){ if(!opts.auto) syncMsg('接続先URLと合言葉を入れてください','#b83b34'); return null; }
   lsSet(K.sync,{url:url,key:key});
   var res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
     body:JSON.stringify(Object.assign({key:key,tool:'shinro'},body))});
   return await res.json();
 }
+if($('syncAuto')){ $('syncAuto').checked=JUKU_SYNC.autoOn('shinro');
+  $('syncAuto').onchange=function(){ JUKU_SYNC.setAuto('shinro', this.checked); }; }
 JUKU_SYNC.mount('syncInfo','shinro', function(){
   return { url:($('syncUrl').value||'').trim(), key:($('syncKey').value||'').trim() };
 });
-$('syncSaveBtn').onclick=async function(){
+async function shinroSyncSave(opts){
+  opts = opts || {};
   var payload=JSON.stringify(Object.assign(JUKU_SYNC.stamp(syncPayload()), {_touchedAt:JUKU_SYNC.touchedAt('shinro')}));
   syncMsg('スプシに保存中…（'+Math.round(payload.length/1024)+'KB）');
   try{
-    var d=await syncPost({data:payload});
+    var d=await syncPost({data:payload}, opts);
     if(!d) return;
     if(d.ok){ JUKU_SYNC.noteSaved('shinro'); JUKU_SYNC.refresh('syncInfo');
       syncMsg('✅ 保存しました（'+new Date().toLocaleTimeString()+'／'+Math.round((d.bytes||0)/1024)+'KB／'+JUKU_SYNC.deviceName()+'）','#2b7a45'); }
     else syncMsg('エラー: '+(d.error||'不明'),'#b83b34');
   }catch(e){ syncMsg('通信エラー: ネット接続とURLを確認してください','#b83b34'); }
-};
-$('syncLoadBtn').onclick=async function(){
-  if(!confirm('スプシの内容で、この端末の進路データを上書きします。よろしいですか？')) return;
+}
+$('syncSaveBtn').onclick=function(){ shinroSyncSave(); };
+/* 開いたとき、スプシのほうが新しければ自動で読む */
+JUKU_SYNC.autoLoad('shinro', syncCfg(), shinroSyncLoad, function(t){ syncMsg(t); });
+async function shinroSyncLoad(opts){
+  opts = opts || {};
+  /* 自動のときは確認を出さない。手で入れたもの（内申・手直し）は混ぜるので消えない。 */
+  if(!opts.auto && !confirm('スプシの内容をこの端末に取り込みます。\n手で入れたもの（生徒の内申・打診値の手直し）は残ります。よろしいですか？')) return;
   syncMsg('スプシから読込中…');
   try{
-    var d=await syncPost({action:'load'});
+    var d=await syncPost({action:'load'}, opts);
     if(!d) return;
     if(!d.ok){ syncMsg('エラー: '+(d.error||'不明'),'#b83b34'); return; }
     if(!d.data){ syncMsg('スプシにまだデータがありません（先に「スプシに保存」してください）','#b83b34'); return; }
     applySyncPayload(JSON.parse(d.data));
     curStu=S.students[0]||null; invalidate();
     var cv=curVersion(); if(cv) syncStations(cv.rows);
-    render(); syncMsg('✅ 読み込みました','#2b7a45');
+    render(); JUKU_SYNC.refresh('syncInfo');
+    syncMsg(opts.auto? '✅ スプシのほうが新しかったので読み込みました' : '✅ 読み込みました','#2b7a45');
   }catch(e){ syncMsg('通信エラー: '+(e.message||e),'#b83b34'); }
-};
+}
+$('syncLoadBtn').onclick=function(){ shinroSyncLoad(); };
 
 function renderSettings(){
   var cfg=syncCfg();

@@ -363,6 +363,8 @@
         <button class="btn btn-primary" id="syncSaveBtn" style="flex:1">⬆️ スプシに保存</button>
       </div>
       <div id="syncMsg" style="font-size:12px;margin-top:8px;color:#888;"></div>
+      <label style="display:block;margin-top:8px;font-size:12px;color:#475569;">
+        <input type="checkbox" id="syncAuto"> 自動でやりとりする</label>
       <div id="syncInfo" style="margin-top:10px;"></div>
     </div>
 
@@ -1054,6 +1056,51 @@ var JUKU_SYNC = (function(){
   JUKU_SYNC.merge = mergeTree;
 })();
 
+/* ===== 自動で保存・読込（塾ツール共通）=====
+   ③で「読込は手入力を上書きしない（混ぜる）」ようにしたので、自動にしても消えない。
+
+   ・開いたとき：スプシのほうが新しければ、自動で読み込む（混ぜるので消えない）
+   ・変わったとき：少し待ってからまとめて保存する（打つたびに送らない）
+   ・切りたい人のために、入／切のスイッチを付ける（既定は入） */
+(function(){
+  var AUTO='juku_auto_sync_v1';       /* {tool: true/false} */
+  function rd(){ try{ return JSON.parse(localStorage.getItem(AUTO)||'{}')||{}; }catch(e){ return {}; } }
+
+  JUKU_SYNC.autoOn = function(tool){ var v=rd()[tool]; return v===undefined ? true : !!v; };
+  JUKU_SYNC.setAuto = function(tool, on){
+    var o=rd(); o[tool]=!!on;
+    try{ localStorage.setItem(AUTO, JSON.stringify(o)); }catch(e){}
+  };
+
+  /* まとめて保存。呼ばれ続けても、静かになってから1回だけ送る。 */
+  var timers={}, busy={};
+  JUKU_SYNC.queueSave = function(tool, doSave, wait){
+    if(!JUKU_SYNC.autoOn(tool)) return;
+    clearTimeout(timers[tool]);
+    timers[tool]=setTimeout(async function(){
+      if(busy[tool]) { JUKU_SYNC.queueSave(tool, doSave, wait); return; }   /* 送信中なら後回し */
+      busy[tool]=true;
+      try{ await doSave({auto:true}); }catch(e){}
+      busy[tool]=false;
+    }, wait||4000);
+  };
+
+  /* 開いたときに1回だけ。スプシのほうが新しいときだけ読み込む。 */
+  JUKU_SYNC.autoLoad = async function(tool, cfg, doLoad, say){
+    if(!JUKU_SYNC.autoOn(tool)) return;
+    if(!cfg || !cfg.url || !cfg.key) return;
+    try{
+      var st = await JUKU_SYNC.peek(cfg.url, cfg.key, tool);
+      if(!st.updatedAt) return;
+      var mine = JUKU_SYNC.lastSaved(tool);
+      var newer = !mine || new Date(st.updatedAt) > new Date(mine.at);
+      if(!newer) return;                       /* こちらが最新なら何もしない */
+      if(say) say('スプシのほうが新しいので読み込みます（'+(st.savedBy||'別の端末')+'が'+JUKU_SYNC.fmt(st.updatedAt)+'に保存）');
+      await doLoad({auto:true});
+    }catch(e){ /* つながらないときは黙って何もしない（オフラインでも使えるように） */ }
+  };
+})();
+
 const NOTIMPL_KEY = 'gradeTracker_notimpl_v1';
 const MANUAL_COL_KEY = 'gradeTracker_manualCol_v1';
 const ACTIONS_KEY = 'gradeTracker_actions_v1';
@@ -1086,10 +1133,10 @@ function saveTantou(){ try{localStorage.setItem(TANTOU_KEY,JSON.stringify(tantou
 function saveTantouHigh(){ try{localStorage.setItem(TANTOU_HIGH_KEY,JSON.stringify(tantouHigh));}catch(e){} }
 function saveSchedule(){ try{localStorage.setItem(SCHEDULE_KEY,JSON.stringify(schedule));}catch(e){} }
 function saveScheduleHigh(){ try{localStorage.setItem(SCHEDULE_HIGH_KEY,JSON.stringify(scheduleHigh));}catch(e){} }
-function saveNotImplemented(){ JUKU_SYNC.touch('grade'); try{localStorage.setItem(NOTIMPL_KEY,JSON.stringify(notImplemented));}catch(e){} }
-function saveManualCollected(){ JUKU_SYNC.touch('grade'); try{localStorage.setItem(MANUAL_COL_KEY,JSON.stringify(manualCollected));}catch(e){} }
-function saveActions(){ JUKU_SYNC.touch('grade'); try{localStorage.setItem(ACTIONS_KEY,JSON.stringify(actions));}catch(e){} }
-function saveNotes(){ JUKU_SYNC.touch('grade'); try{localStorage.setItem(NOTES_KEY,JSON.stringify(notes));}catch(e){} }
+function saveNotImplemented(){ JUKU_SYNC.touch('grade'); JUKU_SYNC.queueSave('grade', syncSave); try{localStorage.setItem(NOTIMPL_KEY,JSON.stringify(notImplemented));}catch(e){} }
+function saveManualCollected(){ JUKU_SYNC.touch('grade'); JUKU_SYNC.queueSave('grade', syncSave); try{localStorage.setItem(MANUAL_COL_KEY,JSON.stringify(manualCollected));}catch(e){} }
+function saveActions(){ JUKU_SYNC.touch('grade'); JUKU_SYNC.queueSave('grade', syncSave); try{localStorage.setItem(ACTIONS_KEY,JSON.stringify(actions));}catch(e){} }
+function saveNotes(){ JUKU_SYNC.touch('grade'); JUKU_SYNC.queueSave('grade', syncSave); try{localStorage.setItem(NOTES_KEY,JSON.stringify(notes));}catch(e){} }
 const SYNC_CFG_KEY = 'gradeTracker_syncConfig_v1';
 function loadSyncCfg(){ try{ return JSON.parse(localStorage.getItem(SYNC_CFG_KEY)||'{}'); }catch(e){ return {}; } }
 function saveSyncCfg(cfg){ try{ localStorage.setItem(SYNC_CFG_KEY, JSON.stringify(cfg)); }catch(e){} }
@@ -1116,13 +1163,14 @@ function applySyncPayload(d){
   if(d.notes){ notes=JUKU_SYNC.merge(notes, d.notes, mineNewer); localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); }
   if(d.settings){ localStorage.setItem(SETTINGS_KEY, JSON.stringify(d.settings)); }
 }
-async function syncSave(){
+async function syncSave(opts){
+  opts = opts || {};
   /* いつ・どの端末で保存したかを1行だけ入れる（読むときの手がかり） */
   const url=document.getElementById('syncUrl').value.trim(), key=document.getElementById('syncKey').value.trim();
   const msg=document.getElementById('syncMsg');
-  if(!url||!key){ msg.textContent='接続先URLと合言葉を入力してください'; msg.style.color='#dc2626'; return; }
+  if(!url||!key){ if(!opts.auto){ msg.textContent='接続先URLと合言葉を入力してください'; msg.style.color='#dc2626'; } return; }
   saveSyncCfg({url,key});
-  msg.textContent='スプシに保存中…'; msg.style.color='#888';
+  msg.textContent=(opts.auto?'自動で保存中…':'スプシに保存中…'); msg.style.color='#888';
   try{
     const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
       body:JSON.stringify({key,tool:'grade',data:JSON.stringify(Object.assign(
@@ -1135,12 +1183,16 @@ async function syncSave(){
     else{ msg.textContent='エラー: '+(data.error||'不明'); msg.style.color='#dc2626'; }
   }catch(e){ msg.textContent='通信エラー: ネット接続を確認してください'; msg.style.color='#dc2626'; }
 }
-async function syncLoad(){
-  const url=document.getElementById('syncUrl').value.trim(), key=document.getElementById('syncKey').value.trim();
+async function syncLoad(opts){
+  opts = opts || {};
+  const cfg0 = loadSyncCfg ? (loadSyncCfg()||{}) : {};
+  const url=(document.getElementById('syncUrl').value||cfg0.url||'').trim();
+  const key=(document.getElementById('syncKey').value||cfg0.key||'').trim();
   const msg=document.getElementById('syncMsg');
-  if(!url||!key){ msg.textContent='接続先URLと合言葉を入力してください'; msg.style.color='#dc2626'; return; }
+  if(!url||!key){ if(!opts.auto){ msg.textContent='接続先URLと合言葉を入力してください'; msg.style.color='#dc2626'; } return; }
   saveSyncCfg({url,key});
-  if(!confirm('スプシの内容で、この端末のデータを上書きします。よろしいですか？'))return;
+  /* 自動のときは確認を出さない。③で手入力は混ぜる作りにしたので、消えるものが無い。 */
+  if(!opts.auto && !confirm('スプシの内容をこの端末に取り込みます。\n手で入れたもの（面談メモ・判断）は残ります。よろしいですか？'))return;
   msg.textContent='スプシから読込中…'; msg.style.color='#888';
   try{
     const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
@@ -1149,8 +1201,16 @@ async function syncLoad(){
     if(data.ok){
       if(!data.data){ msg.textContent='スプシにまだデータがありません（先に「スプシに保存」してください）'; msg.style.color='#dc2626'; return; }
       applySyncPayload(JSON.parse(data.data));
-      msg.textContent='✅ 読み込みました。再読込します…'; msg.style.color='#16a34a';
-      setTimeout(()=>location.reload(),700);
+      JUKU_SYNC.refresh('syncInfo');
+      if(opts.auto){
+        /* 自動のときは画面を作り直さない（開くたびに再読込されると煩わしい） */
+        msg.textContent='✅ スプシのほうが新しかったので読み込みました'; msg.style.color='#16a34a';
+        try{ migrateByTerm(); useTermMaps(); }catch(e){}
+        render();
+      }else{
+        msg.textContent='✅ 読み込みました。再読込します…'; msg.style.color='#16a34a';
+        setTimeout(()=>location.reload(),700);
+      }
     } else { msg.textContent='エラー: '+(data.error||'不明'); msg.style.color='#dc2626'; }
   }catch(e){ msg.textContent='通信エラー: ネット接続を確認してください'; msg.style.color='#dc2626'; }
 }
@@ -2733,12 +2793,17 @@ document.getElementById('pasteBtn').addEventListener('click', ()=>{
 
 document.getElementById('syncUrl').value = loadSyncCfg().url || '';
 document.getElementById('syncKey').value = loadSyncCfg().key || '';
-document.getElementById('syncSaveBtn').addEventListener('click', syncSave);
+document.getElementById('syncSaveBtn').addEventListener('click', ()=>syncSave());
+document.getElementById('syncAuto').checked = JUKU_SYNC.autoOn('grade');
+document.getElementById('syncAuto').addEventListener('change', function(){ JUKU_SYNC.setAuto('grade', this.checked); });
+JUKU_SYNC.autoLoad('grade', loadSyncCfg()||{}, syncLoad, (t)=>{
+  const m=document.getElementById('syncMsg'); if(m){ m.textContent=t; m.style.color='#888'; }
+});
 JUKU_SYNC.mount('syncInfo','grade', ()=>({
   url:(document.getElementById('syncUrl').value||'').trim(),
   key:(document.getElementById('syncKey').value||'').trim()
 }));
-document.getElementById('syncLoadBtn').addEventListener('click', syncLoad);
+document.getElementById('syncLoadBtn').addEventListener('click', ()=>syncLoad());
 document.getElementById('searchBox').addEventListener('input', renderSearch);
 document.getElementById('clearBtn').addEventListener('click', ()=>{
   if (confirm('全データを消去しますか？（成績・名前・担当・対応状況・メモ・未実施設定・高校生回収チェックすべて）')) {
