@@ -358,6 +358,13 @@ body.trayh-x .traycnt2{top:2px;}
 .jt-note{margin:8px 14px 0;padding:8px 12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;
   color:#9a3412;font-size:12.5px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
 .jt-note .muted{color:#b45309;font-size:11px;}
+/* ===== 取り込み口を取込タブに移した案内 ===== */
+.juku-moved{font-size:12px;color:#64748b;background:#f1f5f9;border:1px solid #e2e8f0;
+  border-radius:8px;padding:9px 12px;margin-bottom:12px;line-height:1.8;}
+.juku-moved b{color:#334155;}
+.juku-moved-btn{border:1px solid #cbd5e1;background:#fff;color:#64748b;border-radius:6px;
+  padding:3px 9px;font-size:11.5px;cursor:pointer;font-family:inherit;margin-left:4px;}
+.juku-moved-btn:hover{border-color:#2b6fe0;color:#2b6fe0;}
 
 /* ===== スマホ表示（幅820px以下）=====
    PCの見た目は一切変えない。狭い画面のときだけ、
@@ -417,9 +424,9 @@ body.trayh-x .traycnt2{top:2px;}
   <span class="modeswitch" id="modeSwitch"></span>
   <span class="modeswitch" id="fltSwitch"></span>
   <button class="toolbtn" id="btnTeachers" title="先生情報（スキル・追加・削除）">先生情報</button>
-  <button class="toolbtn primary" id="btnImportBtn">生徒CSV取込</button>
+  <span id="komaImportBtns"><button class="toolbtn primary" id="btnImportBtn">生徒CSV取込</button>
+  <button class="toolbtn primary" id="btnImportTBtn">先生CSV取込</button></span>
   <input type="file" id="fileImport" accept=".csv" style="display:none">
-  <button class="toolbtn primary" id="btnImportTBtn">先生CSV取込</button>
   <input type="file" id="fileImportT" accept=".csv" style="display:none">
   <button class="toolbtn" id="btnTaiken">体験生設定</button>
   <button class="toolbtn" id="btnWithdraw" title="退塾日を登録。日付が来ると自動でコマ盤面から消えます">退塾生登録</button>
@@ -1675,6 +1682,34 @@ var JUKU_ROSTER = (function(){
 })();
 
 
+/* ===== 取り込み口の整理（塾ツール共通）=====
+   取り込みは「取込」タブにまとめた。各ツールに残っている取り込み口は、
+   **統合版の中で開いているときだけ隠す**。
+   ファイルを直接ダブルクリックで開いたときは取込タブが無いので、今までどおり出す。
+   （バックアップの復元は取り込みではなく復旧手段なので、いつでも残す） */
+function jukuInHub(){
+  try{ return window.parent && window.parent !== window && !!window.parent.document.getElementById('panes'); }
+  catch(e){ return false; }   /* 別オリジンなら触れない＝統合版ではない */
+}
+/* 目印の要素を隠して、代わりに案内を出す */
+function jukuHideImports(sel, note){
+  if(!jukuInHub()) return;
+  var list = document.querySelectorAll(sel), hid = 0;
+  for(var i=0;i<list.length;i++){ list[i].style.display='none'; hid++; }
+  if(!hid) return;
+  var host = document.querySelector(sel.split(',')[0]);
+  if(!host || !host.parentNode) return;
+  var d = document.createElement('div');
+  d.className = 'juku-moved';
+  d.innerHTML = (note || '取り込みは上の<b>「取込」タブ</b>にまとまりました。') +
+    ' <button type="button" class="juku-moved-btn">それでもここで取り込む</button>';
+  host.parentNode.insertBefore(d, host);
+  d.querySelector('.juku-moved-btn').onclick = function(){
+    for(var i=0;i<list.length;i++) list[i].style.display='';
+    d.style.display='none';
+  };
+}
+
 function readFileAs(file,cb){const rd=new FileReader();
   rd.onload=ev=>{try{cb(decodeCsvBuffer(ev.target.result));}catch(err){alert('CSVの読み込みに失敗しました: '+err.message);}};
   rd.readAsArrayBuffer(file);}
@@ -2759,7 +2794,8 @@ function shelfNotice(){
   /* 学期がまだ決まっていなくても、棚に今の月ぶんがあればそれを使う（使ったら記録する） */
   if(!JUKU_TERM.mark('koma') && JUKU_ROSTER.entry(JUKU_TERM.want('koma'),'student'))
     JUKU_TERM.setMark('koma', JUKU_TERM.want('koma'));
-  JUKU_TERM.paint('jtBar','koma', function(){ JUKU_ROSTER.forget('koma'); shelfNotice(); });
+  JUKU_TERM.paint('jtBar','koma', function(){ JUKU_ROSTER.forget('koma'); shelfNotice();
+});
   var ps=JUKU_ROSTER.pending('koma','student'), pt=JUKU_ROSTER.pending('koma','teacher');
   if(!ps&&!pt){ bar.style.display='none'; bar.innerHTML=''; return; }
   var term=JUKU_TERM.mark('koma')||'（学期未設定）';
@@ -2779,6 +2815,7 @@ function shelfNotice(){
 }
 JUKU_TERM.paint('jtBar','koma', function(){ JUKU_ROSTER.forget('koma'); shelfNotice(); });
 shelfNotice();
+jukuHideImports('#komaImportBtns', '生徒CSVと先生CSVの取り込みは、上の<b>「取込」タブ</b>にまとまりました。');
 </script>
 </body>
 </html>
