@@ -847,7 +847,29 @@ function migrateByTerm(){
   rosterByTerm.schedule[t]     = schedule     || {};
   rosterByTerm.scheduleHigh[t] = scheduleHigh || {};
   rosterByTerm.rosterGrade[t]  = rosterGrade  || {};
+  rosterByTerm.guessedTerm = t;   /* 月からの推測。ラベルを直したら付け替える印 */
   saveByTerm();
+}
+/* 学期のラベルを直したとき、推測で入れた名簿を新しい学期に付け替える。
+   ・推測で入れたぶんが1学期ぶんだけ残っている
+   ・移し先にはまだ名簿が無い
+   の両方がそろったときだけ動かす（自分で取り込んだぶんは動かさない）。 */
+function refileGuessed(newTerm){
+  const g = rosterByTerm.guessedTerm;
+  if(!g || !newTerm || g===newTerm) return false;
+  const filled = Object.keys(rosterByTerm.tantou||{})
+    .filter(k => Object.keys(rosterByTerm.tantou[k]||{}).length > 0);
+  if(filled.length!==1 || filled[0]!==g) return false;
+  if(Object.keys((rosterByTerm.tantou||{})[newTerm]||{}).length) return false;
+  ['tantou','tantouHigh','schedule','scheduleHigh','rosterGrade'].forEach(k=>{
+    if(!rosterByTerm[k]) rosterByTerm[k]={};
+    rosterByTerm[k][newTerm] = rosterByTerm[k][g] || {};
+    delete rosterByTerm[k][g];
+  });
+  rosterByTerm.guessedTerm = newTerm;
+  saveByTerm();
+  dbg('今入っていた名簿を ' + newTerm + ' のぶんとして付け替えました');
+  return true;
 }
 
 const NOTIMPL_KEY = 'gradeTracker_notimpl_v1';
@@ -2679,6 +2701,7 @@ function importNameCSV(text) {
     rosterByTerm.schedule[t]     = schedule;
     rosterByTerm.scheduleHigh[t] = scheduleHigh;
     rosterByTerm.rosterGrade[t]  = rosterGrade;
+    if(rosterByTerm.guessedTerm===t) delete rosterByTerm.guessedTerm;  /* 自分で入れたので推測ではない */
     saveByTerm();
   }
   return matched;
@@ -2812,7 +2835,12 @@ function pullRoster(force){
   });
   if(got){ useTermMaps(); render(); JUKU_TERM.paint('jtBar','grade', function(){ pullRoster(true); JUKU_TERM.paint('jtBar','grade'); }); }
 }
-JUKU_TERM.paint('jtBar','grade', function(){ pullRoster(true); JUKU_TERM.paint('jtBar','grade'); });
+function onGradeTermChanged(t){
+  refileGuessed(t);        /* 推測で入れた名簿を、直した学期のぶんに付け替える */
+  pullRoster(true); useTermMaps(); render();
+  JUKU_TERM.paint('jtBar','grade', onGradeTermChanged);
+}
+JUKU_TERM.paint('jtBar','grade', onGradeTermChanged);
 pullRoster(false);
 
 /* 取込センターから呼ばれる窓口 */
