@@ -12857,6 +12857,18 @@
     { label: "2\u5B66\u671F", month: 12, day: 21 },
     { label: "3\u5B66\u671F", month: 3, day: 21 }
   ];
+  /* 記録の日付から学期を出す。区切りは上の SEMESTER_ENDS と同じ（7/21・12/21・3/21）。
+     年度は4月始まり。データには何も足さず、日付から計算するだけ。 */
+  function termOfDate(s) {
+    const m = String(s || "").match(/(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
+    if (!m) return "";
+    const y = +m[1], mo = +m[2], da = +m[3];
+    const nendo = mo >= 4 ? y : y - 1;
+    const key = mo * 100 + da;
+    if (key >= 401 && key <= 721) return nendo + "\u5E74\u5EA61\u5B66\u671F";
+    if (key >= 722 && key <= 1221) return nendo + "\u5E74\u5EA62\u5B66\u671F";
+    return nendo + "\u5E74\u5EA63\u5B66\u671F";
+  }
   function getSemesterInfo() {
     const now = /* @__PURE__ */ new Date();
     const y = now.getFullYear();
@@ -13103,9 +13115,23 @@
       return [...ids];
     }, [studentSchedules, teachers, todayWeekday]);
     const todayTeachers = (0, import_react.useMemo)(() => teachers.filter((t) => todayTeacherIds.includes(t.id)), [teachers, todayTeacherIds]);
+    const termOptions = (0, import_react.useMemo)(() => {
+      const s = /* @__PURE__ */ new Set();
+      records.forEach((r) => { const t = termOfDate(r.date); if (t) s.add(t); });
+      /* 今の学期はまだ記録が無くても選べるようにしておく（選択と表示がずれないように） */
+      const nowTerm = termOfDate(new Date().toISOString().slice(0, 10));
+      if (nowTerm) s.add(nowTerm);
+      return [...s].sort().reverse();
+    }, [records]);
+    const [filterTerm, setFilterTerm] = (0, import_react.useState)(() => termOfDate(new Date().toISOString().slice(0, 10)));
+    /* 集計と一覧はこちらを見る。今日のタッチと保存は生の records のまま。 */
+    const termRecords = (0, import_react.useMemo)(
+      () => filterTerm === "all" ? records : records.filter((r) => termOfDate(r.date) === filterTerm),
+      [records, filterTerm]
+    );
     const invalidDupeIds = (0, import_react.useMemo)(() => {
       const groups = {};
-      records.forEach((r) => {
+      termRecords.forEach((r) => {
         const key = `${r.studentName}|||${r.referralName}`;
         if (!groups[key]) groups[key] = [];
         groups[key].push(r);
@@ -13122,18 +13148,18 @@
         sorted.slice(1).forEach((r) => invalid.add(r.id));
       });
       return invalid;
-    }, [records]);
+    }, [termRecords]);
     const teamPoints = (0, import_react.useMemo)(() => {
       const pts = { A: 0, B: 0, J: 0, M: 0 };
-      records.forEach((r) => {
+      termRecords.forEach((r) => {
         if (invalidDupeIds.has(r.id)) return;
         const t = teachers.find((t2) => t2.id === r.teacherId);
         if (t) pts[t.team] = (pts[t.team] || 0) + (r.pts || 0);
       });
       return pts;
-    }, [records, teachers, invalidDupeIds]);
+    }, [termRecords, teachers, invalidDupeIds]);
     const teacherStats = (0, import_react.useMemo)(() => teachers.map((t) => {
-      const myRecs = records.filter((r) => r.teacherId === t.id && !invalidDupeIds.has(r.id));
+      const myRecs = termRecords.filter((r) => r.teacherId === t.id && !invalidDupeIds.has(r.id));
       return {
         ...t,
         records: myRecs,
@@ -13143,11 +13169,11 @@
         none: myRecs.filter((r) => r.status === "not_contacted").length,
         total: myRecs.length
       };
-    }), [teachers, records, invalidDupeIds]);
+    }), [teachers, termRecords, invalidDupeIds]);
     const [searchQuery, setSearchQuery] = (0, import_react.useState)("");
     const duplicateGroups = (0, import_react.useMemo)(() => {
       const groups = {};
-      records.forEach((r) => {
+      termRecords.forEach((r) => {
         const key = `${r.studentName}|||${r.referralName}`;
         if (!groups[key]) groups[key] = [];
         groups[key].push(r);
@@ -13163,7 +13189,7 @@
         const [studentName, referralName] = key.split("|||");
         return { studentName, referralName, records: sorted };
       }).filter(Boolean);
-    }, [records]);
+    }, [termRecords]);
     const [filterSchool, setFilterSchool] = (0, import_react.useState)("all");
     const [filterGrade, setFilterGrade] = (0, import_react.useState)("all");
     const [filterStaff, setFilterStaff] = (0, import_react.useState)("all");
@@ -13171,7 +13197,7 @@
     const [filterDay, setFilterDay] = (0, import_react.useState)("all");
     const filterOptions = (0, import_react.useMemo)(() => {
       const schools = /* @__PURE__ */ new Set(), grades = /* @__PURE__ */ new Set(), staff = /* @__PURE__ */ new Set();
-      records.forEach((r) => {
+      termRecords.forEach((r) => {
         if (r.raw?.["\u5B66\u6821"]) schools.add(r.raw["\u5B66\u6821"].trim());
         if (r.raw?.["\u5B66\u5E74"]) grades.add(r.raw["\u5B66\u5E74"].trim());
         const st = (r.raw?.["\u30B9\u30BF\u30C3\u30D5\u540D"] || "").replace(/\s/g, "");
@@ -13182,9 +13208,9 @@
         grades: [...grades].filter(Boolean).sort(),
         staff: [...staff].sort()
       };
-    }, [records]);
+    }, [termRecords]);
     const displayRecords = (0, import_react.useMemo)(() => {
-      let r = [...records].sort((a, b) => getStatus(a.status).priority - getStatus(b.status).priority);
+      let r = [...termRecords].sort((a, b) => getStatus(a.status).priority - getStatus(b.status).priority);
       if (filterTeacher !== "all") r = r.filter((x) => x.teacherId === filterTeacher);
       if (filterSchool !== "all") r = r.filter((x) => (x.raw?.["\u5B66\u6821"] || "").trim() === filterSchool);
       if (filterGrade !== "all") r = r.filter((x) => (x.raw?.["\u5B66\u5E74"] || "").trim() === filterGrade);
@@ -13202,7 +13228,7 @@
         });
       }
       return r;
-    }, [records, filterTeacher, filterSchool, filterGrade, filterStaff, filterStatus, filterDay, searchQuery, teachers, studentSchedules]);
+    }, [termRecords, filterTeacher, filterSchool, filterGrade, filterStaff, filterStatus, filterDay, searchQuery, teachers, studentSchedules]);
     const selectedDayStudentTasks = (0, import_react.useMemo)(() => {
       const list = [];
       Object.entries(studentSchedules).forEach(([studentName, entries]) => {
@@ -13702,6 +13728,21 @@ ${[...unmatchedTeachers].join("\n")}
         fontWeight: tab === t.key ? 700 : 400,
         whiteSpace: "nowrap"
       }, children: t.label }, t.key)) }) }),
+      /* 集計する学期。記録の日付から出しているので、データには何も足していない */
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { background: "#0b1526", borderBottom: "1px solid #1e293b", padding: "8px 16px" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 900, margin: "0 auto", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#64748b", flexWrap: "wrap" }, children: [
+        "\u96C6\u8A08\u3059\u308B\u5B66\u671F",
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+          value: filterTerm,
+          onChange: (e) => setFilterTerm(e.target.value),
+          style: { background: "#0f172a", color: "#e2e8f0", border: "1px solid #1e293b", borderRadius: 6, padding: "4px 8px", fontSize: 12, fontFamily: "inherit" },
+          children: [
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: "all", children: "\u3059\u3079\u3066\u306E\u5B66\u671F" }, "all"),
+            ...termOptions.map((t) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: t, children: t }, t))
+          ]
+        }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [termRecords.length, "\u4EF6"] }),
+        termOptions.length > 1 && filterTerm !== "all" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { color: "#475569" }, children: "\uFF08\u524D\u5B66\u671F\u3092\u9078\u3079\u3070\u3001\u524D\u306E\u30D6\u3093\u3092\u898B\u306A\u304C\u3089\u540D\u524D\u805E\u304D\u3067\u304D\u307E\u3059\uFF09" })
+      ] }) }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { maxWidth: 900, margin: "0 auto", padding: "20px 16px" }, children: [
         tab === "dashboard" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
           (() => {
