@@ -95,6 +95,19 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;
   .imp-name{max-width:120px;font-size:11.5px;}
   .imp-tbl select{max-width:110px;font-size:11.5px;}
 }
+/* ===== 同期の状態表示（塾ツール共通）===== */
+.js-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
+.js-l{color:#94a3b8;font-size:11.5px;font-weight:700;}
+.js-dim{color:#94a3b8;}
+.js-ng{color:#b45309;}
+.js-st{font-size:12px;line-height:2;color:#475569;background:#f8fafc;border:1px solid #e6ecf3;
+  border-radius:8px;padding:8px 10px;}
+.js-row input.js-dev{font-size:12px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;
+  font-family:inherit;color:#334155;background:#fff;}
+.js-row button.js-peek{font-size:12px;padding:5px 11px;border:1px solid #c8d3de;background:#fff;
+  border-radius:6px;cursor:pointer;color:#3c4d5e;font-family:inherit;}
+.js-row button.js-peek:hover{border-color:#2b6fe0;color:#2b6fe0;}
+.js-row button.js-peek:disabled{color:#94a3b8;cursor:default;}
 </style>
 </head>
 <body>
@@ -517,6 +530,7 @@ async function runImport(){
   drawQueue();
   drawShelf();
   drawTools();
+  JUKU_SYNC.refresh('impSyncInfo');
   say('— おわり —　各ツールのタブを開くと反映されます');
 }
 
@@ -704,6 +718,228 @@ async function drawWatch(){
   var g=document.getElementById('impForget'); if(g) g.onclick=forgetWatchDir;
 }
 
+/* ===== 同期の「いつ・どの端末で保存したか」（塾ツール共通）=====
+   今の同期は「まるごと置き換え」なので、どっちが新しいかを人が知っている必要がある。
+   ・端末に名前を付ける（このPC／スマホ など）
+   ・保存するデータに「いつ・どの端末で」を1行だけ入れる
+   ・スプシ側の最終保存時刻（Code.gs が返す updatedAt）と見比べて出す
+   Code.gs には手を入れないので、Apps Script を入れ直す必要はない。 */
+var JUKU_SYNC = (function(){
+  var DEV='juku_device_v1';          /* 端末の名前（全ツール共通） */
+  var LAST='juku_sync_last_v1';      /* {tool: {at, by}} この端末が最後に保存した時刻 */
+
+  function rd(k,d){ try{ return JSON.parse(localStorage.getItem(k)||'null') || d; }catch(e){ return d; } }
+  function wr(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+
+  function deviceName(){
+    var n = rd(DEV,'');
+    if(n) return n;
+    /* 初回はそれらしい名前を当てておく（設定で直せる） */
+    var ua = navigator.userAgent||'';
+    var guess = /iPhone|Android|iPad/i.test(ua) ? 'スマホ' : 'パソコン';
+    wr(DEV, guess);
+    return guess;
+  }
+  function setDeviceName(n){ wr(DEV, String(n||'').trim() || 'この端末'); }
+
+  /* 保存するデータに1行だけ足す。中身は触らない。 */
+  function stamp(payload){
+    payload = payload || {};
+    payload._meta = { savedAt: new Date().toISOString(), savedBy: deviceName() };
+    return payload;
+  }
+  /* 保存できたら、この端末の記録に残す */
+  function noteSaved(tool){
+    var o = rd(LAST,{}); o[tool] = { at:new Date().toISOString(), by:deviceName() }; wr(LAST,o);
+  }
+  function lastSaved(tool){ return (rd(LAST,{})||{})[tool] || null; }
+
+  function fmt(iso){
+    if(!iso) return '';
+    var d = new Date(iso);
+    if(isNaN(d)) return String(iso);
+    var p=function(n){ return (n<10?'0':'')+n; };
+    return (d.getMonth()+1)+'/'+d.getDate()+' '+p(d.getHours())+':'+p(d.getMinutes());
+  }
+
+  /* スプシの今の状態を見にいく。中身は読み捨てて、いつ・誰が保存したかだけ返す。 */
+  async function peek(url, key, tool){
+    var res = await fetch(url, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ key:key, tool:tool, action:'load' }) });
+    var d = await res.json();
+    if(!d.ok) throw new Error(d.error||'不明なエラー');
+    var by='';
+    try{ by = (JSON.parse(d.data||'{}')._meta||{}).savedBy || ''; }catch(e){}
+    return { updatedAt: d.updatedAt||'', savedBy: by, bytes: (d.data||'').length };
+  }
+
+  /* 画面に出す1行。remote は peek() の結果（null なら未確認）。 */
+  function statusHtml(tool, remote){
+    var mine = lastSaved(tool);
+    var out = [];
+    out.push('<span class="js-l">この端末が最後に保存</span> '+(mine? fmt(mine.at) : '<span class="js-dim">まだ保存していません</span>'));
+    if(remote){
+      var newer = remote.updatedAt && (!mine || new Date(remote.updatedAt) > new Date(mine.at));
+      var other = remote.savedBy && remote.savedBy!==deviceName();
+      out.push('<span class="js-l">スプシの最終保存</span> '+
+        (remote.updatedAt? fmt(remote.updatedAt) : '（まだ何も入っていません）')+
+        (remote.savedBy? '（'+esc0(remote.savedBy)+'）' : '')+
+        (newer? ' <b class="js-ng">'+(other?'この端末より新しいです':'この端末で保存した最新です')+'</b>' : ''));
+    }
+    return out.join('<br>');
+  }
+  function esc0(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+  /* 端末名の入力欄＋状態表示をまとめて作る。
+     el: 置き場所のid / tool: 'grade' など / getCfg: ()=>({url,key}) */
+  function mount(elId, tool, getCfg){
+    var box=document.getElementById(elId); if(!box) return;
+    function draw(remote){
+      box.innerHTML =
+        '<div class="js-row"><span class="js-l">この端末の名前</span>'+
+          '<input type="text" class="js-dev" value="'+esc0(deviceName())+'" style="width:120px;">'+
+          '<button type="button" class="js-peek">スプシの状態を見る</button></div>'+
+        '<div class="js-st">'+statusHtml(tool, remote)+'</div>';
+      var inp=box.querySelector('.js-dev');
+      inp.onchange=function(){ setDeviceName(inp.value); draw(remote); };
+      box.querySelector('.js-peek').onclick=async function(){
+        var b=this; var cfg=getCfg()||{};
+        if(!cfg.url||!cfg.key){ box.querySelector('.js-st').innerHTML='<span class="js-ng">接続先URLと合言葉を先に入れてください</span>'; return; }
+        b.disabled=true; b.textContent='見にいっています…';
+        try{ draw(await peek(cfg.url, cfg.key, tool)); }
+        catch(e){ box.querySelector('.js-st').innerHTML='<span class="js-ng">見にいけませんでした: '+esc0(e&&e.message?e.message:e)+'</span>'; b.disabled=false; b.textContent='スプシの状態を見る'; }
+      };
+    }
+    draw(null);
+    box.__redraw = draw;
+  }
+  function refresh(elId){ var b=document.getElementById(elId); if(b&&b.__redraw) b.__redraw(null); }
+
+  return { deviceName:deviceName, setDeviceName:setDeviceName, stamp:stamp,
+           noteSaved:noteSaved, lastSaved:lastSaved, peek:peek, fmt:fmt,
+           statusHtml:statusHtml, mount:mount, refresh:refresh };
+})();
+
+/* ===== 棚の同期 =====
+   PCで取り込んだ名簿をスマホでも使えるようにする。
+   棚は丸ごと「取り込んだもの」なので、手で入れたものと混ざらない。
+   そのため各ツールの同期には混ぜず、**専用の入れ物（tool:'roster'）**として送る。
+   （各ツールに混ぜると同じ270KBを何度も送ることになる） */
+const HUBSYNC='juku_sync_cfg_v1';
+
+/* 接続先は各ツールで既に入れてあるものを流用する（入れ直さなくて済むように） */
+function hubSyncCfg(){
+  let c = null;
+  try{ c = JSON.parse(localStorage.getItem(HUBSYNC)||'null'); }catch(e){}
+  if(c && c.url && c.key) return c;
+  const tries = [
+    ()=>{ const o=JSON.parse(localStorage.getItem('gradeTracker_syncConfig_v1')||'null'); return o&&{url:o.url,key:o.key}; },
+    ()=>({ url:JSON.parse(localStorage.getItem('survey_syncUrl')||'""'), key:JSON.parse(localStorage.getItem('survey_syncKey')||'""') }),
+    ()=>{ const o=JSON.parse(localStorage.getItem('shinro_sync_v1')||'null'); return o&&{url:o.url,key:o.key}; },
+    ()=>{ const o=JSON.parse(localStorage.getItem('komawari_syncCfg_v1')||'null'); return o&&{url:o.url,key:o.key}; }
+  ];
+  for(const f of tries){
+    try{ const o=f(); if(o && o.url && o.key) return o; }catch(e){}
+  }
+  return { url:'', key:'' };
+}
+function saveHubSyncCfg(url,key){
+  try{ localStorage.setItem(HUBSYNC, JSON.stringify({url:url,key:key})); }catch(e){}
+}
+
+/* 棚と「各ツールがどの学期を見ているか」をひとまとめにする。
+   どちらも取り込みで決まるものなので、手入力とぶつからない。 */
+function rosterPayload(){
+  let shelf={}, marks={};
+  try{ shelf = JSON.parse(localStorage.getItem('juku_roster_v1')||'{}'); }catch(e){}
+  try{ marks = JSON.parse(localStorage.getItem('juku_roster_mark_v1')||'{}'); }catch(e){}
+  return JUKU_SYNC.stamp({ shelf:shelf, marks:marks });
+}
+function applyRosterPayload(d){
+  if(!d) return 0;
+  let n=0;
+  if(d.shelf){ try{ localStorage.setItem('juku_roster_v1', JSON.stringify(d.shelf)); n=Object.keys(d.shelf).length; }catch(e){} }
+  if(d.marks){ try{ localStorage.setItem('juku_roster_mark_v1', JSON.stringify(d.marks)); }catch(e){} }
+  /* 端末をまたいで来たので、各ツールに読み直させる */
+  try{ localStorage.removeItem('juku_roster_seen_v1'); }catch(e){}
+  return n;
+}
+
+function hubSyncMsg(t, ng){
+  const el=document.getElementById('impSyncMsg'); if(!el) return;
+  el.innerHTML=t||''; el.className='imp-log'+(ng?' imp-ng':'');
+}
+
+async function hubSyncSave(){
+  const url=(document.getElementById('impSyncUrl').value||'').trim();
+  const key=(document.getElementById('impSyncKey').value||'').trim();
+  if(!url||!key){ hubSyncMsg('接続先URLと合言葉を入れてください', true); return; }
+  saveHubSyncCfg(url,key);
+  const body=JSON.stringify(rosterPayload());
+  hubSyncMsg('スプシに保存中…（'+Math.round(body.length/1024)+'KB）');
+  try{
+    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({key:key, tool:'roster', data:body})});
+    const d=await res.json();
+    if(d.ok){
+      JUKU_SYNC.noteSaved('roster'); JUKU_SYNC.refresh('impSyncInfo');
+      hubSyncMsg('✅ 棚を保存しました（'+new Date().toLocaleTimeString()+'／'+JUKU_SYNC.deviceName()+'／'+Math.round((d.bytes||0)/1024)+'KB）');
+    } else hubSyncMsg('エラー: '+esc(d.error||'不明'), true);
+  }catch(e){ hubSyncMsg('通信エラー: ネット接続とURLを確認してください', true); }
+}
+
+async function hubSyncLoad(){
+  const url=(document.getElementById('impSyncUrl').value||'').trim();
+  const key=(document.getElementById('impSyncKey').value||'').trim();
+  if(!url||!key){ hubSyncMsg('接続先URLと合言葉を入れてください', true); return; }
+  saveHubSyncCfg(url,key);
+  hubSyncMsg('スプシから読込中…');
+  try{
+    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({key:key, tool:'roster', action:'load'})});
+    const d=await res.json();
+    if(!d.ok){ hubSyncMsg('エラー: '+esc(d.error||'不明'), true); return; }
+    if(!d.data){ hubSyncMsg('スプシにまだ棚が入っていません（先にPCで保存してください）', true); return; }
+    const got=JSON.parse(d.data);
+    const by=(got._meta||{}).savedBy||'';
+    if(!confirm('スプシの棚でこの端末の棚を置き換えます。\n'+
+                (by?('最後に保存したのは「'+by+'」です。\n'):'')+
+                'よろしいですか？（各ツールが持っているデータは消えません）')) { hubSyncMsg(''); return; }
+    const n=applyRosterPayload(got);
+    JUKU_SYNC.refresh('impSyncInfo');
+    drawShelf(); drawTools();
+    hubSyncMsg('✅ 棚を読み込みました（学期'+n+'つぶん'+(by?'／'+esc(by)+'が保存したもの':'')+'）。各ツールのタブを開くと反映されます。');
+  }catch(e){ hubSyncMsg('通信エラー: ネット接続とURLを確認してください', true); }
+}
+
+function drawHubSync(){
+  const box=document.getElementById('impSync'); if(!box) return;
+  const c=hubSyncCfg();
+  box.innerHTML =
+    '<div class="imp-dim" style="margin-bottom:8px;line-height:1.8;">'+
+      'PCで取り込んだ名簿を、スマホでも使えるようにします。<br>'+
+      '<b>棚は取り込んだものだけ</b>なので、面談メモや配置とはぶつかりません。'+
+      '接続先は他のツールで入れてあるものをそのまま使えます。'+
+    '</div>'+
+    '<div style="margin-bottom:6px;"><div class="imp-dim">接続先URL（Apps Scriptのウェブアプリ URL）</div>'+
+      '<input type="text" id="impSyncUrl" value="'+esc(c.url||'')+'" placeholder="https://script.google.com/macros/s/.../exec" '+
+      'style="width:100%;box-sizing:border-box;padding:6px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;"></div>'+
+    '<div style="margin-bottom:8px;"><div class="imp-dim">合言葉</div>'+
+      '<input type="text" id="impSyncKey" value="'+esc(c.key||'')+'" placeholder="合言葉" '+
+      'style="width:100%;box-sizing:border-box;padding:6px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;"></div>'+
+    '<button class="imp-btn" id="impSyncSave">⬆️ 棚をスプシに保存</button> '+
+    '<button class="imp-btn" id="impSyncLoad" style="background:#64748b;">⬇️ スプシから棚を読込</button>'+
+    '<div id="impSyncMsg" class="imp-log"></div>'+
+    '<div id="impSyncInfo" style="margin-top:10px;"></div>';
+  document.getElementById('impSyncSave').onclick=hubSyncSave;
+  document.getElementById('impSyncLoad').onclick=hubSyncLoad;
+  JUKU_SYNC.mount('impSyncInfo','roster', ()=>({
+    url:(document.getElementById('impSyncUrl').value||'').trim(),
+    key:(document.getElementById('impSyncKey').value||'').trim()
+  }));
+}
+
 function mountImport(pane){
   const local = location.protocol === 'file:';
   pane.innerHTML =
@@ -723,6 +959,10 @@ function mountImport(pane){
       '<div class="imp-card">'+
         '<h3>フォルダを見張る <span class="imp-dim">毎日のぶんを自動で</span></h3>'+
         '<div id="impWatch"></div>'+
+      '</div>'+
+      '<div class="imp-card">'+
+        '<h3>スマホと共有する <span class="imp-dim">棚をスプレッドシート経由で</span></h3>'+
+        '<div id="impSync"></div>'+
       '</div>'+
       '<div class="imp-card">'+
         '<h3>各ツールが今見ている学期 <span class="imp-dim">7月・8月・1月はツールごとに違うのが正しい</span></h3>'+
@@ -751,7 +991,7 @@ function mountImport(pane){
     JUKU_ROSTER.clearAll(); drawShelf();
   };
   drawQueue(); drawShelf(); drawTools();
-  drawWatch();
+  drawWatch(); drawHubSync();
   /* 開いたときに一度だけ見にいく（許可が生きていれば黙って取り込む） */
   scanWatchDir(false);
 }
