@@ -504,6 +504,7 @@ async function runImport(){
   const btn = document.getElementById('impRun');
   btn.disabled = true;
   const lines = [];
+  let shelved = false;
   const say = (s)=>{ lines.push(s); log.innerHTML = lines.join('<br>'); };
 
   for(const q of QUEUE){
@@ -511,6 +512,7 @@ async function runImport(){
     if(!k){ say('⏭ '+esc(q.name)+'：種類が分からないので飛ばしました'); continue; }
     try{
       if(k.shelf){
+        shelved = true;
         const text = await readText(q.file);
         const ok = JUKU_ROSTER.put(q.term, q.kind, q.name, text,
                                    q.kind==='student' ? guessKousyu(q.name) : '');
@@ -531,6 +533,8 @@ async function runImport(){
   drawShelf();
   drawTools();
   JUKU_SYNC.refresh('impSyncInfo');
+  /* 棚に入ったものがあれば、少し待って自動でスプシへ */
+  if(shelved) JUKU_SYNC.queueSave('roster', hubSyncSave);
   say('— おわり —　各ツールのタブを開くと反映されます');
 }
 
@@ -826,6 +830,51 @@ var JUKU_SYNC = (function(){
    棚は丸ごと「取り込んだもの」なので、手で入れたものと混ざらない。
    そのため各ツールの同期には混ぜず、**専用の入れ物（tool:'roster'）**として送る。
    （各ツールに混ぜると同じ270KBを何度も送ることになる） */
+/* ===== 自動で保存・読込（塾ツール共通）=====
+   ③で「読込は手入力を上書きしない（混ぜる）」ようにしたので、自動にしても消えない。
+
+   ・開いたとき：スプシのほうが新しければ、自動で読み込む（混ぜるので消えない）
+   ・変わったとき：少し待ってからまとめて保存する（打つたびに送らない）
+   ・切りたい人のために、入／切のスイッチを付ける（既定は入） */
+(function(){
+  var AUTO='juku_auto_sync_v1';       /* {tool: true/false} */
+  function rd(){ try{ return JSON.parse(localStorage.getItem(AUTO)||'{}')||{}; }catch(e){ return {}; } }
+
+  JUKU_SYNC.autoOn = function(tool){ var v=rd()[tool]; return v===undefined ? true : !!v; };
+  JUKU_SYNC.setAuto = function(tool, on){
+    var o=rd(); o[tool]=!!on;
+    try{ localStorage.setItem(AUTO, JSON.stringify(o)); }catch(e){}
+  };
+
+  /* まとめて保存。呼ばれ続けても、静かになってから1回だけ送る。 */
+  var timers={}, busy={};
+  JUKU_SYNC.queueSave = function(tool, doSave, wait){
+    if(!JUKU_SYNC.autoOn(tool)) return;
+    clearTimeout(timers[tool]);
+    timers[tool]=setTimeout(async function(){
+      if(busy[tool]) { JUKU_SYNC.queueSave(tool, doSave, wait); return; }   /* 送信中なら後回し */
+      busy[tool]=true;
+      try{ await doSave({auto:true}); }catch(e){}
+      busy[tool]=false;
+    }, wait||4000);
+  };
+
+  /* 開いたときに1回だけ。スプシのほうが新しいときだけ読み込む。 */
+  JUKU_SYNC.autoLoad = async function(tool, cfg, doLoad, say){
+    if(!JUKU_SYNC.autoOn(tool)) return;
+    if(!cfg || !cfg.url || !cfg.key) return;
+    try{
+      var st = await JUKU_SYNC.peek(cfg.url, cfg.key, tool);
+      if(!st.updatedAt) return;
+      var mine = JUKU_SYNC.lastSaved(tool);
+      var newer = !mine || new Date(st.updatedAt) > new Date(mine.at);
+      if(!newer) return;                       /* こちらが最新なら何もしない */
+      if(say) say('スプシのほうが新しいので読み込みます（'+(st.savedBy||'別の端末')+'が'+JUKU_SYNC.fmt(st.updatedAt)+'に保存）');
+      await doLoad({auto:true});
+    }catch(e){ /* つながらないときは黙って何もしない（オフラインでも使えるように） */ }
+  };
+})();
+
 const HUBSYNC='juku_sync_cfg_v1';
 
 /* 接続先は各ツールで既に入れてあるものを流用する（入れ直さなくて済むように） */
@@ -871,10 +920,12 @@ function hubSyncMsg(t, ng){
   el.innerHTML=t||''; el.className='imp-log'+(ng?' imp-ng':'');
 }
 
-async function hubSyncSave(){
-  const url=(document.getElementById('impSyncUrl').value||'').trim();
-  const key=(document.getElementById('impSyncKey').value||'').trim();
-  if(!url||!key){ hubSyncMsg('接続先URLと合言葉を入れてください', true); return; }
+async function hubSyncSave(opts){
+  opts = opts || {};
+  const cfg0 = hubSyncCfg();
+  const url=((document.getElementById('impSyncUrl')||{}).value || cfg0.url || '').trim();
+  const key=((document.getElementById('impSyncKey')||{}).value || cfg0.key || '').trim();
+  if(!url||!key){ if(!opts.auto) hubSyncMsg('接続先URLと合言葉を入れてください', true); return; }
   saveHubSyncCfg(url,key);
   const body=JSON.stringify(rosterPayload());
   hubSyncMsg('スプシに保存中…（'+Math.round(body.length/1024)+'KB）');
@@ -889,9 +940,11 @@ async function hubSyncSave(){
   }catch(e){ hubSyncMsg('通信エラー: ネット接続とURLを確認してください', true); }
 }
 
-async function hubSyncLoad(){
-  const url=(document.getElementById('impSyncUrl').value||'').trim();
-  const key=(document.getElementById('impSyncKey').value||'').trim();
+async function hubSyncLoad(opts){
+  opts = opts || {};
+  const cfg0 = hubSyncCfg();
+  const url=((document.getElementById('impSyncUrl')||{}).value || cfg0.url || '').trim();
+  const key=((document.getElementById('impSyncKey')||{}).value || cfg0.key || '').trim();
   if(!url||!key){ hubSyncMsg('接続先URLと合言葉を入れてください', true); return; }
   saveHubSyncCfg(url,key);
   hubSyncMsg('スプシから読込中…');
@@ -903,7 +956,7 @@ async function hubSyncLoad(){
     if(!d.data){ hubSyncMsg('スプシにまだ棚が入っていません（先にPCで保存してください）', true); return; }
     const got=JSON.parse(d.data);
     const by=(got._meta||{}).savedBy||'';
-    if(!confirm('スプシの棚でこの端末の棚を置き換えます。\n'+
+    if(!opts.auto && !confirm('スプシの棚でこの端末の棚を置き換えます。\n'+
                 (by?('最後に保存したのは「'+by+'」です。\n'):'')+
                 'よろしいですか？（各ツールが持っているデータは消えません）')) { hubSyncMsg(''); return; }
     const n=applyRosterPayload(got);
@@ -930,10 +983,13 @@ function drawHubSync(){
       'style="width:100%;box-sizing:border-box;padding:6px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;"></div>'+
     '<button class="imp-btn" id="impSyncSave">⬆️ 棚をスプシに保存</button> '+
     '<button class="imp-btn" id="impSyncLoad" style="background:#64748b;">⬇️ スプシから棚を読込</button>'+
+    '<label style="margin-left:10px;font-size:12px;color:#475569;">'+
+      '<input type="checkbox" id="impAuto"'+(JUKU_SYNC.autoOn('roster')?' checked':'')+'> 自動でやりとりする</label>'+
     '<div id="impSyncMsg" class="imp-log"></div>'+
     '<div id="impSyncInfo" style="margin-top:10px;"></div>';
-  document.getElementById('impSyncSave').onclick=hubSyncSave;
-  document.getElementById('impSyncLoad').onclick=hubSyncLoad;
+  document.getElementById('impSyncSave').onclick=()=>hubSyncSave();
+  document.getElementById('impSyncLoad').onclick=()=>hubSyncLoad();
+  document.getElementById('impAuto').onchange=function(){ JUKU_SYNC.setAuto('roster', this.checked); };
   JUKU_SYNC.mount('impSyncInfo','roster', ()=>({
     url:(document.getElementById('impSyncUrl').value||'').trim(),
     key:(document.getElementById('impSyncKey').value||'').trim()
@@ -992,6 +1048,8 @@ function mountImport(pane){
   };
   drawQueue(); drawShelf(); drawTools();
   drawWatch(); drawHubSync();
+  /* スプシのほうが新しければ、開いたときに自動で棚を読む */
+  JUKU_SYNC.autoLoad('roster', hubSyncCfg(), hubSyncLoad, hubSyncMsg);
   /* 開いたときに一度だけ見にいく（許可が生きていれば黙って取り込む） */
   scanWatchDir(false);
 }
