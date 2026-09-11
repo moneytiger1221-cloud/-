@@ -459,7 +459,7 @@ details.fold>div{padding:0 10px 10px;}
         <label style="width:100%;font-size:11px;">合言葉</label>
         <input type="text" id="syncKey" placeholder="合言葉" style="width:100%;">
       </div>
-      <div class="row">
+      <div class="row" id="syncManual">
         <button class="btn" id="syncLoadBtn">⬇️ スプシから読込</button>
         <button class="btn pri" id="syncSaveBtn">⬆️ スプシに保存</button>
         <span class="grow"></span>
@@ -3712,38 +3712,119 @@ var JUKU_SYNC = (function(){
   function rd(){ try{ return JSON.parse(localStorage.getItem(AUTO)||'{}')||{}; }catch(e){ return {}; } }
 
   JUKU_SYNC.autoOn = function(tool){ var v=rd()[tool]; return v===undefined ? true : !!v; };
+  var watch = [];
   JUKU_SYNC.setAuto = function(tool, on){
     var o=rd(); o[tool]=!!on;
     try{ localStorage.setItem(AUTO, JSON.stringify(o)); }catch(e){}
+    watch.forEach(function(f){ try{ f(); }catch(e){} });
+  };
+
+  /* 手動のボタンを普段はしまう。自動を切ったら出す。 */
+  JUKU_SYNC.tuckManual = function(tool, sel){
+    var box = document.querySelector(sel);
+    if(!box || box.dataset.tucked) return;
+    box.dataset.tucked = '1';
+    var note = document.createElement('div');
+    note.style.cssText = 'font-size:12px;color:#64748b;margin:4px 0 8px;line-height:1.6;';
+    function paint(){
+      var on = JUKU_SYNC.autoOn(tool);
+      note.style.display = '';
+      box.style.display = on ? 'none' : '';
+      note.innerHTML = on
+        ? '自動でやりとりしているので、<b>押す必要はありません</b>。'+
+          ' <button type="button" class="jkManual" style="font-size:11px;padding:2px 8px;border:1px solid #cbd5e1;'+
+          'background:#fff;border-radius:6px;cursor:pointer;color:#64748b;">手動でやる</button>'
+        : '自動を切っています。下のボタンで手動でやりとりしてください。';
+      var b = note.querySelector('.jkManual');
+      if(b) b.onclick = function(){ box.style.display=''; note.style.display='none'; };
+    }
+    box.parentNode.insertBefore(note, box);
+    watch.push(paint);
+    paint();
   };
 
   /* まとめて保存。呼ばれ続けても、静かになってから1回だけ送る。 */
-  var timers={}, busy={};
+  var timers={}, busy={}, loading={}, reg={};
   JUKU_SYNC.queueSave = function(tool, doSave, wait){
     if(!JUKU_SYNC.autoOn(tool)) return;
     clearTimeout(timers[tool]);
     timers[tool]=setTimeout(async function(){
-      if(busy[tool]) { JUKU_SYNC.queueSave(tool, doSave, wait); return; }   /* 送信中なら後回し */
+      /* 送信中／読込中なら後回し（読み込む前の中身で上書きしないため） */
+      if(busy[tool] || loading[tool]) { JUKU_SYNC.queueSave(tool, doSave, wait); return; }
       busy[tool]=true;
+      /* 送る前に、スプシのほうが新しくないか確かめる。
+         新しければ先に読み込んでから送る。スプシは全置換なので、
+         これをしないと「あとから保存したほう」が相手の分を消してしまう。 */
+      try{ await JUKU_SYNC.recheck(tool); }catch(e){}
       try{ await doSave({auto:true}); }catch(e){}
       busy[tool]=false;
     }, wait||4000);
   };
 
-  /* 開いたときに1回だけ。スプシのほうが新しいときだけ読み込む。 */
+  /* 取り込んだ結果も自動でスプシへ送る。
+     窓口（window.JUKU_IMPORT）をくるんで、終わったら保存を予約するだけ。 */
+  JUKU_SYNC.autoAfterImport = function(tool, doSave){
+    var o = window.JUKU_IMPORT; if(!o) return;
+    Object.keys(o).forEach(function(k){
+      var f = o[k];
+      o[k] = function(){
+        var r = f.apply(null, arguments);
+        return Promise.resolve(r).then(function(v){ JUKU_SYNC.queueSave(tool, doSave); return v; });
+      };
+    });
+  };
+
+  /* 「どこまで受け取ったか」を覚えておく。
+     これが無いと、読み込んでもこの端末の保存時刻は古いままなので、
+     3分おきに同じものを何度も読み直してしまう。 */
+  var SEEN='juku_sync_seen_v1';
+  function seenAt(tool){ try{ return (JSON.parse(localStorage.getItem(SEEN)||'{}')||{})[tool]||''; }catch(e){ return ''; } }
+  function noteSeen(tool, at){
+    try{ var o=JSON.parse(localStorage.getItem(SEEN)||'{}')||{}; o[tool]=at;
+         localStorage.setItem(SEEN, JSON.stringify(o)); }catch(e){}
+  }
+
+  /* スプシのほうが新しいときだけ読み込む。
+     cfg は毎回読み直したいので、関数で渡してもよい。 */
   JUKU_SYNC.autoLoad = async function(tool, cfg, doLoad, say){
+    if(doLoad) reg[tool] = {cfg:cfg, doLoad:doLoad, say:say};   /* あとで見直せるように覚えておく */
+    var c = (typeof cfg === 'function') ? (cfg()||{}) : (cfg||{});
     if(!JUKU_SYNC.autoOn(tool)) return;
-    if(!cfg || !cfg.url || !cfg.key) return;
+    if(!c.url || !c.key) return;
+    if(loading[tool]) return;
+    loading[tool]=true;
     try{
-      var st = await JUKU_SYNC.peek(cfg.url, cfg.key, tool);
+      var st = await JUKU_SYNC.peek(c.url, c.key, tool);
       if(!st.updatedAt) return;
+      /* この端末が最後に保存した時刻と、最後に受け取った時刻の、新しいほうと比べる */
       var mine = JUKU_SYNC.lastSaved(tool);
-      var newer = !mine || new Date(st.updatedAt) > new Date(mine.at);
-      if(!newer) return;                       /* こちらが最新なら何もしない */
+      var base = mine ? mine.at : '';
+      var sa = seenAt(tool);
+      if(sa && (!base || new Date(sa) > new Date(base))) base = sa;
+      if(base && new Date(st.updatedAt) <= new Date(base)) return;   /* こちらが最新なら何もしない */
       if(say) say('スプシのほうが新しいので読み込みます（'+(st.savedBy||'別の端末')+'が'+JUKU_SYNC.fmt(st.updatedAt)+'に保存）');
       await doLoad({auto:true});
+      noteSeen(tool, st.updatedAt);
     }catch(e){ /* つながらないときは黙って何もしない（オフラインでも使えるように） */ }
+    finally{ loading[tool]=false; }
   };
+
+  /* もう一度スプシを確かめる。設定を入れ直したあとも、これで拾える。 */
+  JUKU_SYNC.recheck = function(tool){
+    var r = reg[tool]; if(!r) return Promise.resolve();
+    return JUKU_SYNC.autoLoad(tool, r.cfg, r.doLoad, r.say);
+  };
+  /* iframe の中では document.hidden があてにならないので、隠れているかは見ない。
+     確かめるだけ（更新日時を1行もらうだけ）なので、空振りしても軽い。 */
+  function recheckAll(){
+    Object.keys(reg).forEach(function(t){ JUKU_SYNC.recheck(t); });
+  }
+  /* 画面に戻ってきたとき。スマホを開いたままパソコンで取り込んでも、
+     戻ってくるだけで最新になる。 */
+  document.addEventListener('visibilitychange', recheckAll);
+  window.addEventListener('focus', recheckAll);
+  /* 開きっぱなしのとき用に、3分おきにも確かめる */
+  setInterval(recheckAll, 180000);
 })();
 
 /* ===== 取り込み口の整理（塾ツール共通）=====
@@ -3787,6 +3868,7 @@ async function syncPost(body, opts){
     body:JSON.stringify(Object.assign({key:key,tool:'shinro'},body))});
   return await res.json();
 }
+JUKU_SYNC.tuckManual('shinro', '#syncManual');
 if($('syncAuto')){ $('syncAuto').checked=JUKU_SYNC.autoOn('shinro');
   $('syncAuto').onchange=function(){ JUKU_SYNC.setAuto('shinro', this.checked); }; }
 JUKU_SYNC.mount('syncInfo','shinro', function(){
@@ -3806,7 +3888,7 @@ async function shinroSyncSave(opts){
 }
 $('syncSaveBtn').onclick=function(){ shinroSyncSave(); };
 /* 開いたとき、スプシのほうが新しければ自動で読む */
-JUKU_SYNC.autoLoad('shinro', syncCfg(), shinroSyncLoad, function(t){ syncMsg(t); });
+JUKU_SYNC.autoLoad('shinro', function(){ return syncCfg()||{}; }, shinroSyncLoad, function(t){ syncMsg(t); });
 jukuHideImports('#drop, #pDrop', '打診値のPDFと公立のxlsxの取り込みは、上の<b>「取込」タブ</b>にまとまりました。');
 async function shinroSyncLoad(opts){
   opts = opts || {};
@@ -3912,6 +3994,8 @@ window.JUKU_IMPORT = {
   dashin:  function(f){ return handleFile(f); },      /* 私立打診値のPDF */
   koritsu: function(f){ return pubHandleFile(f); }    /* 公立の合格判定xlsx */
 };
+/* 取り込んだ結果も自動でスプシへ */
+JUKU_SYNC.autoAfterImport('shinro', shinroSyncSave);
 </script>
 </body>
 </html>

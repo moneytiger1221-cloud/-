@@ -365,6 +365,20 @@ body.trayh-x .traycnt2{top:2px;}
 .juku-moved-btn{border:1px solid #cbd5e1;background:#fff;color:#64748b;border-radius:6px;
   padding:3px 9px;font-size:11.5px;cursor:pointer;font-family:inherit;margin-left:4px;}
 .juku-moved-btn:hover{border-color:#2b6fe0;color:#2b6fe0;}
+/* ===== 同期の状態表示（塾ツール共通）===== */
+.js-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
+.js-l{color:#94a3b8;font-size:11.5px;font-weight:700;}
+.js-dim{color:#94a3b8;}
+.js-ng{color:#b45309;}
+.js-st{font-size:12px;line-height:2;color:#475569;background:#f8fafc;border:1px solid #e6ecf3;
+  border-radius:8px;padding:8px 10px;}
+.js-row input.js-dev{font-size:12px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;
+  font-family:inherit;color:#334155;background:#fff;}
+.js-row button.js-peek{font-size:12px;padding:5px 11px;border:1px solid #c8d3de;background:#fff;
+  border-radius:6px;cursor:pointer;color:#3c4d5e;font-family:inherit;}
+.js-row button.js-peek:hover{border-color:#2b6fe0;color:#2b6fe0;}
+.js-row button.js-peek:disabled{color:#94a3b8;cursor:default;}
+
 
 /* ===== スマホ表示（幅820px以下）=====
    PCの見た目は一切変えない。狭い画面のときだけ、
@@ -469,6 +483,300 @@ body.trayh-x .traycnt2{top:2px;}
 </script>
 <script>
 "use strict";
+/* ===== 同期の「いつ・どの端末で保存したか」（塾ツール共通）=====
+   今の同期は「まるごと置き換え」なので、どっちが新しいかを人が知っている必要がある。
+   ・端末に名前を付ける（このPC／スマホ など）
+   ・保存するデータに「いつ・どの端末で」を1行だけ入れる
+   ・スプシ側の最終保存時刻（Code.gs が返す updatedAt）と見比べて出す
+   Code.gs には手を入れないので、Apps Script を入れ直す必要はない。 */
+var JUKU_SYNC = (function(){
+  var DEV='juku_device_v1';          /* 端末の名前（全ツール共通） */
+  var LAST='juku_sync_last_v1';      /* {tool: {at, by}} この端末が最後に保存した時刻 */
+
+  function rd(k,d){ try{ return JSON.parse(localStorage.getItem(k)||'null') || d; }catch(e){ return d; } }
+  function wr(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+
+  function deviceName(){
+    var n = rd(DEV,'');
+    if(n) return n;
+    /* 初回はそれらしい名前を当てておく（設定で直せる） */
+    var ua = navigator.userAgent||'';
+    var guess = /iPhone|Android|iPad/i.test(ua) ? 'スマホ' : 'パソコン';
+    wr(DEV, guess);
+    return guess;
+  }
+  function setDeviceName(n){ wr(DEV, String(n||'').trim() || 'この端末'); }
+
+  /* 保存するデータに1行だけ足す。中身は触らない。 */
+  function stamp(payload){
+    payload = payload || {};
+    payload._meta = { savedAt: new Date().toISOString(), savedBy: deviceName() };
+    return payload;
+  }
+  /* 保存できたら、この端末の記録に残す */
+  function noteSaved(tool){
+    var o = rd(LAST,{}); o[tool] = { at:new Date().toISOString(), by:deviceName() }; wr(LAST,o);
+  }
+  function lastSaved(tool){ return (rd(LAST,{})||{})[tool] || null; }
+
+  function fmt(iso){
+    if(!iso) return '';
+    var d = new Date(iso);
+    if(isNaN(d)) return String(iso);
+    var p=function(n){ return (n<10?'0':'')+n; };
+    return (d.getMonth()+1)+'/'+d.getDate()+' '+p(d.getHours())+':'+p(d.getMinutes());
+  }
+
+  /* スプシの今の状態を見にいく。中身は読み捨てて、いつ・誰が保存したかだけ返す。 */
+  async function peek(url, key, tool){
+    var res = await fetch(url, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ key:key, tool:tool, action:'load' }) });
+    var d = await res.json();
+    if(!d.ok) throw new Error(d.error||'不明なエラー');
+    var by='';
+    try{ by = (JSON.parse(d.data||'{}')._meta||{}).savedBy || ''; }catch(e){}
+    return { updatedAt: d.updatedAt||'', savedBy: by, bytes: (d.data||'').length };
+  }
+
+  /* 画面に出す1行。remote は peek() の結果（null なら未確認）。 */
+  function statusHtml(tool, remote){
+    var mine = lastSaved(tool);
+    var out = [];
+    out.push('<span class="js-l">この端末が最後に保存</span> '+(mine? fmt(mine.at) : '<span class="js-dim">まだ保存していません</span>'));
+    if(remote){
+      var newer = remote.updatedAt && (!mine || new Date(remote.updatedAt) > new Date(mine.at));
+      var other = remote.savedBy && remote.savedBy!==deviceName();
+      out.push('<span class="js-l">スプシの最終保存</span> '+
+        (remote.updatedAt? fmt(remote.updatedAt) : '（まだ何も入っていません）')+
+        (remote.savedBy? '（'+esc0(remote.savedBy)+'）' : '')+
+        (newer? ' <b class="js-ng">'+(other?'この端末より新しいです':'この端末で保存した最新です')+'</b>' : ''));
+    }
+    return out.join('<br>');
+  }
+  function esc0(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+  /* 端末名の入力欄＋状態表示をまとめて作る。
+     el: 置き場所のid / tool: 'grade' など / getCfg: ()=>({url,key}) */
+  function mount(elId, tool, getCfg){
+    var box=document.getElementById(elId); if(!box) return;
+    function draw(remote){
+      box.innerHTML =
+        '<div class="js-row"><span class="js-l">この端末の名前</span>'+
+          '<input type="text" class="js-dev" value="'+esc0(deviceName())+'" style="width:120px;">'+
+          '<button type="button" class="js-peek">スプシの状態を見る</button></div>'+
+        '<div class="js-st">'+statusHtml(tool, remote)+'</div>';
+      var inp=box.querySelector('.js-dev');
+      inp.onchange=function(){ setDeviceName(inp.value); draw(remote); };
+      box.querySelector('.js-peek').onclick=async function(){
+        var b=this; var cfg=getCfg()||{};
+        if(!cfg.url||!cfg.key){ box.querySelector('.js-st').innerHTML='<span class="js-ng">接続先URLと合言葉を先に入れてください</span>'; return; }
+        b.disabled=true; b.textContent='見にいっています…';
+        try{ draw(await peek(cfg.url, cfg.key, tool)); }
+        catch(e){ box.querySelector('.js-st').innerHTML='<span class="js-ng">見にいけませんでした: '+esc0(e&&e.message?e.message:e)+'</span>'; b.disabled=false; b.textContent='スプシの状態を見る'; }
+      };
+    }
+    draw(null);
+    box.__redraw = draw;
+  }
+  function refresh(elId){ var b=document.getElementById(elId); if(b&&b.__redraw) b.__redraw(null); }
+
+  return { deviceName:deviceName, setDeviceName:setDeviceName, stamp:stamp,
+           noteSaved:noteSaved, lastSaved:lastSaved, peek:peek, fmt:fmt,
+           statusHtml:statusHtml, mount:mount, refresh:refresh };
+})();
+
+/* ===== 手で入れたものを守る混ぜ方（塾ツール共通）=====
+   今までの読込は「まるごと置き換え」だった。スマホで入れた面談メモが、
+   PCで保存した内容を読み込んだ瞬間に消える。
+
+   混ぜ方のきまり：
+     ・片方にしか無いものは、両方残す（PCで生徒Aに、スマホで生徒Bに書いた → 両方生きる）
+     ・同じところを両方いじっていたら、**あとから触ったほうを採る**
+   1項目ずつの時刻は持っていないので、「あとから触ったほう」は
+   ツールごとの「最後に手入力した時刻」（touch）で決める。 */
+(function(){
+  var TOUCH='juku_touched_v1';    /* {tool: ISO} この端末で最後に手入力した時刻 */
+  function rd(){ try{ return JSON.parse(localStorage.getItem(TOUCH)||'{}')||{}; }catch(e){ return {}; } }
+
+  /* 手で入れたものを保存したときに呼ぶ */
+  JUKU_SYNC.touch = function(tool){
+    var o=rd(); o[tool]=new Date().toISOString();
+    try{ localStorage.setItem(TOUCH, JSON.stringify(o)); }catch(e){}
+  };
+  JUKU_SYNC.touchedAt = function(tool){ return rd()[tool] || ''; };
+
+  /* この端末のほうが「あとから触った」か */
+  JUKU_SYNC.iAmNewer = function(tool, theirTouchedAt){
+    var mine = JUKU_SYNC.touchedAt(tool);
+    if(!theirTouchedAt) return true;      /* 相手が一度も手入力していない */
+    if(!mine) return false;               /* こちらが一度も手入力していない */
+    return new Date(mine) > new Date(theirTouchedAt);
+  };
+
+  function isPlain(v){ return v && typeof v==='object' && !Array.isArray(v); }
+  function same(a,b){ try{ return JSON.stringify(a)===JSON.stringify(b); }catch(e){ return false; } }
+
+  /* 木をたどって混ぜる。mineNewer が true なら、ぶつかったときこちらを採る。 */
+  function mergeTree(mine, theirs, mineNewer){
+    if(theirs===undefined || theirs===null) return mine;
+    if(mine===undefined || mine===null) return theirs;
+
+    /* 配列で、両方とも id を持つものの並びなら、id ごとに混ぜる */
+    if(Array.isArray(mine) && Array.isArray(theirs)){
+      var hasId = function(a){ return a.length===0 || a.every(function(x){ return x && x.id!==undefined; }); };
+      if(hasId(mine) && hasId(theirs)){
+        var by={}, order=[];
+        theirs.forEach(function(x){ by[x.id]=x; order.push(x.id); });
+        mine.forEach(function(x){
+          if(by[x.id]===undefined){ by[x.id]=x; order.push(x.id); }
+          else by[x.id]=mergeTree(x, by[x.id], mineNewer);
+        });
+        return order.map(function(k){ return by[k]; });
+      }
+      return same(mine,theirs) ? mine : (mineNewer ? mine : theirs);
+    }
+
+    if(isPlain(mine) && isPlain(theirs)){
+      var out={}, keys={};
+      Object.keys(mine).forEach(function(k){ keys[k]=1; });
+      Object.keys(theirs).forEach(function(k){ keys[k]=1; });
+      Object.keys(keys).forEach(function(k){ out[k]=mergeTree(mine[k], theirs[k], mineNewer); });
+      return out;
+    }
+
+    if(same(mine,theirs)) return mine;
+    return mineNewer ? mine : theirs;
+  }
+  JUKU_SYNC.merge = mergeTree;
+})();
+
+/* ===== 自動で保存・読込（塾ツール共通）=====
+   ③で「読込は手入力を上書きしない（混ぜる）」ようにしたので、自動にしても消えない。
+
+   ・開いたとき：スプシのほうが新しければ、自動で読み込む（混ぜるので消えない）
+   ・変わったとき：少し待ってからまとめて保存する（打つたびに送らない）
+   ・切りたい人のために、入／切のスイッチを付ける（既定は入） */
+(function(){
+  var AUTO='juku_auto_sync_v1';       /* {tool: true/false} */
+  function rd(){ try{ return JSON.parse(localStorage.getItem(AUTO)||'{}')||{}; }catch(e){ return {}; } }
+
+  JUKU_SYNC.autoOn = function(tool){ var v=rd()[tool]; return v===undefined ? true : !!v; };
+  var watch = [];
+  JUKU_SYNC.setAuto = function(tool, on){
+    var o=rd(); o[tool]=!!on;
+    try{ localStorage.setItem(AUTO, JSON.stringify(o)); }catch(e){}
+    watch.forEach(function(f){ try{ f(); }catch(e){} });
+  };
+
+  /* 手動のボタンを普段はしまう。自動を切ったら出す。 */
+  JUKU_SYNC.tuckManual = function(tool, sel){
+    var box = document.querySelector(sel);
+    if(!box || box.dataset.tucked) return;
+    box.dataset.tucked = '1';
+    var note = document.createElement('div');
+    note.style.cssText = 'font-size:12px;color:#64748b;margin:4px 0 8px;line-height:1.6;';
+    function paint(){
+      var on = JUKU_SYNC.autoOn(tool);
+      note.style.display = '';
+      box.style.display = on ? 'none' : '';
+      note.innerHTML = on
+        ? '自動でやりとりしているので、<b>押す必要はありません</b>。'+
+          ' <button type="button" class="jkManual" style="font-size:11px;padding:2px 8px;border:1px solid #cbd5e1;'+
+          'background:#fff;border-radius:6px;cursor:pointer;color:#64748b;">手動でやる</button>'
+        : '自動を切っています。下のボタンで手動でやりとりしてください。';
+      var b = note.querySelector('.jkManual');
+      if(b) b.onclick = function(){ box.style.display=''; note.style.display='none'; };
+    }
+    box.parentNode.insertBefore(note, box);
+    watch.push(paint);
+    paint();
+  };
+
+  /* まとめて保存。呼ばれ続けても、静かになってから1回だけ送る。 */
+  var timers={}, busy={}, loading={}, reg={};
+  JUKU_SYNC.queueSave = function(tool, doSave, wait){
+    if(!JUKU_SYNC.autoOn(tool)) return;
+    clearTimeout(timers[tool]);
+    timers[tool]=setTimeout(async function(){
+      /* 送信中／読込中なら後回し（読み込む前の中身で上書きしないため） */
+      if(busy[tool] || loading[tool]) { JUKU_SYNC.queueSave(tool, doSave, wait); return; }
+      busy[tool]=true;
+      /* 送る前に、スプシのほうが新しくないか確かめる。
+         新しければ先に読み込んでから送る。スプシは全置換なので、
+         これをしないと「あとから保存したほう」が相手の分を消してしまう。 */
+      try{ await JUKU_SYNC.recheck(tool); }catch(e){}
+      try{ await doSave({auto:true}); }catch(e){}
+      busy[tool]=false;
+    }, wait||4000);
+  };
+
+  /* 取り込んだ結果も自動でスプシへ送る。
+     窓口（window.JUKU_IMPORT）をくるんで、終わったら保存を予約するだけ。 */
+  JUKU_SYNC.autoAfterImport = function(tool, doSave){
+    var o = window.JUKU_IMPORT; if(!o) return;
+    Object.keys(o).forEach(function(k){
+      var f = o[k];
+      o[k] = function(){
+        var r = f.apply(null, arguments);
+        return Promise.resolve(r).then(function(v){ JUKU_SYNC.queueSave(tool, doSave); return v; });
+      };
+    });
+  };
+
+  /* 「どこまで受け取ったか」を覚えておく。
+     これが無いと、読み込んでもこの端末の保存時刻は古いままなので、
+     3分おきに同じものを何度も読み直してしまう。 */
+  var SEEN='juku_sync_seen_v1';
+  function seenAt(tool){ try{ return (JSON.parse(localStorage.getItem(SEEN)||'{}')||{})[tool]||''; }catch(e){ return ''; } }
+  function noteSeen(tool, at){
+    try{ var o=JSON.parse(localStorage.getItem(SEEN)||'{}')||{}; o[tool]=at;
+         localStorage.setItem(SEEN, JSON.stringify(o)); }catch(e){}
+  }
+
+  /* スプシのほうが新しいときだけ読み込む。
+     cfg は毎回読み直したいので、関数で渡してもよい。 */
+  JUKU_SYNC.autoLoad = async function(tool, cfg, doLoad, say){
+    if(doLoad) reg[tool] = {cfg:cfg, doLoad:doLoad, say:say};   /* あとで見直せるように覚えておく */
+    var c = (typeof cfg === 'function') ? (cfg()||{}) : (cfg||{});
+    if(!JUKU_SYNC.autoOn(tool)) return;
+    if(!c.url || !c.key) return;
+    if(loading[tool]) return;
+    loading[tool]=true;
+    try{
+      var st = await JUKU_SYNC.peek(c.url, c.key, tool);
+      if(!st.updatedAt) return;
+      /* この端末が最後に保存した時刻と、最後に受け取った時刻の、新しいほうと比べる */
+      var mine = JUKU_SYNC.lastSaved(tool);
+      var base = mine ? mine.at : '';
+      var sa = seenAt(tool);
+      if(sa && (!base || new Date(sa) > new Date(base))) base = sa;
+      if(base && new Date(st.updatedAt) <= new Date(base)) return;   /* こちらが最新なら何もしない */
+      if(say) say('スプシのほうが新しいので読み込みます（'+(st.savedBy||'別の端末')+'が'+JUKU_SYNC.fmt(st.updatedAt)+'に保存）');
+      await doLoad({auto:true});
+      noteSeen(tool, st.updatedAt);
+    }catch(e){ /* つながらないときは黙って何もしない（オフラインでも使えるように） */ }
+    finally{ loading[tool]=false; }
+  };
+
+  /* もう一度スプシを確かめる。設定を入れ直したあとも、これで拾える。 */
+  JUKU_SYNC.recheck = function(tool){
+    var r = reg[tool]; if(!r) return Promise.resolve();
+    return JUKU_SYNC.autoLoad(tool, r.cfg, r.doLoad, r.say);
+  };
+  /* iframe の中では document.hidden があてにならないので、隠れているかは見ない。
+     確かめるだけ（更新日時を1行もらうだけ）なので、空振りしても軽い。 */
+  function recheckAll(){
+    Object.keys(reg).forEach(function(t){ JUKU_SYNC.recheck(t); });
+  }
+  /* 画面に戻ってきたとき。スマホを開いたままパソコンで取り込んでも、
+     戻ってくるだけで最新になる。 */
+  document.addEventListener('visibilitychange', recheckAll);
+  window.addEventListener('focus', recheckAll);
+  /* 開きっぱなしのとき用に、3分おきにも確かめる */
+  setInterval(recheckAll, 180000);
+})();
+
 /* localStorageはiframe内やプライベートモードで例外(SecurityError)を投げることがある。
    素で呼ぶと以降のスクリプトが止まり画面が真っ白になるため、必ずこのラッパーを経由する。 */
 const LS={
@@ -1470,7 +1778,25 @@ function loadSaved(){
 function save(){try{const d={};komas.forEach(k=>d[k.kid]={teacherId:k.teacherId,limitNo:k.limitNo,period:k.period});
   LS.set(lskFor(),JSON.stringify(d));
   const g={};groupClasses.forEach(c=>g[c.gid]=c.teacherId);LS.set(LSGRP,JSON.stringify(g));
-  saveManualGroups();exportDowRoster();}catch(e){}flashSave();}
+  saveManualGroups();exportDowRoster();}catch(e){}
+  /* 組んだ内容が変わったので、時刻を残して自動保存を予約する */
+  JUKU_SYNC.touch('komawari'); JUKU_SYNC.queueSave('komawari', komaSyncSave);
+  flashSave();}
+/* コマ組は「まるごと置き換え」なので、送る前にこの端末の変更が残っていないか確かめる */
+function komaSyncSave(opts){ return syncSave(opts); }
+/* 自動の読み込み。この端末に未送信の変更があるときは見送る。
+   コマ組は読み込むと画面を作り直すので、1回開いているあいだに2度は読まない。
+   （何かの拍子に読み直しがくり返されると、ずっと再読込し続けてしまうため） */
+var komaAutoLoaded = false;
+async function komaAutoLoad(opts){
+  if(opts && opts.auto){ if(komaAutoLoaded) return false; komaAutoLoaded = true; }
+  const t = JUKU_SYNC.touchedAt('komawari'), s = JUKU_SYNC.lastSaved('komawari');
+  if(t && (!s || new Date(t) > new Date(s.at))){
+    syncMsgSet('この端末に、まだスプシに送れていない変更があります。自動の読み込みは見送りました。','#b8433a');
+    return false;
+  }
+  return syncLoad(true, opts);
+}
 let grey=new Set();try{grey=new Set(JSON.parse(LS.get(LSG)||'[]'));}catch(e){}
 function saveGrey(){LS.set(LSG,JSON.stringify([...grey]));}
 // ---- 初回ロード ----
@@ -2659,23 +2985,30 @@ function applySyncPayload(d){
   }
   if(d.keys)Object.keys(d.keys).forEach(k=>{if(backupKeys().indexOf(k)>=0)LS.set(k,d.keys[k]);});
 }
-async function syncSave(){
+async function syncSave(opts){
+  opts = opts || {};
   const c=syncCfg();
-  if(!c.url||!c.key){syncMsgSet('接続先URLと合言葉を入力してください','#b8433a');return;}
-  if(!curStudentCsv){syncMsgSet('保存するデータがありません。先に生徒CSVを取り込んでください。','#b8433a');return;}
-  syncMsgSet('スプシに保存中…','#6a7889');
+  if(!c.url||!c.key){ if(!opts.auto) syncMsgSet('接続先URLと合言葉を入力してください','#b8433a'); return; }
+  if(!curStudentCsv){ if(!opts.auto) syncMsgSet('保存するデータがありません。先に生徒CSVを取り込んでください。','#b8433a'); return; }
+  syncMsgSet(opts.auto?'自動で保存中…':'スプシに保存中…','#6a7889');
   try{
     const res=await fetch(c.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({key:c.key,tool:'komawari',data:JSON.stringify(syncPayload())})});
+      body:JSON.stringify({key:c.key,tool:'komawari',
+        data:JSON.stringify(Object.assign(JUKU_SYNC.stamp(syncPayload()),
+          {_touchedAt:JUKU_SYNC.touchedAt('komawari')}))})});
     const d=await res.json();
-    if(d.ok)syncMsgSet('✅ 保存しました（'+new Date().toLocaleTimeString()+'）','#1e7a4f');
-    else syncMsgSet('エラー: '+(d.error||'不明'),'#b8433a');
-  }catch(e){syncMsgSet('通信エラー: ネット接続を確認してください','#b8433a');}
+    if(d.ok){
+      JUKU_SYNC.noteSaved('komawari'); JUKU_SYNC.refresh('syncInfoBox');
+      syncMsgSet('✅ 保存しました（'+JUKU_SYNC.fmt(new Date().toISOString())+'／'+JUKU_SYNC.deviceName()+'）','#1e7a4f');
+    }
+    else if(!opts.auto) syncMsgSet('エラー: '+(d.error||'不明'),'#b8433a');
+  }catch(e){ if(!opts.auto) syncMsgSet('通信エラー: ネット接続を確認してください','#b8433a'); }
 }
 async function syncLoad(silent){
   const c=syncCfg();
   if(!c.url||!c.key){syncMsgSet('接続先URLと合言葉を入力してください','#b8433a');return false;}
   if(!silent&&curStudentCsv&&!confirm('スプシの内容で、この端末のデータを上書きします。よろしいですか？'))return false;
+  JUKU_SYNC.refresh('syncInfoBox');
   syncMsgSet('スプシから読込中…','#6a7889');
   try{
     const res=await fetch(c.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
@@ -2689,22 +3022,28 @@ async function syncLoad(silent){
     return true;
   }catch(e){syncMsgSet('通信エラー: ネット接続を確認してください','#b8433a');return false;}
 }
+/* 開いたとき、スプシのほうが新しければ自動で読む
+   （この端末に未送信の変更があるときは見送る） */
+JUKU_SYNC.autoLoad('komawari', syncCfg, komaAutoLoad, function(t){ syncMsgSet(t,'#6a7889'); });
 function triggerStudentImport(){const b=document.getElementById("btnImportBtn");if(b)b.click();}
 function openSyncModal(){
   const c=syncCfg();
   document.getElementById('modal').innerHTML=
     '<div class="modalbox"><div class="modalhd"><b>☁️ スプレッドシート同期</b><button class="mclose" onclick="closeModal()">×</button></div>'+
-    '<div class="modalmeta">複数の端末で同じデータを使うための設定です。パソコンで作業したあと「スプシに保存」、スマホでは「スプシから読込」で同じ状態になります。<br>合言葉は<b>教室の鍵と同じ</b>扱いで管理してください。</div>'+
+    '<div class="modalmeta">複数の端末で同じデータを使うための設定です。組んだ内容は自動でスプシに保存され、別の端末は開くだけで最新になります。<br>合言葉は<b>教室の鍵と同じ</b>扱いで管理してください。</div>'+
     '<div style="padding:10px 14px">'+
     '<div style="font-size:11px;color:#6a7889;margin-bottom:4px">接続先URL（Apps Scriptのウェブアプリ URL）</div>'+
     '<input type="text" id="syncUrlBox" value="'+(c.url||'').replace(/"/g,'&quot;')+'" placeholder="https://script.google.com/macros/s/.../exec" style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;margin-bottom:8px">'+
     '<div style="font-size:11px;color:#6a7889;margin-bottom:4px">合言葉</div>'+
     '<input type="password" id="syncKeyBox" value="'+(c.key||'').replace(/"/g,'&quot;')+'" placeholder="合言葉" style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;margin-bottom:12px">'+
-    '<div style="display:flex;gap:8px">'+
+    '<div style="display:flex;gap:8px" id="syncManual">'+
     '<button class="toolbtn" id="btnSyncLoad" style="flex:1">⬇️ スプシから読込</button>'+
     '<button class="toolbtn primary" id="btnSyncSave" style="flex:1">⬆️ スプシに保存</button>'+
     '</div>'+
     '<div id="syncMsgBox" style="font-size:12px;margin-top:10px;color:#6a7889"></div>'+
+    '<label style="display:block;margin-top:8px;font-size:12px;color:#5a6b7d;">'+
+      '<input type="checkbox" id="syncAuto"'+(JUKU_SYNC.autoOn('komawari')?' checked':'')+'> 自動でやりとりする</label>'+
+    '<div id="syncInfoBox" style="margin-top:10px;"></div>'+
     '</div><div class="modalfoot"><button class="toolbtn" onclick="closeModal()">閉じる</button></div></div>';
   document.getElementById('modal').style.display='flex';
   const save=()=>saveSyncCfg({url:document.getElementById('syncUrlBox').value.trim(),
@@ -2713,6 +3052,9 @@ function openSyncModal(){
   document.getElementById('syncKeyBox').onchange=save;
   document.getElementById('btnSyncSave').onclick=()=>{save();syncSave();};
   document.getElementById('btnSyncLoad').onclick=()=>{save();syncLoad(false);};
+  document.getElementById('syncAuto').onchange=function(){ JUKU_SYNC.setAuto('komawari', this.checked); };
+  JUKU_SYNC.tuckManual('komawari', '#syncManual');
+  JUKU_SYNC.mount('syncInfoBox','komawari', syncCfg);
 }
 function backupSave(){
   const d={_v:1,_at:new Date().toISOString()};
