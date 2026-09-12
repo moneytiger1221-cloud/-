@@ -3229,7 +3229,7 @@ async function fsScan(verbose) {
   saveUi();
   setMsg('fsmsg', '新しく ' + res.ok + '件 取り込みました。' + (res.ng ? '（' + res.ng + '件は読めませんでした）' : ''),
     res.ng ? 'er' : 'ok');
-  refreshAll();
+  refreshAll(true);   // フォルダ監視で拾ったときも新しい日へ
 }
 
 /* ---------- スプレッドシート同期 ---------------------------------------- */
@@ -3595,10 +3595,10 @@ function wireCfg() {
     drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); });
   });
   drop.addEventListener('drop', async function (e) {
-    await importFiles(e.dataTransfer.files, 'impmsg'); refreshAll();
+    await importFiles(e.dataTransfer.files, 'impmsg'); refreshAll(true);   // 取り込んだらいちばん新しい日を出す
   });
   el('pick').onclick = function () { el('fin').click(); };
-  el('fin').onchange = async function () { await importFiles(this.files, 'impmsg'); this.value = ''; refreshAll(); };
+  el('fin').onchange = async function () { await importFiles(this.files, 'impmsg'); this.value = ''; refreshAll(true); };
   el('cbTests').onchange = function () { DB.cfg.tests = this.checked; saveCfg(); renderCfg(); };
 
   var kdrop = el('kdrop');
@@ -3715,13 +3715,15 @@ function show(p) {
       esc(e.message) + '</div></div>';
   }
 }
-function refreshAll() {
-  fillSelectors();
+function refreshAll(toNewest) {
+  fillSelectors(toNewest);
   var t = DB.ui.tab && PANES[DB.ui.tab] ? DB.ui.tab : 'touch';
   show(t);
 }
 
-function fillSelectors() {
+/* toNewest を渡すと、いま選んでいる日付を捨てていちばん新しい日に移る。
+   起動したときと、新しいファイルを取り込んだときに使う。 */
+function fillSelectors(toNewest) {
   var ds = allDates();
   var sd = el('selDate'), sb = el('selBlock');
   if (!ds.length) {
@@ -3730,7 +3732,9 @@ function fillSelectors() {
     VIEW.date = null; VIEW.block = null;
     return;
   }
-  if (!VIEW.date || ds.indexOf(VIEW.date) < 0) VIEW.date = DB.ui.date && ds.indexOf(DB.ui.date) >= 0 ? DB.ui.date : ds[ds.length - 1];
+  /* ★前に見ていた日付は覚えない。覚えると、新しいSSを取り込んでも古い日が出たままになる
+       （実際に木曜のまま土曜のSSに気づけなかった）。見たい日は自分で選び直せる。 */
+  if (toNewest || !VIEW.date || ds.indexOf(VIEW.date) < 0) VIEW.date = ds[ds.length - 1];
   sd.innerHTML = ds.slice().reverse().map(function (d) {
     var s = snapAt(d);
     return '<option value="' + d + '"' + (d === VIEW.date ? ' selected' : '') + '>' +
@@ -3750,8 +3754,8 @@ function fillSelectors() {
 
 function boot(reload) {
   if (!reload) dbLoad();
-  fillSelectors();
-  el('selDate').onchange = function () { VIEW.date = this.value; DB.ui.date = this.value; saveUi(); fillSelectors(); show(DB.ui.tab || 'touch'); };
+  fillSelectors(true);   // 起動時はいちばん新しい日から
+  el('selDate').onchange = function () { VIEW.date = this.value; fillSelectors(); show(DB.ui.tab || 'touch'); };   // 選んだ日は保存しない（次に開くときは最新を出す）
   el('selBlock').onchange = function () { VIEW.block = this.value; show(DB.ui.tab || 'touch'); };
   el('btnPrint').onclick = function () { window.print(); };
   Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
@@ -3794,7 +3798,7 @@ function jukuHideImports(sel, note){
 }
 
 window.JUKU_IMPORT = {
-  ss:     async function (f) { var r = await importFiles([f], 'impmsg'); refreshAll(); return r; },
+  ss:     async function (f) { var r = await importFiles([f], 'impmsg'); refreshAll(true); return r; },
   kouken: function (f) { return importKouken(f); }
 };
 /* 取り込んだ結果も自動でスプシへ */

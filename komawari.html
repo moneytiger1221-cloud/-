@@ -461,6 +461,7 @@ body.trayh-x .traycnt2{top:2px;}
 <div class="tabs" id="tabs"></div>
 <div id="hintbar" style="display:none;margin:8px 14px 0;padding:8px 12px;background:#fdecec;border:1px solid #f4baba;border-radius:8px;color:#b83b34;font-size:12.5px;font-weight:700;"></div>
 <div id="jtNote" class="jt-note" style="display:none"></div>
+<div id="tWarn" style="display:none;margin:8px 14px 0;padding:9px 12px;background:#fdecec;border:1px solid #f4baba;border-radius:8px;color:#b83b34;font-size:12.5px;line-height:1.8;"></div>
 <div class="wrap">
   <div class="boardpane"><div id="board"></div></div>
   <div class="sidepane">
@@ -1030,7 +1031,7 @@ let PERIODS=[], LIMITS=[], timeToLimit={};
 const EXCLUDE_PERIOD=/合宿/;   // 終日ブロックは盤面対象外
 const students={};
 let komas=[]; // board-eligible komas (1対2)：現在のモードのもの
-let skipped=0;
+let skipped=0, unmatchedN=0;   // skipped=講習で読み捨て / unmatchedN=通常で先生が照合できず待機に落ちた数
 /* --- モード（講習 / 通常）--- */
 const LSMODE='komawari_mode_v1';
 let MODE=(function(){try{return LS.get(LSMODE)||'kou';}catch(e){return 'kou';}})();
@@ -1191,7 +1192,7 @@ function buildDataFromCSV(csvText){
   Object.keys(students).forEach(k=>delete students[k]);
   Object.keys(normalTeacher).forEach(k=>delete normalTeacher[k]);
   Object.keys(normalSubs).forEach(k=>delete normalSubs[k]);
-  komasK.length=0;komasN.length=0;groupClasses.length=0;skipped=0;
+  komasK.length=0;komasN.length=0;groupClasses.length=0;skipped=0;unmatchedN=0;
   const sRows=parseCSV(csvText);sRows.shift();
   // --- 事前スキャン: 期と時限をCSVから自動検出（夏期A〜D/冬期など何でも対応） ---
   const perSet={}, timeSet={}, dayTimeSet={};
@@ -1266,6 +1267,9 @@ function buildDataFromCSV(csvText){
         if(slot){
           const kid='N'+s.id+'#'+j;
           const tid=(tea&&!isTimeF(tea))?tByRef[tea]:null;
+          /* 名簿に先生名はあるのに先生名簿と突き合わせられない＝待機に落ちる。
+             黙って落ちると「なぜか全部待機」にしか見えないので数えて画面に出す。 */
+          if(tea&&!isTimeF(tea)&&!tid)unmatchedN++;
           komasN.push({kid,sid:s.id,subject:sub,period:day,
             limitNo:slot.limit, half:(isElem?slot.half:0), time:tmS, teacherId:tid||null});
         }
@@ -1299,7 +1303,7 @@ function buildDataFromCSV(csvText){
     gc.roster.push({sid:g.sid,subject:g.subject});});
   mergeManualGroups();
   applyMode();
-  lastImportInfo={students:rowCount,komas:komasK.length,komasN:komasN.length,groups:groupClasses.length,skipped};
+  lastImportInfo={students:rowCount,komas:komasK.length,komasN:komasN.length,groups:groupClasses.length,skipped,unmatchedN};
 }
 function isTargetStudent(sid,subN){return !(normalSubs[sid]&&normalSubs[sid].has(subN));} // 講習で集団受講だが通常授業で同科目未受講
 
@@ -2058,8 +2062,16 @@ document.getElementById('fileImportT').addEventListener('change',e=>{
   readFileAs(f,text=>{
     if(!confirm(f.name+' を先生名簿として取り込みます。よろしいですか？')){e.target.value='';return;}
     curTeacherCsv=text;try{LS.set(LSTCSV,text);}catch(err){}
+    /* 学期ごとの棚にも置く。ここに置いておかないと、学期を切り替えたときに
+       その学期の先生名簿を出せず、前の学期のまま（または空）になる。 */
+    var tm=JUKU_TERM.mark('koma')||JUKU_TERM.want('koma');
+    if(!JUKU_TERM.mark('koma')) JUKU_TERM.setMark('koma', tm);
+    var shelved=JUKU_ROSTER.put(tm,'teacher',f.name,text);
     rebuildAll(false);
-    alert(f.name+' を取り込みました。\n先生 '+teachers.length+'名（新人 '+NEWBIE.size+'名 / スタッフ '+STAFF.size+'名 / 退職予定 '+RETIRE.size+'名）');
+    JUKU_TERM.paint('jtBar','koma', function(){ JUKU_ROSTER.forget('koma'); shelfNotice(); teacherWarn(); });
+    teacherWarn();
+    alert(f.name+' を取り込みました。\n先生 '+teachers.length+'名（新人 '+NEWBIE.size+'名 / スタッフ '+STAFF.size+'名 / 退職予定 '+RETIRE.size+'名）'+
+      (shelved?'\n'+tm+' の先生名簿として保存しました。':'\n※保存する場所がいっぱいで、学期ごとの棚には置けませんでした。'));
     e.target.value='';
   });
 });
@@ -3136,7 +3148,7 @@ function shelfNotice(){
   /* 学期がまだ決まっていなくても、棚に今の月ぶんがあればそれを使う（使ったら記録する） */
   if(!JUKU_TERM.mark('koma') && JUKU_ROSTER.entry(JUKU_TERM.want('koma'),'student'))
     JUKU_TERM.setMark('koma', JUKU_TERM.want('koma'));
-  JUKU_TERM.paint('jtBar','koma', function(){ JUKU_ROSTER.forget('koma'); shelfNotice();
+  JUKU_TERM.paint('jtBar','koma', function(){ JUKU_ROSTER.forget('koma'); shelfNotice(); teacherWarn();
 });
   var ps=JUKU_ROSTER.pending('koma','student'), pt=JUKU_ROSTER.pending('koma','teacher');
   if(!ps&&!pt){ bar.style.display='none'; bar.innerHTML=''; return; }
@@ -3148,15 +3160,58 @@ function shelfNotice(){
     '<span class="muted">※読み込むと今の配置は新しい名簿の内容に置き換わります</span>';
   document.getElementById('btnShelfLoad').onclick=function(){
     if(!confirm(term+' の名簿を取り込みます。\n現在の配置（保存済みの移動）は新しい名簿の内容に置き換わります。よろしいですか？')) return;
-    JUKU_ROSTER.pull('koma','teacher', function(text){ curTeacherCsv=text; try{LS.set(LSTCSV,text);}catch(e){} });
+    /* 先生名簿は「その学期のもの」を必ず使う。
+       pending（＝まだ読んでいないもの）だけを見ると、一度読んだあとに学期を切り替えたとき
+       前の学期の先生名簿のままになる。棚にあるなら毎回それを採る。 */
+    var te=JUKU_ROSTER.entry(term,'teacher');
+    if(te&&te.text){
+      curTeacherCsv=te.text; try{LS.set(LSTCSV,te.text);}catch(e){}
+      JUKU_ROSTER.markSeen('koma','teacher',term,te.at);
+    }
     JUKU_ROSTER.pull('koma','student', function(text){ curStudentCsv=text; try{LS.set(LSSCSV,text);}catch(e){} });
-    buildTeachersFromCSV(curTeacherCsv);
+    /* ★空のテキストで呼ぶと先生が1人もいなくなり、生徒が全員「待機」に落ちて盤面が使えなくなる。
+         その学期の先生名簿が棚に無いときは、今の先生名簿をそのまま使う。 */
+    if(curTeacherCsv) buildTeachersFromCSV(curTeacherCsv);
     rebuildAll(true);
     shelfNotice();
+    teacherWarn();
   };
 }
-JUKU_TERM.paint('jtBar','koma', function(){ JUKU_ROSTER.forget('koma'); shelfNotice(); });
+
+/* 先生名簿の状態を画面に出す。
+   黙って空になっていると「生徒が全員待機に入った」としか見えず、原因にたどり着けない。 */
+function teacherWarn(){
+  var bar=document.getElementById('tWarn'); if(!bar) return;
+  var term=JUKU_TERM.mark('koma')||'';
+  var mine=term?JUKU_ROSTER.entry(term,'teacher'):null;
+  var msg='';
+  var i=lastImportInfo||{};
+  if(!teachers.length){
+    msg='<b>先生名簿が入っていません。</b>先生の行が1つも出ないので、盤面が使えません。<br>' +
+        '上の<b>「取込」タブ</b>で'+(term?'<b>'+term+'</b>の':'')+
+        '先生名簿（1行目が「先生番号,姓名,…」のCSV）を取り込んでください。';
+    if(i.unmatchedN) msg+='<br>名簿に先生名が入っている<b>'+i.unmatchedN+'コマ</b>が、照らし合わせられずに「待機」へ落ちています。';
+    if(i.skipped) msg+='<br>講習の<b>'+i.skipped+'件</b>は読み捨てられています。';
+    var have=JUKU_ROSTER.terms().filter(function(t){ return !!JUKU_ROSTER.entry(t,'teacher'); });
+    msg+='<br>棚にある先生名簿: '+(have.length?have.join('／'):'<b>なし</b>');
+  }else if(i.unmatchedN||i.skipped){
+    msg='名簿に先生名が入っているのに、今の先生名簿と照らし合わせられなかったコマが' +
+        (i.unmatchedN?'<b>'+i.unmatchedN+'コマ</b>（待機に落ちています）':'') +
+        (i.unmatchedN&&i.skipped?'、':'') +
+        (i.skipped?'講習で<b>'+i.skipped+'件</b>':'') + 'あります。' +
+        'この学期の先生名簿と合っていないかもしれません。';
+  }else if(term&&!mine){
+    var src=JUKU_ROSTER.terms().filter(function(t){ return !!JUKU_ROSTER.entry(t,'teacher'); });
+    msg='<b>'+term+'</b>の先生名簿は棚にありません。いま出ている先生 '+teachers.length+'名は' +
+        (src.length?'<b>'+src[src.length-1]+'</b>など別の学期':'前に取り込んだもの')+'の名簿です。' +
+        'この学期で先生が入れ替わっているなら、取込タブで取り込み直してください。';
+  }
+  if(!msg){ bar.style.display='none'; bar.innerHTML=''; return; }
+  bar.style.display=''; bar.innerHTML=msg;
+}
+JUKU_TERM.paint('jtBar','koma', function(){ JUKU_ROSTER.forget('koma'); shelfNotice(); teacherWarn(); });
 shelfNotice();
+teacherWarn();   // 先生名簿が空のまま気づかず使ってしまうのを防ぐ
 jukuHideImports('#komaImportBtns', '生徒CSVと先生CSVの取り込みは、上の<b>「取込」タブ</b>にまとまりました。');
 </script>
 </body>
