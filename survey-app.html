@@ -40,8 +40,20 @@
   .err { font-size:11px; }
   .radar-wrap { width:200px; height:184px; }
   .decbtn { padding:5px 11px; border-radius:7px; font-size:11px; cursor:pointer; font-weight:600; background:#fff; }
-  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; z-index:100; padding:24px; }
-  .modal { background:#fff; border-radius:12px; padding:20px; max-width:340px; width:100%; box-shadow:0 10px 40px rgba(0,0,0,.3); }
+  /* 中身が縦に長いとき、中央ぞろえのままだと上下にはみ出した分が
+     スクロールしても出てこない。外側を縦スクロールできるようにし、
+     さらに中身自体にも高さの上限を付けて、どちらでも追えるようにする。 */
+  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center;
+    z-index:100; padding:24px; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  .modal { background:#fff; border-radius:12px; padding:20px; max-width:340px; width:100%; box-shadow:0 10px 40px rgba(0,0,0,.3);
+    max-height:calc(100vh - 48px); overflow-y:auto; -webkit-overflow-scrolling:touch; margin:auto; }
+  /* スマホはアドレスバーのぶん画面が縮むので、対応していれば dvh を使う */
+  @supports (max-height: 100dvh) { .modal { max-height:calc(100dvh - 48px); } }
+  /* 校舎の一覧。件数が多いので、ここだけ独立してスクロールさせる */
+  .pick-list { max-height:44vh; overflow-y:auto; -webkit-overflow-scrolling:touch;
+    border:1px solid #f1f5f9; border-radius:8px; padding:6px; }
+  .pick-find { width:100%; box-sizing:border-box; font-size:14px; padding:9px 10px; margin-bottom:8px;
+    border:1px solid #cbd5e1; border-radius:8px; font-family:inherit; }
   .sec-title { font-size:13px; font-weight:700; color:#334155; margin:0 0 10px; }
   .setrow { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid #f1f5f9; flex-wrap:wrap; }
   .comment-dot { cursor:pointer; font-size:14px; }
@@ -1460,6 +1472,20 @@ function applyImportedRecords(recs, campus){
         (dropped? ` ／ 他校舎 ${dropped} 件は保存していません` : ""));
   render();
 }
+/* 校舎の絞り込み。画面を作り直すと入力欄から手が離れてしまうので、
+   出す・隠すだけにしてある。 */
+function filterCampusList(q){
+  const box=document.getElementById("campusList"); if(!box) return;
+  const key=(q||"").trim().toLowerCase();
+  let shown=0;
+  box.querySelectorAll("[data-campus]").forEach(b=>{
+    const hit = !key || (b.getAttribute("data-campus")||"").toLowerCase().indexOf(key)>=0;
+    b.style.display = hit ? "flex" : "none";
+    if(hit) shown++;
+  });
+  const none=document.getElementById("campusNone");
+  if(none) none.style.display = shown ? "none" : "";
+}
 function pickCampus(c){
   const m=state.modal; if(!m||m.type!=="pickCampus") return;
   const recs=m.pending; state.modal=null;
@@ -2594,15 +2620,29 @@ function renderModal(){
   const m=state.modal, el=document.getElementById("modal");
   if(!m){ el.innerHTML=""; return; }
   if(m.type==="pickCampus"){
-    el.innerHTML=`<div class="modal-bg"><div class="modal" style="max-width:360px" onclick="event.stopPropagation()">
+    const btn=(c,big)=>`<button class="decbtn" data-campus="${esc(c)}" onclick="pickCampus('${esc(c).replace(/'/g,"&#39;")}')"
+      style="width:100%;text-align:left;padding:11px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;${
+        big?"border:2px solid #059669;background:#ecfdf5":"border:1px solid #e2e8f0"}">
+      <span style="font-weight:600">${esc(c)}</span>
+      <span style="color:#94a3b8;font-size:12px">${m.cnt[c]||0} 件</span></button>`;
+    /* 前に選んでいた校舎がこのファイルにも入っていたら、探さずに押せるように上に出す */
+    const same = state.campus && m.list.indexOf(state.campus)>=0 ? state.campus : "";
+    el.innerHTML=`<div class="modal-bg"><div class="modal" style="max-width:380px" onclick="event.stopPropagation()">
       <div class="sec-title">🏫 どの校舎を取り込みますか</div>
       <div style="font-size:12px;color:#64748b;margin-bottom:10px;line-height:1.6">
         このファイルには ${m.list.length} 校舎ぶん入っています。<br>
         <b>選んだ校舎だけ</b>を端末に保存します（他の校舎は保存しません）。
       </div>
-      ${m.list.map(c=>`<button class="decbtn" style="width:100%;text-align:left;padding:11px;margin-bottom:6px;border:1px solid #e2e8f0;display:flex;justify-content:space-between" onclick="pickCampus('${esc(c).replace(/'/g,"&#39;")}')">
-        <span style="font-weight:600">${esc(c)}</span><span style="color:#94a3b8;font-size:12px">${m.cnt[c]||0} 件</span></button>`).join("")}
-      <button class="decbtn" style="width:100%;border:1px solid #cbd5e1;color:#64748b;padding:10px;margin-top:4px" onclick="closeModal()">やめる</button>
+      ${same?`<div style="font-size:11px;color:#059669;font-weight:700;margin-bottom:4px">前と同じ校舎</div>${btn(same,true)}
+        <div style="font-size:11px;color:#94a3b8;margin:10px 0 4px">ほかの校舎から選ぶ</div>`:""}
+      <input class="pick-find" id="campusFind" type="search" placeholder="校舎名で絞り込む（例: 戸塚）"
+        oninput="filterCampusList(this.value)">
+      <div class="pick-list" id="campusList">
+        ${m.list.map(c=>btn(c,false)).join("")}
+        <div id="campusNone" style="display:none;padding:14px;text-align:center;color:#94a3b8;font-size:12px">
+          その名前の校舎は、このファイルに入っていません</div>
+      </div>
+      <button class="decbtn" style="width:100%;border:1px solid #cbd5e1;color:#64748b;padding:10px;margin-top:10px" onclick="closeModal()">やめる</button>
     </div></div>`;
     return;
   }
