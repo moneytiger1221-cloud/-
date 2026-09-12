@@ -139,12 +139,12 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;
    file:// の同一オリジンなので localStorage も従来どおり共有される
    （コマ組ツールが成績・アンケート・YSのデータを参照する仕組みもそのまま動く）。 */
 const TOOLS=[
-  {k:'koma',   label:'コマ組',     src:'komawari.html?v=202609130038'},
-  {k:'grade',  label:'成績',       src:'grade-tracker.html?v=202609130038'},
-  {k:'survey', label:'アンケート', src:'survey-app.html?v=202609130038'},
-  {k:'ys',     label:'YSボード',   src:'ys-board-sync.html?v=202609130038'},
-  {k:'ss',     label:'SS',         src:'ss-tracker.html?v=202609130038'},
-  {k:'shinro', label:'進路',       src:'shinro.html?v=202609130038'},
+  {k:'koma',   label:'コマ組',     src:'komawari.html?v=202609130050'},
+  {k:'grade',  label:'成績',       src:'grade-tracker.html?v=202609130050'},
+  {k:'survey', label:'アンケート', src:'survey-app.html?v=202609130050'},
+  {k:'ys',     label:'YSボード',   src:'ys-board-sync.html?v=202609130050'},
+  {k:'ss',     label:'SS',         src:'ss-tracker.html?v=202609130050'},
+  {k:'shinro', label:'進路',       src:'shinro.html?v=202609130050'},
   /* 取込センターだけは中身をここに直接書く（iframeではない） */
   {k:'import', label:'取込',       local:true}
 ];
@@ -1182,10 +1182,20 @@ try{const v=localStorage.getItem(LSTAB); if(v&&TOOLS.some(t=>t.k===v))init=v;}ca
 show(init);
 
 /* スマホのブラウザは、いちど読んだファイルをしばらく持ち続ける。
-   公開されている版番号を見て、自分が古ければ新しい版で開き直す。
-   （開き直しは1回だけ。ネットが無いときは何もしない） */
+   公開されている版番号を見て、自分が古ければ読み直す。
+
+   URLは変えっぱなしにしない。読み直しのときだけ ?v=… を付け、
+   読み込んだ直後に元のURLへ戻す。ブックマークやホーム画面の
+   ショートカットは、ずっと同じURLのままでよい。
+   （保存したデータはサイトごとなので、?v= が付いても外れても同じものが見える。
+     取り込み直しは起きない） */
 (function(){
-  var MINE = '202609130038';
+  var MINE = '202609130050';
+  /* 読み直しのために付いた ?v=… を、見た目から外す */
+  try{
+    if(/[?&]v=/.test(location.search) && history.replaceState)
+      history.replaceState(null, '', location.pathname + location.hash);
+  }catch(e){}
   try{
     fetch('version.txt?t=' + Date.now(), { cache: 'no-store' })
       .then(function(r){ return r.ok ? r.text() : null; })
@@ -1193,11 +1203,11 @@ show(init);
         if(!t) return;
         t = t.trim();
         if(!t || t === MINE) return;
-        if(sessionStorage.getItem('jukuVer') === t) return;
+        if(sessionStorage.getItem('jukuVer') === t) return;   /* やり直しは1回だけ */
         sessionStorage.setItem('jukuVer', t);
-        location.replace(location.pathname + '?v=' + t);
+        location.replace(location.pathname + '?v=' + t);      /* 直後に上でURLは戻る */
       })
-      .catch(function(){});
+      .catch(function(){});   /* ネットが無いときは何もしない */
   }catch(e){}
 })();
 </script>
