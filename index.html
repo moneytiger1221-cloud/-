@@ -139,12 +139,12 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;
    file:// の同一オリジンなので localStorage も従来どおり共有される
    （コマ組ツールが成績・アンケート・YSのデータを参照する仕組みもそのまま動く）。 */
 const TOOLS=[
-  {k:'koma',   label:'コマ組',     src:'komawari.html'},
-  {k:'grade',  label:'成績',       src:'grade-tracker.html'},
-  {k:'survey', label:'アンケート', src:'survey-app.html'},
-  {k:'ys',     label:'YSボード',   src:'ys-board-sync.html'},
-  {k:'ss',     label:'SS',         src:'ss-tracker.html'},
-  {k:'shinro', label:'進路',       src:'shinro.html'},
+  {k:'koma',   label:'コマ組',     src:'komawari.html?v=202609130038'},
+  {k:'grade',  label:'成績',       src:'grade-tracker.html?v=202609130038'},
+  {k:'survey', label:'アンケート', src:'survey-app.html?v=202609130038'},
+  {k:'ys',     label:'YSボード',   src:'ys-board-sync.html?v=202609130038'},
+  {k:'ss',     label:'SS',         src:'ss-tracker.html?v=202609130038'},
+  {k:'shinro', label:'進路',       src:'shinro.html?v=202609130038'},
   /* 取込センターだけは中身をここに直接書く（iframeではない） */
   {k:'import', label:'取込',       local:true}
 ];
@@ -1180,6 +1180,26 @@ function drawTools(){
 let init='koma';
 try{const v=localStorage.getItem(LSTAB); if(v&&TOOLS.some(t=>t.k===v))init=v;}catch(e){}
 show(init);
+
+/* スマホのブラウザは、いちど読んだファイルをしばらく持ち続ける。
+   公開されている版番号を見て、自分が古ければ新しい版で開き直す。
+   （開き直しは1回だけ。ネットが無いときは何もしない） */
+(function(){
+  var MINE = '202609130038';
+  try{
+    fetch('version.txt?t=' + Date.now(), { cache: 'no-store' })
+      .then(function(r){ return r.ok ? r.text() : null; })
+      .then(function(t){
+        if(!t) return;
+        t = t.trim();
+        if(!t || t === MINE) return;
+        if(sessionStorage.getItem('jukuVer') === t) return;
+        sessionStorage.setItem('jukuVer', t);
+        location.replace(location.pathname + '?v=' + t);
+      })
+      .catch(function(){});
+  }catch(e){}
+})();
 </script>
 </body>
 </html>
