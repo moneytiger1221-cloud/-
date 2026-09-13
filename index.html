@@ -139,12 +139,12 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;
    file:// の同一オリジンなので localStorage も従来どおり共有される
    （コマ組ツールが成績・アンケート・YSのデータを参照する仕組みもそのまま動く）。 */
 const TOOLS=[
-  {k:'koma',   label:'コマ組',     src:'komawari.html?v=202609131514'},
-  {k:'grade',  label:'成績',       src:'grade-tracker.html?v=202609131514'},
-  {k:'survey', label:'アンケート', src:'survey-app.html?v=202609131514'},
-  {k:'ys',     label:'YSボード',   src:'ys-board-sync.html?v=202609131514'},
-  {k:'ss',     label:'SS',         src:'ss-tracker.html?v=202609131514'},
-  {k:'shinro', label:'進路',       src:'shinro.html?v=202609131514'},
+  {k:'koma',   label:'コマ組',     src:'komawari.html?v=202609131537'},
+  {k:'grade',  label:'成績',       src:'grade-tracker.html?v=202609131537'},
+  {k:'survey', label:'アンケート', src:'survey-app.html?v=202609131537'},
+  {k:'ys',     label:'YSボード',   src:'ys-board-sync.html?v=202609131537'},
+  {k:'ss',     label:'SS',         src:'ss-tracker.html?v=202609131537'},
+  {k:'shinro', label:'進路',       src:'shinro.html?v=202609131537'},
   /* 取込センターだけは中身をここに直接書く（iframeではない） */
   {k:'import', label:'取込',       local:true}
 ];
@@ -1190,7 +1190,7 @@ show(init);
    （保存したデータはサイトごとなので、?v= が付いても外れても同じものが見える。
      取り込み直しは起きない） */
 (function(){
-  var MINE = '202609131514';
+  var MINE = '202609131537';
   /* 読み直しのために付いた ?v=… を、見た目から外す */
   try{
     if(/[?&]v=/.test(location.search) && history.replaceState)

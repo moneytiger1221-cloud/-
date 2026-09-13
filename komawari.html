@@ -1036,24 +1036,42 @@ const EXCLUDE_PERIOD=/合宿/;   // 終日ブロックは盤面対象外
    ★これが無いと限番号が狂う: 限番号は「名簿に出てきた時刻を並べて1から振る」方式なので、
      朝のコマがまだ1件も入っていない冬期の名簿では 12:40 が「1限」になってしまう。
    夏期は7限制（09:30〜19:35）、冬期は8限制（08:40〜20:15）。 */
+/* 期の名前では季節が分からない。
+     夏期＝Ａ期／Ｂ期／Ｃ期／Ｄ期、**冬期と春期＝前期／後期**（同じ付き方）。
+   なので **限の番号は時刻の表で決め、季節の名前は別に決める**。
+   ・8限制（08:40始まり）＝冬期。これは時刻だけで決まる
+   ・7限制（09:30始まり）＝夏期と春期。どちらかは時刻では分からないので、そのときの月で決める
+   ★春期の時刻は未確認（7限制であることだけ聞いている）。夏期と同じ前提で置いている。
+     違っていたら「知らない時間割」に落ちて、従来どおり出てきた順に番号を振る。 */
 const KOUSYU_TABLE={
-  冬期:[['08:40','10:10'],['10:20','11:40'],['12:40','14:00'],['14:10','15:30'],
-        ['15:40','17:00'],['17:10','18:30'],['18:45','20:05'],['20:15','21:35']],
-  夏期:[['09:30','10:50'],['11:00','12:20'],['13:30','14:50'],['15:00','16:20'],
-        ['16:30','17:50'],['18:05','19:25'],['19:35','20:55']]
+  '8限':{season:'冬期',
+    slots:[['08:40','10:10'],['10:20','11:40'],['12:40','14:00'],['14:10','15:30'],
+           ['15:40','17:00'],['17:10','18:30'],['18:45','20:05'],['20:15','21:35']]},
+  '7限':{season:null,          // 夏期か春期か。月で決める
+    slots:[['09:30','10:50'],['11:00','12:20'],['13:30','14:50'],['15:00','16:20'],
+           ['16:30','17:50'],['18:05','19:25'],['19:35','20:55']]}
 };
+/* いまの月の講習（'夏期' / '冬期' / '春期'）。JUKU_TERM.kousyu() は「2026年度冬期」を返す */
+function seasonNow(){
+  try{ return (JUKU_TERM.kousyu()||'').replace(/^\d+年度/,'')||null; }catch(e){ return null; }
+}
 /* 出てきた時刻から時間割を選ぶ。いちばん多く一致した表を採る。 */
 function kousyuTable(times){
   var best=null, bestHit=0;
   Object.keys(KOUSYU_TABLE).forEach(function(k){
-    var tbl=KOUSYU_TABLE[k], starts={};
-    tbl.forEach(function(p){ starts[p[0]]=1; });
+    var e=KOUSYU_TABLE[k], starts={};
+    e.slots.forEach(function(p){ starts[p[0]]=1; });
     var hit=times.filter(function(t){ return starts[t]; }).length;
-    if(hit>bestHit){ bestHit=hit; best={name:k,rows:tbl}; }
+    if(hit>bestHit){ bestHit=hit; best=e; }
   });
   // 半分も当たらないなら知らない時間割。従来どおり出てきた順に振る
   if(!best||bestHit<Math.ceil(times.length/2))return null;
-  return best;
+  var name=best.season;
+  if(!name){                       // 7限制は夏期と春期のどちらか。月で寄せる
+    var s=seasonNow();
+    name=(s==='春期'||s==='夏期')?s:'夏期';
+  }
+  return {name:name, rows:best.slots};
 }
 const students={};
 let komas=[]; // board-eligible komas (1対2)：現在のモードのもの
@@ -1893,8 +1911,9 @@ function renderModeUI(){
   if(ttl){
     if(MODE==='tsu'){ ttl.textContent='通常コマ割'; }
     else{
-      var kk=kousyuKind||(JUKU_TERM.kousyu()||'').replace(/^\d+年度/,'')||'講習';
-      ttl.textContent=kk+'講習 コマ割'+(kousyuKind?'':'（名簿から判別できず、今の月で表示）');
+      var kk=kousyuKind||seasonNow()||'';
+      ttl.textContent=(kk||'')+'講習 コマ割'+
+        (kousyuKind?'（'+limitsK.length+'限制）':'（時間割を判別できず、今の月で表示）');
     }
   }
 }
