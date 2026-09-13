@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.25, maximum-scale=5.0">
-<title>2026年夏期講習 コマ割ツール</title>
+<title>コマ割ツール</title>
 <style>
 :root{
   --line:#c9d4e0; --grey:#d5d9dd; --white:#ffffff; --head:#eef2f7;
@@ -433,7 +433,7 @@ body.trayh-x .traycnt2{top:2px;}
 })();
 </script>
 <div class="topbar">
-  <span class="title">2026年 夏期講習 コマ割</span>
+  <span class="title">コマ割</span>
   <span class="jt" id="jtBar"></span>
   <span class="modeswitch" id="modeSwitch"></span>
   <span class="modeswitch" id="fltSwitch"></span>
@@ -1029,6 +1029,32 @@ function toggleFemPref(sid){ if(FEMALE_PREF.has(sid))FEMALE_PREF.delete(sid); el
 // 期・時限はCSVから自動検出（夏期/冬期どちらでもそのまま使える）
 let PERIODS=[], LIMITS=[], timeToLimit={};
 const EXCLUDE_PERIOD=/合宿/;   // 終日ブロックは盤面対象外
+
+/* 講習の時間割（社内ツール準拠）。
+   期の名前は名簿によって変わる（夏期は「Ａ期09:30」、冬期は「講習08:40」かもしれない）ので、
+   **開始時刻のほうで季節を見分ける**。名前に頼らない。
+   ★これが無いと限番号が狂う: 限番号は「名簿に出てきた時刻を並べて1から振る」方式なので、
+     朝のコマがまだ1件も入っていない冬期の名簿では 12:40 が「1限」になってしまう。
+   夏期は7限制（09:30〜19:35）、冬期は8限制（08:40〜20:15）。 */
+const KOUSYU_TABLE={
+  冬期:[['08:40','10:10'],['10:20','11:40'],['12:40','14:00'],['14:10','15:30'],
+        ['15:40','17:00'],['17:10','18:30'],['18:45','20:05'],['20:15','21:35']],
+  夏期:[['09:30','10:50'],['11:00','12:20'],['13:30','14:50'],['15:00','16:20'],
+        ['16:30','17:50'],['18:05','19:25'],['19:35','20:55']]
+};
+/* 出てきた時刻から時間割を選ぶ。いちばん多く一致した表を採る。 */
+function kousyuTable(times){
+  var best=null, bestHit=0;
+  Object.keys(KOUSYU_TABLE).forEach(function(k){
+    var tbl=KOUSYU_TABLE[k], starts={};
+    tbl.forEach(function(p){ starts[p[0]]=1; });
+    var hit=times.filter(function(t){ return starts[t]; }).length;
+    if(hit>bestHit){ bestHit=hit; best={name:k,rows:tbl}; }
+  });
+  // 半分も当たらないなら知らない時間割。従来どおり出てきた順に振る
+  if(!best||bestHit<Math.ceil(times.length/2))return null;
+  return best;
+}
 const students={};
 let komas=[]; // board-eligible komas (1対2)：現在のモードのもの
 let skipped=0, unmatchedN=0;   // skipped=講習で読み捨て / unmatchedN=通常で先生が照合できず待機に落ちた数
@@ -1093,6 +1119,7 @@ function updateFltBtn(nAct){
 const DOW=['月','火','水','木','金','土','日'];
 // 講習モードのデータ
 let komasK=[], periodsK=[], limitsK=[], t2lK={};
+let kousyuKind=null;   // 名簿の時刻から見分けた講習の種類（'夏期' / '冬期' / 不明ならnull）
 // 通常モードのデータ（曜日ごとに時刻が違うので LIMITS は曜日別）
 let komasN=[], periodsN=[], limitsNByDay={};
 /* 通常コマの列構成（社内ツール「通常授業コマ割」と同じ）
@@ -1199,7 +1226,9 @@ function buildDataFromCSV(csvText){
   sRows.forEach(r=>{ if(!r[0])return;
     for(let i=0;i<10;i++){
       const tim=(r[33+3*i]||'').trim();if(!tim)continue;
-      const m=tim.match(/^(.+?期|合宿)\s*(\d{1,2}[:：]\d{2})$/);if(!m)continue;
+      /* 期名は何でも受ける。「Ａ期09:30」だけでなく「講習08:40」のような表記でも拾えるように
+         （冬期の期名が夏期と同じ付き方をする保証が無い）。時刻が付いていることだけを条件にする。 */
+      const m=tim.match(/^(.+?)\s*(\d{1,2}[:：]\d{2})$/);if(!m)continue;
       const per=m[1], tm=m[2].replace('：',':');
       if(EXCLUDE_PERIOD.test(per))continue;
       perSet[per]=(perSet[per]||0)+1; timeSet[tm]=(timeSet[tm]||0)+1;
@@ -1212,8 +1241,20 @@ function buildDataFromCSV(csvText){
     }});
   periodsK=Object.keys(perSet).sort();                      // Ａ期,Ｂ期,… / 冬期の期名でも自動
   const times=Object.keys(timeSet).sort();                  // "09:30" 等は文字列ソートで時刻順になる
-  limitsK=times.map((t,i)=>[t,(i+1)+'限']);
-  t2lK={};limitsK.forEach((l,i)=>t2lK[l[0]]=i+1);
+  /* 分かっている時間割に当たれば、出てきていない限も含めて全部の枠を出す。
+     申し込みが入り始めたばかりの冬期でも、朝から夜まで置き場所がある状態にしたい。 */
+  kousyuKind=null;
+  const tbl=times.length?kousyuTable(times):null;
+  if(tbl){
+    kousyuKind=tbl.name;
+    limitsK=tbl.rows.map((p,i)=>[p[0],(i+1)+'限']);
+    t2lK={}; tbl.rows.forEach((p,i)=>{ t2lK[p[0]]=i+1; });
+    // 表に無い時刻が名簿にあれば、落とさずに後ろへ足す（時間割が変わったとき用）
+    times.forEach(t=>{ if(!(t in t2lK)){ limitsK.push([t,(limitsK.length+1)+'限']); t2lK[t]=limitsK.length; } });
+  }else{
+    limitsK=times.map((t,i)=>[t,(i+1)+'限']);
+    t2lK={};limitsK.forEach((l,i)=>t2lK[l[0]]=i+1);
+  }
   // 通常：曜日順。社内ツールの列構成に合わせ、小学生の限は前半/後半に分割する。
   periodsN=DOW.filter(d=>dayTimeSet[d]);
   limitsNByDay={};
@@ -1279,7 +1320,8 @@ function buildDataFromCSV(csvText){
     for(let i=0;i<10;i++){
       const sub=(r[32+3*i]||'').trim();if(!sub)continue;
       const tim=(r[33+3*i]||'').trim();const tea=(r[34+3*i]||'').trim();
-      const m=tim.match(/^(.+?期|合宿)\s*(\d{1,2}[:：]\d{2})$/);if(!m)continue;
+      // 事前スキャンと同じ条件で拾う（片方だけ厳しいと、期は出るのにコマが乗らない）
+      const m=tim.match(/^(.+?)\s*(\d{1,2}[:：]\d{2})$/);if(!m)continue;
       const period=m[1];const timeStr=m[2].replace('：',':');
       if(periodsK.indexOf(period)<0)continue;                // 合宿など対象外の期はスキップ
       const lim=t2lK[timeStr];if(!lim)continue;
@@ -1846,7 +1888,15 @@ function renderModeUI(){
     `<button class="mdbtn ${MODE===m[0]?'on':''}" data-md="${m[0]}">${m[1]}</button>`).join('');
   el.querySelectorAll('[data-md]').forEach(b=>b.onclick=()=>switchMode(b.dataset.md));
   const ttl=document.querySelector('.title');
-  if(ttl)ttl.textContent=MODE==='tsu'?'通常コマ割':'2026年 夏期講習 コマ割';
+  /* 講習の見出しは名簿から見分けた種類を使う。分からなければ今の月から推す。
+     「夏期」と決め打ちすると、冬期の名簿を読んでも夏期と出て取り違える。 */
+  if(ttl){
+    if(MODE==='tsu'){ ttl.textContent='通常コマ割'; }
+    else{
+      var kk=kousyuKind||(JUKU_TERM.kousyu()||'').replace(/^\d+年度/,'')||'講習';
+      ttl.textContent=kk+'講習 コマ割'+(kousyuKind?'':'（名簿から判別できず、今の月で表示）');
+    }
+  }
 }
 /* ===== 学期の共通部品（塾ツール共通・6ツールに同じものを入れる）=====
    「今このツールはいつの名簿で動いているか」を持って、画面に出す。
