@@ -1,5 +1,51 @@
 # PROGRESS — SpeedTest 無人作業ログ
 
+## ■要対応: GitHub への push が認証で失敗している（作業自体は続行中）
+
+`git push origin claude/ue5-game-dev-project-jnya5j` が下のエラーで通りません。
+
+```
+remote: Invalid username or token. Password authentication is not supported for Git operations.
+fatal: Authentication failed for 'https://github.com/moneytiger1221-cloud/-.git/'
+```
+
+- `credential.helper` は `manager`（Git Credential Manager）ですが、**有効な資格情報が保存されていません**。
+  最初に実行したときは GCM の認証ダイアログが出たまま無言でハングしました（該当プロセスは停止済み）。
+- `gh` コマンドも入っていません（`gh: command not found`）。
+- **資格情報の入力は人間にしかできない操作なので、ここは代行しません。**
+
+**帰宅後にやってほしいこと（どちらか一方）**
+
+```bash
+winget install --id GitHub.cli
+gh auth login
+```
+
+```bash
+# または Personal Access Token（GitHub → Settings → Developer settings →
+# Personal access tokens (classic) → repo スコープ）を使う:
+cd /c/UE/guide
+git push origin claude/ue5-game-dev-project-jnya5j
+# ユーザー名: moneytiger1221-cloud / パスワード欄に発行したトークンを貼る
+```
+
+**コミットは全部ローカルに積んであるので、認証が通れば上のコマンド1回で全部まとまって上がります。**
+それまでこのファイルはローカル (`C:\UE\guide\ue5\PROGRESS.md`) を直接開いて読んでください。
+
+> なお **UE5 側の作業は止めていません。** 止まったのは報告の経路だけなので、
+> Day 6 / Day 7 を進めて `C:\UE\SpeedTest` へローカルコミットを続けています。
+
+## ■要確認（ブロッカーではないが知っておいてほしい2点）
+
+1. **`M_SportsCarBase.uasset` が変更済みとして SpeedTest にコミットされています。**
+   Material Instance を作った副作用でエンジンがこの親マテリアルを再シリアライズしたもので、
+   **グラフもパラメータも一切編集していません**（読み取り API のみ使用）。
+   元に戻したい場合は、SpeedTest 側で該当ファイルを `Day2` コミットの1つ前の状態に `git checkout` してください。
+2. **孤児ファイルが1つ残っています。**
+   `Content/__ExternalActors__/VehicleTemplate/Maps/Lvl_VehicleBasic/2/7T/JEARZZ5JVCB09HQJJ8LN5Z.uasset`
+   確認用に一時配置した車の外部アクタファイルの残骸で、UE 側はこのアセットを認識していません（`exists`=false）。
+   **コミットしていません。**手元で削除して問題ありません。
+
 > スマホから進捗を確認するためのファイルです。新しいセッションが再開したら、
 > **まずこのファイルを上から下まで読んでから**「次にやること」を実行してください。
 
