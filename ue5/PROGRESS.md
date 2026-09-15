@@ -105,3 +105,43 @@ unreal-mcp の登録ツールを全件確認した結果、**コンソールコ�
   - **残る弱点は光**: 露出が自動のままで空が白飛びし、影も短く画が平坦。これは Day 2 の担当
   - スクショにエディタ専用のカメラ/ライトのビルボード（浮いている箱）が写り込んでいる。ゲーム内には出ない
 - **次にやること** → **Day 2（光）**。`day2_before.png` を撮ってからライティング調査に入る
+
+## [2026-09-16 03:50] Day 2 光（★最重要）
+
+- **やったこと**
+  - `day2_before.png` を先に撮影。**以降 after まで画角は固定**
+    （カメラ: loc(4450, -700, 300) / rot(pitch -3.094, yaw 90) / FOV 90、車の後方から道が奥に延びるビスタ）
+  - 既存ライティングアクターを調査 → **6種すべて1つずつ存在。重複配置は一切していない**
+    | アクター | 状態 |
+    |---|---|
+    | DirectionalLight | 1つ（Pitch -31 / Intensity 10 / AtmosphereSunLight=true） |
+    | SkyLight | 1つ（**RealTimeCapture は元からON** → 変更不要） |
+    | SkyAtmosphere | 1つ（変更なし） |
+    | VolumetricCloud | 1つ（変更なし） |
+    | ExponentialHeightFog | 1つ（Density 0.02 / 実質見えない密度） |
+    | PostProcessVolume | 1つ（**bUnbound は元からtrue** / 露出は完全に自動 Min -10 Max 20） |
+  - **(a) 露出の固定（最優先）** PostProcessVolume:
+    `AutoExposureMinBrightness` = `AutoExposureMaxBrightness` = **1.0**（同値化）、
+    `AutoExposureMethod`=Histogram、`AutoExposureApplyPhysicalCameraExposure`=**false**、
+    `AutoExposureBias` 1.0 → **2.6**
+  - **(b) 太陽** DirectionalLight Pitch **-31 → -24**（指定範囲 -10〜-25 内）、`CastCloudShadows`=**true**
+  - **(c) SkyLight** `RealTimeCapture` は既にON のため変更なし
+  - **(d) フォグ** `FogDensity` 0.02 → **0.03**、`FogHeightFalloff` 0.2 → **0.05**、
+    `StartDistance` 0 → **1500**、`FogMaxOpacity` **0.8**、`bEnableVolumetricFog` → **true**、
+    `VolumetricFogScatteringDistribution` **0.4**、`DirectionalInscatteringExponent` **8**
+  - **(e) カラーグレーディング** `BloomIntensity` 0.675 → **0.35**（既定より弱く）、
+    `ColorSaturation` **1.12**、`ColorContrast` **1.06**、`ColorGainShadows` **(0.96, 0.99, 1.06)**（影を軽く寒色に）
+  - 変更を保存（レベル保存前に確認用の車を削除したので、**保存されたレベルには余計なアクターは入っていない**）
+- **結果**
+  - `review/day2_before.png` / `review/day2_after.png`（同一画角）
+  - **自己評価: 65点。** 効いたのは順に
+    1. **露出固定** — before は空が白飛びして地面が持ち上がっていた。after は「明るいところは明るく、暗いところは暗い」写真的な階調になった
+    2. **コントラストと彩度** — 地面のチェッカーが炭色〜白で分離し、オレンジの壁が締まった
+    3. **太陽を下げた** — 車の影が左に長く伸び、路面に陰影の起伏が出た
+    4. **フォグ** — 地平線付近に薄い霞が乗り、奥行きが出た
+  - **1ラウンド目（Pitch -16 / Bias 1.0）は失敗**: 夕方のように暗く沈み、空が灰色に濁った。
+    2ラウンド目で Pitch -24 / Bias 2.6 に補正して昼の光に戻した
+  - **残る弱点（正直なところ）**: この `Lvl_VehicleBasic` は灰色とオレンジのブロックアウト用テストコースで、
+    風景アセットが無い。**光だけでは「美しい風景」にはならない。** ここは Day 3（スキップ指示）の領域
+  - 空の上部にわずかに白飛びが残っている。次に触るならまず `AutoExposureBias` を 2.3 前後に下げる
+- **次にやること** → Day 6（演出: カメララグ / 速度連動FOV / モーションブラー / TSR / コックピット視点 / HUD）
