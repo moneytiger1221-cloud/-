@@ -1,0 +1,56 @@
+# ============================================================
+# UE5 プロジェクト用 .gitattributes（Git LFS 設定）
+# → C:\UE\SpeedTest\.gitattributes として保存してください
+#
+# 事前に Git Bash で「git lfs install」を1回実行しておくこと。
+#
+# なぜ必要か：
+#   .uasset は3Dモデルや画像を含む巨大バイナリです。
+#   通常のGitは変更のたびにファイル全体を保存するため、
+#   100MBのモデルを10回編集するとリポジトリが1GBに膨れます。
+#   Git LFS はこれを別管理し、リポジトリ本体を軽く保ちます。
+# ============================================================
+
+# --- UE5 のアセット本体（最重要） ---
+*.uasset filter=lfs diff=lfs merge=lfs -text
+*.umap   filter=lfs diff=lfs merge=lfs -text
+
+# --- テクスチャ・画像 ---
+*.png  filter=lfs diff=lfs merge=lfs -text
+*.jpg  filter=lfs diff=lfs merge=lfs -text
+*.jpeg filter=lfs diff=lfs merge=lfs -text
+*.tga  filter=lfs diff=lfs merge=lfs -text
+*.tif  filter=lfs diff=lfs merge=lfs -text
+*.tiff filter=lfs diff=lfs merge=lfs -text
+*.bmp  filter=lfs diff=lfs merge=lfs -text
+*.exr  filter=lfs diff=lfs merge=lfs -text
+*.hdr  filter=lfs diff=lfs merge=lfs -text
+*.psd  filter=lfs diff=lfs merge=lfs -text
+
+# --- 3Dモデル（Fab や Blender からの取り込み用） ---
+*.fbx  filter=lfs diff=lfs merge=lfs -text
+*.obj  filter=lfs diff=lfs merge=lfs -text
+*.abc  filter=lfs diff=lfs merge=lfs -text
+*.blend filter=lfs diff=lfs merge=lfs -text
+
+# --- 音声 ---
+*.wav filter=lfs diff=lfs merge=lfs -text
+*.mp3 filter=lfs diff=lfs merge=lfs -text
+*.ogg filter=lfs diff=lfs merge=lfs -text
+
+# --- 動画（書き出した成果物） ---
+*.mp4 filter=lfs diff=lfs merge=lfs -text
+*.mov filter=lfs diff=lfs merge=lfs -text
+*.avi filter=lfs diff=lfs merge=lfs -text
+
+# --- フォント ---
+*.ttf filter=lfs diff=lfs merge=lfs -text
+*.otf filter=lfs diff=lfs merge=lfs -text
+
+# --- テキストファイルの改行コードを統一（Windows/Mac混在対策） ---
+*.ini  text eol=crlf
+*.cpp  text
+*.h    text
+*.cs   text
+*.py   text
+*.md   text

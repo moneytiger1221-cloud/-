@@ -1,0 +1,33 @@
+{
+  "_comment": "→ C:\\UE\\SpeedTest\\.claude\\settings.json として保存してください（.claude フォルダは自分で作る）。この _comment 行は消して構いません。",
+
+  "permissions": {
+    "deny": [
+      "Read(Content/**)",
+      "Read(Saved/**)",
+      "Read(Intermediate/**)",
+      "Read(DerivedDataCache/**)",
+      "Read(Binaries/**)",
+      "Read(Build/**)",
+      "Read(**/*.uasset)",
+      "Read(**/*.umap)",
+      "Read(**/*.fbx)",
+      "Read(**/*.png)",
+      "Read(**/*.exr)",
+      "Read(**/*.wav)"
+    ],
+
+    "allow": [
+      "Read(Config/**)",
+      "Read(Scripts/**)",
+      "Read(CLAUDE.md)",
+      "Edit(Config/**)",
+      "Edit(Scripts/**)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
