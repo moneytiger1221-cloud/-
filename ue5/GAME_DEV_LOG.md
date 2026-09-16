@@ -48,7 +48,8 @@ PHASE 0（調査）完了 / PHASE 1（基盤）は Day1〜7 の作業で実質�
 | 環境マテリアル（路面/道路/外周壁） | `/Game/VehicleTemplate/Materials/SpeedTest/` の MI 2本 | Day3 |
 | 速度計・ギアHUD（可読性改善込み） | `/Game/VehicleTemplate/UI/UI_Vehicle` | アウトライン+シャドウ |
 | モーションブラー / TSR / ScreenPercentage 75 | `PostProcessVolume` / `Config/DefaultEngine.ini` | |
-| **ラップ計測（周回検出/ラップタイム/ベストラップ/ゴール判定/逆走対策）** | `BP_VehicleAdvGameMode` + `BP_RaceGate` x4 | **PIE検証済み**。詳細は下の QA 履歴 |
+| **ラップ計測（周回検出/ラップタイム/ベストラップ/ゴール判定/逆走対策）** | `BP_VehicleAdvGameMode` + `BP_RaceGate` x4 | **PIE検証済み** |
+| **レースHUD（LAP / 現在タイム / LAST / BEST）** | `/Game/SpeedTest/UI/WBP_RaceHUD` + PlayerController に非破壊追加 | **PIE で画面表示を確認**（`review/phase2_hud.png`） |
 | コース中心線データ | `Scripts/track_centerline.txt` | 原点中心・半径4500cm の真円・周長283m。AI走行ライン/ミニマップで再利用 |
 | 高解像度撮影 2560x1440 | `SlateInspectorToolset` 経由の `HighResShot` | **PIE中のみ / 3コールに分割が必須** |
 | MRQ 準備（`LS_Hero` + `HeroCam` 35mm/f4） | `/Game/Cinematics/LS_Hero` | レンダリング実行は手作業 |
@@ -59,7 +60,8 @@ PHASE 0（調査）完了 / PHASE 1（基盤）は Day1〜7 の作業で実質�
 
 **PHASE 2: レース成立**
 - ✅ ラップ計測の中核（ゲート・ラップタイム・ベストラップ・ゴール判定・逆走対策）
-- ⬜ レースHUD（LAP / 現在タイム / LAST / BEST / カウントダウン）← 次
+- ✅ レースHUD（LAP / 現在タイム / LAST / BEST）**PIE で画面表示を確認済み**
+- ⬜ カウントダウン（3-2-1-GO）と入力ロック ← 次
 - ⬜ リザルト画面 + RESTART
 - ⬜ カウントダウン（3-2-1-GO）と入力ロック
 - ⬜ セクタータイムとデルタ表示
@@ -97,6 +99,8 @@ RaceTimer / **Countdown** / **Position** / RaceRestart /
 | **既存 Blueprint グラフには Sequence を挿す非破壊パターンのみ使う** | `read_graph_dsl` が既存グラフに空文字を返すため、`write_graph_dsl` での上書きはグラフ全消失の危険がある。Day6 で Tick と BeginPlay の2箇所で成功している |
 | **`write_graph_dsl` は使えない（検証済み・結論）** | event ヘッダを英語の `AddEvent|EventBeginPlay` に固定変換するため日本語UIではイベントを作れず、`fn` 形式も本体ノードが生成されない（入口1個だけ）。`read_graph_dsl` も空を返す。このビルドでは DSL 機能が実質未実装。**以降もノードAPIで実装する** |
 | **pure ノードは使用時に再評価される** | `SetCurrentLap` の後に `Get CurrentLap` が再評価され、更新後の値で比較されるバグを踏んだ。**書き込みの後に同じ変数を読む比較を置かない**。順序に依存する値は比較対象を明示的に選ぶ |
+| **エンジンにテキスト連結ノードが無い** | HUD はラベルと数値を別ウィジェットに分ける設計にした（"LAP" と "/ 3" は静的）。結果的に GT 風レイアウトにも合う |
+| **ウィジェット変数は名前で紐づく** | `ToggleWidgetAsVariable` だけでは変数の型IDが更新されない。既存の変数名でウィジェットを作り直すと正しく紐づいた |
 | PIEでの検証は車をテレポートさせて行う | 車を運転する入力を送れないため。`SetActorTransform` 内でオーバーラップが同期発火するので、1コールで1周分のゲート通過を再現できる |
 | **変更は必ず PIE のインスタンスで検証する** | Day6 でカメララグが「BPには入っているがインスタンスに効いていない」状態だった。`UEDPIE_0_` ワールドのアクタを MCP で読んで確認する |
 | レース進行は `BP_VehicleAdvGameMode` に置く | EventGraph 0ノードの完全な空であり、レースルールの正しい置き場所 |
@@ -116,17 +120,17 @@ RaceTimer / **Countdown** / **Position** / RaceRestart /
 | Day4 車マテリアル | 70 | 内装が無い |
 | Day6 演出 | 90 | PIE で6項目すべて動作確認済み |
 | Day7 書き出し | 75 | 構図が真後ろのチェイス視点。任意画角は MRQ 待ち |
+| **PHASE2-2 レースHUD** | **91** | 残9点: ゴール後も現在タイムが進む / 時間表記が秒のみ(m:ss.mmm でない) / カウントダウン・リザルト未実装 / Tick で毎フレーム Cast |
 | **PHASE2-1 ラップ計測** | **86** | 内訳: 機能25/25・バグ18/20・UX**5/15**・絵15/15・perf10/10・構造8/10・拡張性5/5。**残14点の最大はHUDが無く画面に何も出ないこと**。他: 面内リスタート未実装、AI複数車のゲート追跡は未対応 |
 
 ---
 
 ## 次のタスク
 
-1. **PHASE 2 Step 4**: `WBP_RaceHUD` を新規作成（`UI_Vehicle` は壊さず重ねる）
-   `LAP 1/3` / 現在ラップタイム / `LAST` / `BEST`。時間整形関数 `FormatLapTime` を1つ作って共用
-2. **PHASE 2 Step 5**: `WBP_RaceResult`（全ラップ一覧 / ベスト / トータル / RESTART）
-3. **PHASE 2 Step 6**: カウントダウン（3-2-1-GO）+ カウントダウン中の入力ロック
+1. **PHASE 2 Step 5**: カウントダウン（3-2-1-GO）+ カウントダウン中の入力ロック
    + `/Engine/VREditor/Sounds/VR_click1_Cue` / `VR_confirm_Cue`
-4. **PHASE 2 Step 7**: セクタータイムとデルタ表示
+2. **PHASE 2 Step 6**: `WBP_RaceResult`（全ラップ一覧 / ベスト / トータル / RESTART）
+3. **PHASE 2 Step 7**: 時間表記を `m:ss.mmm` にする / ゴール後は現在タイムを止める
+4. **PHASE 2 Step 8**: セクタータイムとデルタ表示
 5. **QA**: サブエージェントでレビュー → 100点法で採点
 6. その後 PHASE 3（AI車。`Scripts/track_centerline.txt` を走行ラインに使う）
