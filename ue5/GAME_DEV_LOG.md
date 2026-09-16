@@ -12,7 +12,7 @@ Gran Turismo 7 のようなリアル志向のコンソール級レーシング�
 ## 現在の Phase
 
 **PHASE 2（レーシングゲームとして成立させる）進行中。**
-ラップ計測の中核は完成・PIE検証済み。次は HUD（画面表示）。
+ラップ計測・レースHUD・カウントダウンまで完成・PIE検証済み。次はリザルト画面と時間表記。
 
 PHASE 0（調査）完了 / PHASE 1（基盤）は Day1〜7 の作業で実質完成済み。
 
@@ -50,6 +50,7 @@ PHASE 0（調査）完了 / PHASE 1（基盤）は Day1〜7 の作業で実質�
 | モーションブラー / TSR / ScreenPercentage 75 | `PostProcessVolume` / `Config/DefaultEngine.ini` | |
 | **ラップ計測（周回検出/ラップタイム/ベストラップ/ゴール判定/逆走対策）** | `BP_VehicleAdvGameMode` + `BP_RaceGate` x4 | **PIE検証済み** |
 | **レースHUD（LAP / 現在タイム / LAST / BEST）** | `/Game/SpeedTest/UI/WBP_RaceHUD` + PlayerController に非破壊追加 | **PIE で画面表示を確認**（`review/phase2_hud.png`） |
+| **カウントダウン 3-2-1-GO + 入力ロック + カウント音** | `BP_VehicleAdvGameMode` BeginPlay（Delay 直列）+ `WBP_RaceHUD` の `CountdownText` | **PIE で実測・目視確認**（`review/day8_countdown.png`）。カウント中は `CurTimeText` を `0.000` 固定 |
 | コース中心線データ | `Scripts/track_centerline.txt` | 原点中心・半径4500cm の真円・周長283m。AI走行ライン/ミニマップで再利用 |
 | 高解像度撮影 2560x1440 | `SlateInspectorToolset` 経由の `HighResShot` | **PIE中のみ / 3コールに分割が必須** |
 | MRQ 準備（`LS_Hero` + `HeroCam` 35mm/f4） | `/Game/Cinematics/LS_Hero` | レンダリング実行は手作業 |
@@ -61,16 +62,16 @@ PHASE 0（調査）完了 / PHASE 1（基盤）は Day1〜7 の作業で実質�
 **PHASE 2: レース成立**
 - ✅ ラップ計測の中核（ゲート・ラップタイム・ベストラップ・ゴール判定・逆走対策）
 - ✅ レースHUD（LAP / 現在タイム / LAST / BEST）**PIE で画面表示を確認済み**
-- ⬜ カウントダウン（3-2-1-GO）と入力ロック ← 次
+- ✅ カウントダウン（3-2-1-GO）と入力ロック **PIE 検証済み**
+- ⬜ 時間表記 `m:ss.mmm` / ゴール後は現在タイムを止める ← 次
 - ⬜ リザルト画面 + RESTART
-- ⬜ カウントダウン（3-2-1-GO）と入力ロック
 - ⬜ セクタータイムとデルタ表示
 
 ---
 
 ## 未実装機能
 
-RaceTimer / **Countdown** / **Position** / RaceRestart /
+RaceTimer / **Position** / RaceRestart /
 **AI車** / RacingLine / MiniMap / RPM表示 / リザルト画面 / **Title・Menu・車選択・ガレージ** /
 コース選択 / 複数コース / 天候・時刻 / **エンジン音・SE** / **リプレイ** / 車両性能差 / 風景アセット
 
@@ -80,7 +81,10 @@ RaceTimer / **Countdown** / **Position** / RaceRestart /
 
 | # | 内容 | 重大度 | 状態 |
 |---|---|---|---|
-| 1 | ゲームループが無い | 最大 | **ラップ計測は完成**。残: HUD / リザルト / カウントダウン / 順位 |
+| 1 | ゲームループが無い | 最大 | **ラップ計測・HUD・カウントダウンは完成**。残: リザルト / RESTART / 順位 |
+| 10 | 入力ロックを「実キー入力」で検証していない | 中 | `DisableInput`/`EnableInput` はエラーなく実行されている（後続ノードまで到達を確認）が、MCP からキーを押し続けられないため実操作での確認は未実施。ユーザーの実プレイで確認したい |
+| 11 | ゴール後（RaceState==2）も現在タイムが進み続ける | 中 | PHASE 2 Step 7 で対応予定 |
+| 12 | MCP セッション中に追加した変数/関数は、他 BP のアクションDBに出てこない | 中 | UE 再起動で解消。**新規変数を他BPから読む設計は同一セッション内では組めない**（下の「技術的な判断」参照） |
 | 2 | 完全に無音。エンジン音の素材が存在しない | 高 | 後回し（素材が必要） |
 | 3 | 風景アセット0。路面の市松模様は `M_Landscape` のグラフに焼き込まれていて消せない | 高 | **人間の作業**（Fab） |
 | 4 | **FPS 未計測** | 中 | `stat unit` は出力ログのCmd欄から実行してもPIEビューポートに描画されなかった。PHASE 4 で `csvprofile`（CSV出力）で計測する |
@@ -108,6 +112,13 @@ RaceTimer / **Countdown** / **Position** / RaceRestart /
 | グラフィック本格化(PHASE 4)を後ろに回す | 風景アセット導入が人間の作業待ちで、待ちながら他を進める方が効率的 |
 | サウンドとリプレイを後回し | 素材が無い / 実装量が大きい。①〜④が動いてからの方が費用対効果が高い |
 | C++ 化はしない（現時点） | VSビルド環境とモジュール生成が必要な破壊的変更。実行前にユーザー確認が必要 |
+| **他BPの変数Getterは `クラス\|<BP名(アンダースコア無し)>\|<変数名>を取得` でのみ作れる** | 例: `クラス\|BPVehicleAdvGameMode\|RaceStateを取得`。`変数\|デフォルト\|...を取得`（`find_node_types` に context_pins を渡すと返ってくる形）や `\|GetRaceState` は `create_node` で作れない。**自BPの変数は `変数\|<自BP名>\|<変数名>を取得`** |
+| **アクションDBはセッション中に追加した変数/関数を他BPに公開しない** | 今セッションで作った `GoShowUntil` と関数 `GetHudCountdown` は HUD 側から作成できなかった。回避策として既存変数（`RaceState`/`CurrentLap`/`LapStartTime`）だけで同じ表示を実現した。**新機能の設計では「既にあるDBに載っている変数」で組めるか先に確認する** |
+| **MCP で編集した BP は `AssetTools.save_assets([])` を呼ぶまでディスクに書かれない** | 保存しないと `git status` に出ず、コミットが空振りする。**1タスクごとに save_assets → git add** |
+| **`EditorAppToolset.StartPIE` は常に "PIE ended before warmup completed" を返す** | このビルドの warmup 追跡が壊れている。実際には PIE は起動しているので、**StartPIE は単独コールにして、続きの処理は次のコールで行う**（スクリプト内で続けると例外で中断する） |
+| **カウントダウンは Timer ではなく Delay の直列で実装した** | `SetTimerByFunctionName` には Self 参照ノードが必要だが `変数\|セルフリファレンス` は `create_node` で作れない。Delay 直列なら Self 参照が不要で、進行が一直線になり読みやすい |
+| **BlueprintTools の正しいツール名** | ノード一覧は `find_nodes(graph, title, [node_class], [entry_points_only])`、詳細は `get_node_infos(nodes[])`。`get_nodes` / `describe_node` は**存在しない** |
+| **カウントダウン中は HUD の現在タイムを "0.000" 固定にする** | `LapStartTime` は BeginPlay 時刻で入るため、そのままだとカウントダウン中に時計が進んでしまう（PIE のスクショで発見）。`RaceState==0` で分岐して固定文字にした |
 
 ---
 
@@ -121,16 +132,17 @@ RaceTimer / **Countdown** / **Position** / RaceRestart /
 | Day6 演出 | 90 | PIE で6項目すべて動作確認済み |
 | Day7 書き出し | 75 | 構図が真後ろのチェイス視点。任意画角は MRQ 待ち |
 | **PHASE2-2 レースHUD** | **91** | 残9点: ゴール後も現在タイムが進む / 時間表記が秒のみ(m:ss.mmm でない) / カウントダウン・リザルト未実装 / Tick で毎フレーム Cast |
+| **PHASE2-5 カウントダウン** | **87** | 内訳: 機能23/25・バグ18/20・UX12/15・絵13/15・perf10/10・構造8/10・拡張性3/5。残13点: 実キー入力での入力ロック検証(2) / リスタート・2周目以降の再検証(2) / 数字のスケール・色アニメーション(3) / 無音（カウント音は `/Engine` のエディタ専用アセット）(2) / HUD が Tick で毎フレーム Cast + 変数直読み(2) / カウント秒数・回数がノードにハードコード(2) |
 | **PHASE2-1 ラップ計測** | **86** | 内訳: 機能25/25・バグ18/20・UX**5/15**・絵15/15・perf10/10・構造8/10・拡張性5/5。**残14点の最大はHUDが無く画面に何も出ないこと**。他: 面内リスタート未実装、AI複数車のゲート追跡は未対応 |
 
 ---
 
 ## 次のタスク
 
-1. **PHASE 2 Step 5**: カウントダウン（3-2-1-GO）+ カウントダウン中の入力ロック
-   + `/Engine/VREditor/Sounds/VR_click1_Cue` / `VR_confirm_Cue`
+1. **PHASE 2 Step 7**: 時間表記を `m:ss.mmm` にする / ゴール後は現在タイムを止める ← 次
 2. **PHASE 2 Step 6**: `WBP_RaceResult`（全ラップ一覧 / ベスト / トータル / RESTART）
-3. **PHASE 2 Step 7**: 時間表記を `m:ss.mmm` にする / ゴール後は現在タイムを止める
-4. **PHASE 2 Step 8**: セクタータイムとデルタ表示
-5. **QA**: サブエージェントでレビュー → 100点法で採点
-6. その後 PHASE 3（AI車。`Scripts/track_centerline.txt` を走行ラインに使う）
+3. **PHASE 2 Step 8**: セクタータイムとデルタ表示
+4. **QA**: サブエージェントでレビュー → 100点法で採点
+5. その後 PHASE 3（AI車。`Scripts/track_centerline.txt` を走行ラインに使う）
+
+**済**: Step 5 カウントダウン（3-2-1-GO）+ 入力ロック + カウント音（`VR_click1_Cue` / `VR_confirm_Cue`）
