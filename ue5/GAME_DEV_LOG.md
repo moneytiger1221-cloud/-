@@ -146,6 +146,10 @@ RaceTimer / **Position** / RaceRestart /
 
 1. **PHASE 2 Step 6**: `WBP_RaceResult`（全ラップ一覧 / ベスト / トータル / RESTART）← 次
    - ゴール時に「FINISH」を出す / `/ 3` の静的テキストを `TotalLaps` 連動にする もここで対応
+   - **→ 実装仕様は [`PHASE2-6_RESULT_SPEC.md`](PHASE2-6_RESULT_SPEC.md) に全部書いてある。
+     復旧手順・ステップ分割・ノード構成・検証チェックリストまで揃っているので、それを上から実行する**
+   - **`BPL_RaceUtil` は作らない方針に変更**（前セッションの停止原因。かつ作っても再起動が要る）。
+     `FormatTime` は `WBP_RaceResult` 内に複製し、共通化は PHASE 4 のリファクタに回す
 2. **PHASE 2 Step 8**: セクタータイムとデルタ表示
 3. **QA**: サブエージェントでレビュー → 100点法で採点
 4. その後 PHASE 3（AI車。`Scripts/track_centerline.txt` を走行ラインに使う）

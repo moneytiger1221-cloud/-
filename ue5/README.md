@@ -4,7 +4,15 @@
 
 ## まずここを開く
 
-**→ [`docs/00-setup.md`](docs/00-setup.md)**
+**開発が始まっている今は → [`GAME_DEV_LOG.md`](GAME_DEV_LOG.md)**（現在の Phase / 完成済み機能 / 既知のバグ / 次のタスク）
+
+| ファイル | 役割 |
+|---|---|
+| [`GAME_DEV_LOG.md`](GAME_DEV_LOG.md) | **開発の本体ログ。新しいセッションが最初に読む** |
+| [`PROGRESS.md`](PROGRESS.md) | 作業ごとの日誌。先頭に `■要対応` があればそこで停止 |
+| [`PHASE2-6_RESULT_SPEC.md`](PHASE2-6_RESULT_SPEC.md) | **次の作業（リザルト画面 + RESTART）の実装仕様** |
+
+**環境構築からやり直す場合は → [`docs/00-setup.md`](docs/00-setup.md)**
 
 上から順番にやるだけ。各ステップに「成功したかの確認方法」が付いています。
 
