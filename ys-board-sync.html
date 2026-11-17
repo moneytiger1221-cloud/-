@@ -13624,7 +13624,7 @@ var JUKU_SYNC = (function(){
       Object.entries(studentSchedules).forEach(([studentName, entries]) => {
         const dayEntries = entries.filter((en) => en.day === selectedWeekday);
         if (!dayEntries.length) return;
-        const recs = records.filter((r) => r.studentName === studentName && r.status !== "declined" && r.status !== "enrolled").sort((a, b) => getStatus(a.status).priority - getStatus(b.status).priority);
+        const recs = termRecords.filter((r) => r.studentName === studentName && r.status !== "declined" && r.status !== "enrolled").sort((a, b) => getStatus(a.status).priority - getStatus(b.status).priority);
         if (!recs.length) return;
         list.push({ studentName, entries: dayEntries, recs });
       });
@@ -13633,7 +13633,7 @@ var JUKU_SYNC = (function(){
         const pb = Math.min(...b.recs.map((r) => getStatus(r.status).priority));
         return pa - pb;
       });
-    }, [studentSchedules, records, selectedWeekday]);
+    }, [studentSchedules, termRecords, selectedWeekday]);
     const selectedDayTouchByTeam = (0, import_react.useMemo)(() => {
       const items = [];
       selectedDayStudentTasks.forEach((task) => {
@@ -13849,7 +13849,7 @@ var JUKU_SYNC = (function(){
       const dayNames = new Set(
         Object.entries(studentSchedules).filter(([, entries]) => entries.some((en) => en.day === selectedWeekday)).map(([name]) => name)
       );
-      const todayRecs = records.filter((r) => dayNames.has(r.studentName) && r.status !== "declined" && r.status !== "enrolled");
+      const todayRecs = termRecords.filter((r) => dayNames.has(r.studentName) && r.status !== "declined" && r.status !== "enrolled");
       const toRows = (recs) => recs.map((r) => {
         const raw = r.raw || {};
         const teacherName = teachers.find((t) => t.id === r.teacherId)?.name || r.teacherNameRaw || "";
@@ -14275,7 +14275,7 @@ ${[...unmatchedTeachers].join("\n")}
             const todayHot = { J: [], M: [] };
             Object.entries(studentSchedules).forEach(([studentName, entries]) => {
               if (!entries.some((en) => en.day === todayWeekday)) return;
-              records.filter((r) => r.studentName === studentName && r.status === "hot").forEach((r) => {
+              termRecords.filter((r) => r.studentName === studentName && r.status === "hot").forEach((r) => {
                 const t = teachers.find((t2) => t2.id === r.teacherId);
                 if (!t || (t.team !== "J" && t.team !== "M")) return;
                 const team = t.team;
@@ -14393,7 +14393,7 @@ ${mPts}pt${mGoal}
             const dayNames = new Set(
               Object.entries(studentSchedules).filter(([, entries]) => entries.some((en) => en.day === d)).map(([name]) => name)
             );
-            const dayRecs = records.filter((r) => dayNames.has(r.studentName) && r.status !== "declined" && r.status !== "enrolled");
+            const dayRecs = termRecords.filter((r) => dayNames.has(r.studentName) && r.status !== "declined" && r.status !== "enrolled");
             const total = dayRecs.length;
             const hot = dayRecs.filter((r) => r.status === "hot").length;
             const isSelected = selectedWeekday === d;
@@ -14507,7 +14507,7 @@ ${mPts}pt${mGoal}
             const dayNames = new Set(
               Object.entries(studentSchedules).filter(([, entries]) => entries.some((en) => en.day === selectedWeekday)).map(([name]) => name)
             );
-            const staffItems = records.filter((r) => {
+            const staffItems = termRecords.filter((r) => {
               if (!dayNames.has(r.studentName)) return false;
               if (r.status === "declined" || r.status === "enrolled") return false;
               const t = teachers.find((t2) => t2.id === r.teacherId);
