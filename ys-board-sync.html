@@ -13074,7 +13074,51 @@ var JUKU_SYNC = (function(){
     return String(hash);
   }
   var SAMPLE_STUDENTS = [];
-  var SAMPLE_TEACHERS = [];  // 公開版のため空。先生は先生CSV取込またはスプシ同期で入る
+  var SAMPLE_TEACHERS = [];
+  /* 記録と先生を名前で結び直し、同じ紹介（在塾生×誘う相手×先生）が二重に入っていたら1件にまとめる。
+     先生を登録する前に取り込んだ記録は先生と結びつかないまま残り、
+     後で同じCSVを取り込むと二重に作られていたため（2026-11-17） */
+  var STATUS_RANK = { not_contacted: 0, multi: 1, declined: 2, considering: 3, line_sent: 4, interested: 5, hot: 6, rang: 7, enrolled: 8 };
+  function relinkAndMerge(recs, teachers) {
+    const nm = (s) => String(s || "").normalize("NFKC").replace(/\s|先生/g, "");
+    const byId = new Set(teachers.map((t) => t.id));
+    const find = (name) => {
+      const cn = nm(name);
+      if (!cn) return null;
+      return teachers.find((t) => { const tn = nm(t.name); return tn && (cn === tn || cn.includes(tn) || tn.includes(cn)); }) || null;
+    };
+    let changed = false, merged = 0;
+    const linked = recs.map((r) => {
+      if (r.teacherId && byId.has(r.teacherId)) return r;
+      const name = r.teacherNameRaw || (r.raw && r.raw["\u5148\u751F"]) || "";
+      const t = find(name);
+      if (t) { changed = true; return { ...r, teacherId: t.id, teacherNameRaw: "" }; }
+      if (r.teacherId) { changed = true; return { ...r, teacherId: "", teacherNameRaw: name }; }
+      return r;
+    });
+    const groups = new Map(), order = [];
+    linked.forEach((r) => {
+      const k = r.studentName + "|||" + r.referralName + "|||" + (r.teacherId || "raw:" + nm(r.teacherNameRaw));
+      if (!groups.has(k)) { groups.set(k, []); order.push(k); }
+      groups.get(k).push(r);
+    });
+    const joinUniq = (arr) => [...new Set(arr.map((x) => String(x || "").trim()).filter(Boolean))].join(" \uFF0F ");
+    const out = order.map((k) => {
+      const rs = groups.get(k);
+      if (rs.length === 1) return rs[0];
+      merged += rs.length - 1; changed = true;
+      const base = rs.reduce((a, b) => (STATUS_RANK[b.status] || 0) > (STATUS_RANK[a.status] || 0) ? b : a);
+      return {
+        ...base,
+        raw: base.raw || (rs.find((x) => x.raw) || {}).raw,
+        date: base.date || (rs.find((x) => x.date) || {}).date || "",
+        response: joinUniq(rs.map((x) => x.response)),
+        note: joinUniq(rs.map((x) => x.note)),
+        pts: base.status === "enrolled" ? 10 : 1
+      };
+    });
+    return { records: changed ? out : recs, changed, merged };
+  }  // 公開版のため空。先生は先生CSV取込またはスプシ同期で入る
   var TODAY = todayStr();
   var SAMPLE_SCHEDULE = [];
   var SAMPLE_RECORDS = [];
@@ -13417,6 +13461,11 @@ var JUKU_SYNC = (function(){
       JUKU_SYNC.touch("ysboard");
       JUKU_SYNC.queueSave("ysboard", (o) => window.__ysSync && window.__ysSync.save(o));
     }, [students, teachers, schedule, records, studentSchedules, teamNames, teamGoals, lastImportDate, filterTerm, periodStart, periodEnd, loaded]);
+    (0, import_react.useEffect)(() => {
+      if (!loaded) return;
+      const res = relinkAndMerge(records, teachers);
+      if (res.changed) setRecords(res.records);
+    }, [records, teachers, loaded]);
     const today = TODAY;
     const todayWeekday = todayWeekdayJP();
     const [selectedWeekday, setSelectedWeekday] = (0, import_react.useState)(todayWeekday);
@@ -13427,8 +13476,8 @@ var JUKU_SYNC = (function(){
           if (en.day !== todayWeekday) return;
           const teacherNameToMatch = en.teacherName || en.fallbackTeacher || "";
           if (!teacherNameToMatch) return;
-          const norm = teacherNameToMatch.replace(/\s|先生/g, "");
-          const t = teachers.find((t2) => t2.name.replace(/\s|先生/g, "") === norm);
+          const norm = teacherNameToMatch.normalize("NFKC").replace(/\s|先生/g, "");
+          const t = teachers.find((t2) => t2.name.normalize("NFKC").replace(/\s|先生/g, "") === norm);
           if (t) ids.add(t.id);
         });
       });
@@ -13595,7 +13644,8 @@ var JUKU_SYNC = (function(){
       });
       const result = { J: {}, M: {} };
       items.forEach((item) => {
-        const team = item.team === "J" || item.team === "M" ? item.team : "J";
+        if (item.team !== "J" && item.team !== "M") return;
+        const team = item.team;
         if (!result[team][item.teacherName]) result[team][item.teacherName] = [];
         result[team][item.teacherName].push(item);
       });
@@ -13651,9 +13701,10 @@ var JUKU_SYNC = (function(){
       const referrerName = (row["\u7D39\u4ECB\u8005"] || "").trim();
       const teacherName = (row["\u5148\u751F"] || "").trim();
       const teacher = teachers.find((t) => {
-        const tn = t.name.replace(/\s|先生/g, "");
-        const cn = teacherName.replace(/\s/g, "");
-        return cn === tn || cn.includes(tn) || tn.includes(cn);
+        const tn = t.name.normalize("NFKC").replace(/\s|先生/g, "");
+        const cn = teacherName.normalize("NFKC").replace(/\s/g, "");
+        if (!cn || !tn) return false;
+              return cn === tn || cn.includes(tn) || tn.includes(cn);
       });
       return {
         id: Date.now() + idx,
@@ -13874,7 +13925,7 @@ var JUKU_SYNC = (function(){
             if ((sjis.match(/\uFFFD/g) || []).length <= badUtf8) text = sjis;
           } catch (err) {}
         }
-        const norm = (s) => String(s || "").replace(/\s|　|先生/g, "");
+        const norm = (s) => String(s || "").normalize("NFKC").replace(/\s|　|先生/g, "");
         const parseRow = (line) => {
           const cells = [];
           let cur = "", inQ = false;
@@ -13942,7 +13993,7 @@ var JUKU_SYNC = (function(){
         let nextId = Date.now();
         const unmatchedTeachers = /* @__PURE__ */ new Set();
         setRecords((prevRecords) => {
-          const updated = [...prevRecords];
+          const updated = [...relinkAndMerge(prevRecords, teachers).records];
           rows.forEach((row) => {
             const targetName = `${row["\u59D3"] || ""} ${row["\u540D"] || ""}`.trim();
             const teacherName = (row["\u5148\u751F"] || "").trim();
@@ -13955,8 +14006,9 @@ var JUKU_SYNC = (function(){
             const enrichedEntries = entries.map((en) => en.teacherName ? en : { ...en, fallbackTeacher });
             if (enrichedEntries.length) newSchedules[referrerName] = enrichedEntries;
             const findTeacher = (name) => teachers.find((t) => {
-              const tn = t.name.replace(/\s|先生/g, "");
-              const cn = name.replace(/\s/g, "");
+              const tn = t.name.normalize("NFKC").replace(/\s|先生/g, "");
+              const cn = name.normalize("NFKC").replace(/\s/g, "");
+              if (!cn || !tn) return false;
               return cn === tn || cn.includes(tn) || tn.includes(cn);
             });
             const ysStatus = (row["YS"] || "").trim().replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 65248));
@@ -14191,27 +14243,27 @@ ${[...unmatchedTeachers].join("\n")}
             const jPts = teamPoints.J || 0, mPts = teamPoints.M || 0;
             const jEnrolled = termRecords.filter((r) => {
               const t = teachers.find((t2) => t2.id === r.teacherId);
-              return (t?.team || "J") === "J" && r.status === "enrolled";
+              return (t && t.team) === "J" && r.status === "enrolled";
             }).length;
             const mEnrolled = termRecords.filter((r) => {
               const t = teachers.find((t2) => t2.id === r.teacherId);
-              return (t?.team || "J") === "M" && r.status === "enrolled";
+              return (t && t.team) === "M" && r.status === "enrolled";
             }).length;
             const jHot = termRecords.filter((r) => {
               const t = teachers.find((t2) => t2.id === r.teacherId);
-              return (t?.team || "J") === "J" && r.status === "hot";
+              return (t && t.team) === "J" && r.status === "hot";
             }).length;
             const mHot = termRecords.filter((r) => {
               const t = teachers.find((t2) => t2.id === r.teacherId);
-              return (t?.team || "J") === "M" && r.status === "hot";
+              return (t && t.team) === "M" && r.status === "hot";
             }).length;
             const jRang = termRecords.filter((r) => {
               const t = teachers.find((t2) => t2.id === r.teacherId);
-              return (t?.team || "J") === "J" && r.status === "rang";
+              return (t && t.team) === "J" && r.status === "rang";
             }).length;
             const mRang = termRecords.filter((r) => {
               const t = teachers.find((t2) => t2.id === r.teacherId);
-              return (t?.team || "J") === "M" && r.status === "rang";
+              return (t && t.team) === "M" && r.status === "rang";
             }).length;
             const total = termRecords.length;
             const d = /* @__PURE__ */ new Date();
@@ -14225,7 +14277,8 @@ ${[...unmatchedTeachers].join("\n")}
               if (!entries.some((en) => en.day === todayWeekday)) return;
               records.filter((r) => r.studentName === studentName && r.status === "hot").forEach((r) => {
                 const t = teachers.find((t2) => t2.id === r.teacherId);
-                const team = t?.team || "J";
+                if (!t || (t.team !== "J" && t.team !== "M")) return;
+                const team = t.team;
                 todayHot[team].push(`${studentName} \u2192 ${r.referralName}`);
               });
             });
@@ -14275,7 +14328,7 @@ ${mPts}pt${mGoal}
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", gap: 8, marginBottom: 8 }, children: ["J", "M"].map((team) => {
             const teamRecords = termRecords.filter((r) => {
               const t = teachers.find((t2) => t2.id === r.teacherId);
-              return (t?.team || "J") === team;
+              return (t && t.team) === team;
             });
             const stats = [
               { key: "not_contacted", label: "\u{1F4A4} \u672A\u30BF\u30C3\u30C1", value: teamRecords.filter((r) => r.status === "not_contacted").length, color: "#64748b" },
@@ -14299,12 +14352,12 @@ ${mPts}pt${mGoal}
             const st = STATUS_OPTIONS.find((s) => s.value === statFilter.status);
             const list = termRecords.filter((r) => {
               const t = teachers.find((t2) => t2.id === r.teacherId);
-              return (t?.team || "J") === statFilter.team && r.status === statFilter.status;
+              return (t && t.team) === statFilter.team && r.status === statFilter.status;
             });
             return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: "#0f172a", borderRadius: 10, padding: "10px 8px", border: `1px solid ${st.color}`, marginBottom: 20 }, children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 11, fontWeight: 700, color: st.color, marginBottom: 6 }, children: [
                 "\u30C1\u30FC\u30E0",
-                statFilter.team,
+                teamNames[statFilter.team] || statFilter.team,
                 " \u30FB ",
                 st.emoji,
                 " ",
@@ -14655,7 +14708,7 @@ ${mPts}pt${mGoal}
             return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
               /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 12, fontWeight: 700, color, textAlign: "center", marginBottom: 8, letterSpacing: 2 }, children: [
                 "\u30C1\u30FC\u30E0",
-                team,
+                teamNames[team] || team,
                 " \u2014 ",
                 teamPoints[team] || 0,
                 "pt"
@@ -14691,11 +14744,11 @@ ${mPts}pt${mGoal}
             ] }, team);
           }) }),
           (() => {
-            const otherRecs = records.filter((r) => !r.teacherId);
+            const otherRecs = termRecords.filter((r) => !teachers.some((t) => t.id === r.teacherId));
             if (otherRecs.length === 0) return null;
             const byName = {};
             otherRecs.forEach((r) => {
-              const name = r.teacherNameRaw || "\u4E0D\u660E";
+              const name = r.teacherNameRaw || (r.raw && r.raw["\u5148\u751F"]) || "\u4E0D\u660E";
               if (!byName[name]) byName[name] = { pts: 0, hot: 0, enrolled: 0, total: 0 };
               byName[name].total++;
               byName[name].pts += r.pts || 1;
@@ -15032,7 +15085,7 @@ ${mPts}pt${mGoal}
         const summary = ["J", "M"].map((team) => {
           const tr = records.filter((r) => {
             const t = teachers.find((t2) => t2.id === r.teacherId);
-            return (t?.team || "J") === team;
+            return (t && t.team) === team;
           });
           const pts = tr.reduce((a, r) => a + (r.pts || 1), 0);
           const enrolled = tr.filter((r) => r.status === "enrolled").length;
