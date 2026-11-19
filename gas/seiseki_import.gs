@@ -33,8 +33,11 @@ const CONFIG = {
   LIST_DAYS: 14,
   // これより古い xlsx はゴミ箱へ（Driveに溜めないため）
   KEEP_DAYS: 60,
-  // 毎日の自動実行の時刻（メールは10:10頃に届く）
-  TRIGGER_HOUR: 11,
+  // 毎日の自動実行の時刻（メールは10:10頃に届く）。
+  // Googleの仕様で分は前後15分ほどずれる。ツールを開いたときにもメールを確認するので、
+  // ずれて取りこぼしても開いた時点で拾える。
+  TRIGGER_HOUR: 10,
+  TRIGGER_MINUTE: 15,
 };
 
 /* ===================== 初期設定 ===================== */
@@ -49,7 +52,8 @@ function setup() {
     .filter((t) => t.getHandlerFunction() === 'dailyJob')
     .forEach((t) => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('dailyJob')
-    .timeBased().everyDays(1).atHour(CONFIG.TRIGGER_HOUR).inTimezone('Asia/Tokyo')
+    .timeBased().everyDays(1).atHour(CONFIG.TRIGGER_HOUR).nearMinute(CONFIG.TRIGGER_MINUTE)
+    .inTimezone('Asia/Tokyo')
     .create();
   const n = pullNewMails();
   console.log(`準備できました。今回 ${n} 件のメールから書き出しました。`);
