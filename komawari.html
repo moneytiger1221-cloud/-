@@ -482,7 +482,132 @@ body.trayh-x .traycnt2{top:2px;}
 </script>
 <script type="text/plain" id="teachersCsv">
 </script>
-<script>
+<script id="juku-ls">
+/* JUKU_LS:BEGIN — tools/juku-ls.js から tools/apply-juku-ls.py で埋め込み。ここを直接直さないこと */
+/* ===== JUKU_LS：塾ツール共通の保存先（IndexedDB）=====
+   localStorage はスマホ(Safari)だと全ツール合わせて約5MBしかなく、すぐ満杯になる。
+   そこで中身は IndexedDB に置き、各ツールからは localStorage と同じ書き方で使えるようにする。
+   ・起動時に IndexedDB を全部メモリに読み込んでから、ツール本体のスクリプトを動かす
+     （本体は <script type="text/juku-deferred">。読み書きは今まで通り同期のままでよい）
+   ・書き込みはメモリに入れてすぐ IndexedDB へ。同じ画面の他のツール(iframe)にも知らせる
+   ・localStorage に残っているもの（以前のデータ／IndexedDB が使えなかった時の書き込み）は
+     起動のたびに IndexedDB へ移し、localStorage からは消す
+   ・IndexedDB が使えない環境では、localStorage をそのまま使う
+   ★ツールのコードでは localStorage を直接使わず、必ず JUKU_LS を使うこと。 */
+(function () {
+  var DBN = 'juku_store', ST = 'kv';
+  var mem = {}, db = null, early = [];
+  var me = Math.random().toString(36).slice(2);
+  var bc = null; try { bc = new BroadcastChannel('juku_ls'); } catch (e) {}
+  function LS() { try { return window.localStorage; } catch (e) { return null; } }
+  var warned = false;
+  function fail(e) {
+    if (warned) return; warned = true;
+    try { alert('端末への保存に失敗しました。\n\n' + (e && e.message ? e.message : e)); } catch (x) {}
+  }
+  function put(k, v) {
+    try {
+      var tx = db.transaction(ST, 'readwrite'), s = tx.objectStore(ST);
+      if (v === null) s['delete'](k); else s.put(v, k);
+      tx.onabort = function () { fail(tx.error); };
+    } catch (e) { fail(e); }
+  }
+  function tell(k, v) { if (bc) { try { bc.postMessage({ by: me, k: k, v: v }); } catch (e) {} } }
+  function apply(d) { if (d.v === null) delete mem[d.k]; else mem[d.k] = d.v; }
+  var api = {
+    getItem: function (k) {
+      k = String(k);
+      if (!db) { var l = LS(); return l ? l.getItem(k) : null; }
+      return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null;
+    },
+    setItem: function (k, v) {
+      k = String(k); v = String(v);
+      if (!db) { LS().setItem(k, v); return; }
+      mem[k] = v; put(k, v); tell(k, v);
+    },
+    removeItem: function (k) {
+      k = String(k);
+      if (!db) { var l = LS(); if (l) l.removeItem(k); return; }
+      if (!Object.prototype.hasOwnProperty.call(mem, k)) return;
+      delete mem[k]; put(k, null); tell(k, null);
+    },
+    key: function (i) {
+      if (!db) { var l = LS(); return l ? l.key(i) : null; }
+      var ks = Object.keys(mem); return i >= 0 && i < ks.length ? ks[i] : null;
+    },
+    clear: function () {
+      if (!db) { var l = LS(); if (l) l.clear(); return; }
+      Object.keys(mem).forEach(function (k) { api.removeItem(k); });
+    },
+    usingIdb: function () { return !!db; }
+  };
+  Object.defineProperty(api, 'length', { get: function () {
+    if (!db) { var l = LS(); return l ? l.length : 0; }
+    return Object.keys(mem).length;
+  } });
+  if (bc) bc.onmessage = function (e) {
+    var d = e.data; if (!d || d.by === me) return;
+    if (db) apply(d); else early.push(d);   // 読み込み中に届いた分は、読み終わってから反映する
+  };
+  window.JUKU_LS = api;
+
+  function openDb(cb) {
+    var done = false;
+    function fin(d) { if (done) { if (d) try { d.close(); } catch (e) {} return; } done = true; cb(d); }
+    setTimeout(function () { fin(null); }, 4000);   // 開けないまま固まる端末があるので待ちすぎない
+    try {
+      var r = indexedDB.open(DBN, 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore(ST); };
+      r.onsuccess = function () { fin(r.result); };
+      r.onerror = function () { fin(null); };
+    } catch (e) { fin(null); }
+  }
+  function load(d, cb) {
+    try {
+      var tx = d.transaction(ST, 'readwrite'), s = tx.objectStore(ST), got = {}, moved = [], l = LS();
+      s.openCursor().onsuccess = function (e) {
+        var c = e.target.result;
+        if (c) { got[c.key] = c.value; c['continue'](); return; }
+        if (l) {
+          for (var i = 0; i < l.length; i++) {
+            var k = l.key(i); if (k == null) continue;
+            var v = l.getItem(k); got[k] = v; s.put(v, k); moved.push(k);
+          }
+        }
+      };
+      tx.oncomplete = function () {
+        moved.forEach(function (k) { try { l.removeItem(k); } catch (e) {} });
+        mem = got; db = d;
+        early.forEach(apply); early = [];
+        cb();
+      };
+      tx.onabort = function () { cb(); };   // 移せなかったら localStorage のまま動かす
+    } catch (e) { cb(); }
+  }
+  function run() {
+    var list = Array.prototype.slice.call(document.querySelectorAll('script[type="text/juku-deferred"]'));
+    list.forEach(function (o) {
+      var s = document.createElement('script');
+      if (o.id) s.id = o.id;
+      s.text = o.text;
+      o.parentNode.replaceChild(s, o);
+    });
+    // 本体は読み込み完了の後に動くので、それを待っているコードのために合図を出し直す
+    try { document.dispatchEvent(new Event('DOMContentLoaded')); } catch (e) {}
+    if (document.readyState === 'complete') { try { window.dispatchEvent(new Event('load')); } catch (e) {} }
+  }
+  var stored = false, parsed = document.readyState !== 'loading', started = false;
+  function go() { if (started || !stored || !parsed) return; started = true; run(); }
+  function onDcl() { document.removeEventListener('DOMContentLoaded', onDcl); parsed = true; go(); }
+  if (!parsed) document.addEventListener('DOMContentLoaded', onDcl);
+  function ok() { stored = true; go(); }
+  if (!window.indexedDB) ok();
+  else openDb(function (d) { if (!d) ok(); else load(d, ok); });
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+})();
+/* JUKU_LS:END */
+</script>
+<script type="text/juku-deferred">
 "use strict";
 /* ===== 同期の「いつ・どの端末で保存したか」（塾ツール共通）=====
    今の同期は「まるごと置き換え」なので、どっちが新しいかを人が知っている必要がある。
@@ -494,8 +619,8 @@ var JUKU_SYNC = (function(){
   var DEV='juku_device_v1';          /* 端末の名前（全ツール共通） */
   var LAST='juku_sync_last_v1';      /* {tool: {at, by}} この端末が最後に保存した時刻 */
 
-  function rd(k,d){ try{ return JSON.parse(localStorage.getItem(k)||'null') || d; }catch(e){ return d; } }
-  function wr(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+  function rd(k,d){ try{ return JSON.parse(JUKU_LS.getItem(k)||'null') || d; }catch(e){ return d; } }
+  function wr(k,v){ try{ JUKU_LS.setItem(k, JSON.stringify(v)); }catch(e){} }
 
   function deviceName(){
     var n = rd(DEV,'');
@@ -598,12 +723,12 @@ var JUKU_SYNC = (function(){
    ツールごとの「最後に手入力した時刻」（touch）で決める。 */
 (function(){
   var TOUCH='juku_touched_v1';    /* {tool: ISO} この端末で最後に手入力した時刻 */
-  function rd(){ try{ return JSON.parse(localStorage.getItem(TOUCH)||'{}')||{}; }catch(e){ return {}; } }
+  function rd(){ try{ return JSON.parse(JUKU_LS.getItem(TOUCH)||'{}')||{}; }catch(e){ return {}; } }
 
   /* 手で入れたものを保存したときに呼ぶ */
   JUKU_SYNC.touch = function(tool){
     var o=rd(); o[tool]=new Date().toISOString();
-    try{ localStorage.setItem(TOUCH, JSON.stringify(o)); }catch(e){}
+    try{ JUKU_LS.setItem(TOUCH, JSON.stringify(o)); }catch(e){}
   };
   JUKU_SYNC.touchedAt = function(tool){ return rd()[tool] || ''; };
 
@@ -660,13 +785,13 @@ var JUKU_SYNC = (function(){
    ・切りたい人のために、入／切のスイッチを付ける（既定は入） */
 (function(){
   var AUTO='juku_auto_sync_v1';       /* {tool: true/false} */
-  function rd(){ try{ return JSON.parse(localStorage.getItem(AUTO)||'{}')||{}; }catch(e){ return {}; } }
+  function rd(){ try{ return JSON.parse(JUKU_LS.getItem(AUTO)||'{}')||{}; }catch(e){ return {}; } }
 
   JUKU_SYNC.autoOn = function(tool){ var v=rd()[tool]; return v===undefined ? true : !!v; };
   var watch = [];
   JUKU_SYNC.setAuto = function(tool, on){
     var o=rd(); o[tool]=!!on;
-    try{ localStorage.setItem(AUTO, JSON.stringify(o)); }catch(e){}
+    try{ JUKU_LS.setItem(AUTO, JSON.stringify(o)); }catch(e){}
     watch.forEach(function(f){ try{ f(); }catch(e){} });
   };
 
@@ -729,10 +854,10 @@ var JUKU_SYNC = (function(){
      これが無いと、読み込んでもこの端末の保存時刻は古いままなので、
      3分おきに同じものを何度も読み直してしまう。 */
   var SEEN='juku_sync_seen_v1';
-  function seenAt(tool){ try{ return (JSON.parse(localStorage.getItem(SEEN)||'{}')||{})[tool]||''; }catch(e){ return ''; } }
+  function seenAt(tool){ try{ return (JSON.parse(JUKU_LS.getItem(SEEN)||'{}')||{})[tool]||''; }catch(e){ return ''; } }
   function noteSeen(tool, at){
-    try{ var o=JSON.parse(localStorage.getItem(SEEN)||'{}')||{}; o[tool]=at;
-         localStorage.setItem(SEEN, JSON.stringify(o)); }catch(e){}
+    try{ var o=JSON.parse(JUKU_LS.getItem(SEEN)||'{}')||{}; o[tool]=at;
+         JUKU_LS.setItem(SEEN, JSON.stringify(o)); }catch(e){}
   }
 
   /* スプシのほうが新しいときだけ読み込む。
@@ -782,9 +907,9 @@ var JUKU_SYNC = (function(){
    素で呼ぶと以降のスクリプトが止まり画面が真っ白になるため、必ずこのラッパーを経由する。 */
 const LS={
   ok:true,
-  get(k){try{return localStorage.getItem(k);}catch(e){LS.ok=false;return null;}},
-  set(k,v){try{localStorage.setItem(k,v);return true;}catch(e){LS.ok=false;return false;}},
-  del(k){try{localStorage.removeItem(k);}catch(e){LS.ok=false;}}
+  get(k){try{return JUKU_LS.getItem(k);}catch(e){LS.ok=false;return null;}},
+  set(k,v){try{JUKU_LS.setItem(k,v);return true;}catch(e){LS.ok=false;return false;}},
+  del(k){try{JUKU_LS.removeItem(k);}catch(e){LS.ok=false;}}
 };
 /* ============ CSV parse ============ */
 function parseCSV(text){
@@ -1928,8 +2053,8 @@ function renderModeUI(){
 var JUKU_TERM = (function(){
   var MARK='juku_roster_mark_v1';        /* {koma:'2026年度2学期', grade:…, survey:…} */
 
-  function get(){ try{ return JSON.parse(localStorage.getItem(MARK)||'{}')||{}; }catch(e){ return {}; } }
-  function put(o){ try{ localStorage.setItem(MARK, JSON.stringify(o)); }catch(e){} }
+  function get(){ try{ return JSON.parse(JUKU_LS.getItem(MARK)||'{}')||{}; }catch(e){ return {}; } }
+  function put(o){ try{ JUKU_LS.setItem(MARK, JSON.stringify(o)); }catch(e){} }
 
   /* 年度は4月始まり */
   function nendo(d){ return (d.getMonth()+1) >= 4 ? d.getFullYear() : d.getFullYear()-1; }
@@ -2018,8 +2143,8 @@ var JUKU_ROSTER = (function(){
   var SHELF='juku_roster_v1';        /* {学期:{student:{file,at,text}, teacher:{…}, kousyu:'2026年度夏期'}} */
   var SEEN ='juku_roster_seen_v1';   /* {tool:{term, at}} どこまで取り込み済みか */
 
-  function rd(k){ try{ return JSON.parse(localStorage.getItem(k)||'{}')||{}; }catch(e){ return {}; } }
-  function wr(k,o){ try{ localStorage.setItem(k, JSON.stringify(o)); return true; }catch(e){ return false; } }
+  function rd(k){ try{ return JSON.parse(JUKU_LS.getItem(k)||'{}')||{}; }catch(e){ return {}; } }
+  function wr(k,o){ try{ JUKU_LS.setItem(k, JSON.stringify(o)); return true; }catch(e){ return false; } }
 
   function all(){ return rd(SHELF); }
   function terms(){ return Object.keys(all()).sort(); }
@@ -2034,10 +2159,10 @@ var JUKU_ROSTER = (function(){
   }
   function drop(term){ var o=rd(SHELF); delete o[term]; wr(SHELF,o); }
   function clearAll(){
-    try{ localStorage.removeItem(SHELF); localStorage.removeItem(SEEN); }catch(e){}
+    try{ JUKU_LS.removeItem(SHELF); JUKU_LS.removeItem(SEEN); }catch(e){}
   }
   function sizeKB(){
-    try{ return Math.round((localStorage.getItem(SHELF)||'').length/1024); }catch(e){ return 0; }
+    try{ return Math.round((JUKU_LS.getItem(SHELF)||'').length/1024); }catch(e){ return 0; }
   }
 
   /* どこまで取り込んだかの印。生徒と先生で別々に持つ（片方だけ更新されることがある） */

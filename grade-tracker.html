@@ -407,7 +407,132 @@
   </div>
 </div>
 
-<script>
+<script id="juku-ls">
+/* JUKU_LS:BEGIN — tools/juku-ls.js から tools/apply-juku-ls.py で埋め込み。ここを直接直さないこと */
+/* ===== JUKU_LS：塾ツール共通の保存先（IndexedDB）=====
+   localStorage はスマホ(Safari)だと全ツール合わせて約5MBしかなく、すぐ満杯になる。
+   そこで中身は IndexedDB に置き、各ツールからは localStorage と同じ書き方で使えるようにする。
+   ・起動時に IndexedDB を全部メモリに読み込んでから、ツール本体のスクリプトを動かす
+     （本体は <script type="text/juku-deferred">。読み書きは今まで通り同期のままでよい）
+   ・書き込みはメモリに入れてすぐ IndexedDB へ。同じ画面の他のツール(iframe)にも知らせる
+   ・localStorage に残っているもの（以前のデータ／IndexedDB が使えなかった時の書き込み）は
+     起動のたびに IndexedDB へ移し、localStorage からは消す
+   ・IndexedDB が使えない環境では、localStorage をそのまま使う
+   ★ツールのコードでは localStorage を直接使わず、必ず JUKU_LS を使うこと。 */
+(function () {
+  var DBN = 'juku_store', ST = 'kv';
+  var mem = {}, db = null, early = [];
+  var me = Math.random().toString(36).slice(2);
+  var bc = null; try { bc = new BroadcastChannel('juku_ls'); } catch (e) {}
+  function LS() { try { return window.localStorage; } catch (e) { return null; } }
+  var warned = false;
+  function fail(e) {
+    if (warned) return; warned = true;
+    try { alert('端末への保存に失敗しました。\n\n' + (e && e.message ? e.message : e)); } catch (x) {}
+  }
+  function put(k, v) {
+    try {
+      var tx = db.transaction(ST, 'readwrite'), s = tx.objectStore(ST);
+      if (v === null) s['delete'](k); else s.put(v, k);
+      tx.onabort = function () { fail(tx.error); };
+    } catch (e) { fail(e); }
+  }
+  function tell(k, v) { if (bc) { try { bc.postMessage({ by: me, k: k, v: v }); } catch (e) {} } }
+  function apply(d) { if (d.v === null) delete mem[d.k]; else mem[d.k] = d.v; }
+  var api = {
+    getItem: function (k) {
+      k = String(k);
+      if (!db) { var l = LS(); return l ? l.getItem(k) : null; }
+      return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null;
+    },
+    setItem: function (k, v) {
+      k = String(k); v = String(v);
+      if (!db) { LS().setItem(k, v); return; }
+      mem[k] = v; put(k, v); tell(k, v);
+    },
+    removeItem: function (k) {
+      k = String(k);
+      if (!db) { var l = LS(); if (l) l.removeItem(k); return; }
+      if (!Object.prototype.hasOwnProperty.call(mem, k)) return;
+      delete mem[k]; put(k, null); tell(k, null);
+    },
+    key: function (i) {
+      if (!db) { var l = LS(); return l ? l.key(i) : null; }
+      var ks = Object.keys(mem); return i >= 0 && i < ks.length ? ks[i] : null;
+    },
+    clear: function () {
+      if (!db) { var l = LS(); if (l) l.clear(); return; }
+      Object.keys(mem).forEach(function (k) { api.removeItem(k); });
+    },
+    usingIdb: function () { return !!db; }
+  };
+  Object.defineProperty(api, 'length', { get: function () {
+    if (!db) { var l = LS(); return l ? l.length : 0; }
+    return Object.keys(mem).length;
+  } });
+  if (bc) bc.onmessage = function (e) {
+    var d = e.data; if (!d || d.by === me) return;
+    if (db) apply(d); else early.push(d);   // 読み込み中に届いた分は、読み終わってから反映する
+  };
+  window.JUKU_LS = api;
+
+  function openDb(cb) {
+    var done = false;
+    function fin(d) { if (done) { if (d) try { d.close(); } catch (e) {} return; } done = true; cb(d); }
+    setTimeout(function () { fin(null); }, 4000);   // 開けないまま固まる端末があるので待ちすぎない
+    try {
+      var r = indexedDB.open(DBN, 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore(ST); };
+      r.onsuccess = function () { fin(r.result); };
+      r.onerror = function () { fin(null); };
+    } catch (e) { fin(null); }
+  }
+  function load(d, cb) {
+    try {
+      var tx = d.transaction(ST, 'readwrite'), s = tx.objectStore(ST), got = {}, moved = [], l = LS();
+      s.openCursor().onsuccess = function (e) {
+        var c = e.target.result;
+        if (c) { got[c.key] = c.value; c['continue'](); return; }
+        if (l) {
+          for (var i = 0; i < l.length; i++) {
+            var k = l.key(i); if (k == null) continue;
+            var v = l.getItem(k); got[k] = v; s.put(v, k); moved.push(k);
+          }
+        }
+      };
+      tx.oncomplete = function () {
+        moved.forEach(function (k) { try { l.removeItem(k); } catch (e) {} });
+        mem = got; db = d;
+        early.forEach(apply); early = [];
+        cb();
+      };
+      tx.onabort = function () { cb(); };   // 移せなかったら localStorage のまま動かす
+    } catch (e) { cb(); }
+  }
+  function run() {
+    var list = Array.prototype.slice.call(document.querySelectorAll('script[type="text/juku-deferred"]'));
+    list.forEach(function (o) {
+      var s = document.createElement('script');
+      if (o.id) s.id = o.id;
+      s.text = o.text;
+      o.parentNode.replaceChild(s, o);
+    });
+    // 本体は読み込み完了の後に動くので、それを待っているコードのために合図を出し直す
+    try { document.dispatchEvent(new Event('DOMContentLoaded')); } catch (e) {}
+    if (document.readyState === 'complete') { try { window.dispatchEvent(new Event('load')); } catch (e) {} }
+  }
+  var stored = false, parsed = document.readyState !== 'loading', started = false;
+  function go() { if (started || !stored || !parsed) return; started = true; run(); }
+  function onDcl() { document.removeEventListener('DOMContentLoaded', onDcl); parsed = true; go(); }
+  if (!parsed) document.addEventListener('DOMContentLoaded', onDcl);
+  function ok() { stored = true; go(); }
+  if (!window.indexedDB) ok();
+  else openDb(function (d) { if (!d) ok(); else load(d, ok); });
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+})();
+/* JUKU_LS:END */
+</script>
+<script type="text/juku-deferred">
 // ===== データモデル =====
 // students[no] = { no, name, school, grade, teacher, juku:[], scores: { "2025-5": {kokugo,...,total}, "2026-2": {...} } }
 const SUBJECTS = ['国語','数学','英語','理科','社会'];
@@ -491,8 +616,8 @@ let mainView = 'action';   // action / summary / settings
 var JUKU_TERM = (function(){
   var MARK='juku_roster_mark_v1';        /* {koma:'2026年度2学期', grade:…, survey:…} */
 
-  function get(){ try{ return JSON.parse(localStorage.getItem(MARK)||'{}')||{}; }catch(e){ return {}; } }
-  function put(o){ try{ localStorage.setItem(MARK, JSON.stringify(o)); }catch(e){} }
+  function get(){ try{ return JSON.parse(JUKU_LS.getItem(MARK)||'{}')||{}; }catch(e){ return {}; } }
+  function put(o){ try{ JUKU_LS.setItem(MARK, JSON.stringify(o)); }catch(e){} }
 
   /* 年度は4月始まり */
   function nendo(d){ return (d.getMonth()+1) >= 4 ? d.getFullYear() : d.getFullYear()-1; }
@@ -581,8 +706,8 @@ var JUKU_ROSTER = (function(){
   var SHELF='juku_roster_v1';        /* {学期:{student:{file,at,text}, teacher:{…}, kousyu:'2026年度夏期'}} */
   var SEEN ='juku_roster_seen_v1';   /* {tool:{term, at}} どこまで取り込み済みか */
 
-  function rd(k){ try{ return JSON.parse(localStorage.getItem(k)||'{}')||{}; }catch(e){ return {}; } }
-  function wr(k,o){ try{ localStorage.setItem(k, JSON.stringify(o)); return true; }catch(e){ return false; } }
+  function rd(k){ try{ return JSON.parse(JUKU_LS.getItem(k)||'{}')||{}; }catch(e){ return {}; } }
+  function wr(k,o){ try{ JUKU_LS.setItem(k, JSON.stringify(o)); return true; }catch(e){ return false; } }
 
   function all(){ return rd(SHELF); }
   function terms(){ return Object.keys(all()).sort(); }
@@ -597,10 +722,10 @@ var JUKU_ROSTER = (function(){
   }
   function drop(term){ var o=rd(SHELF); delete o[term]; wr(SHELF,o); }
   function clearAll(){
-    try{ localStorage.removeItem(SHELF); localStorage.removeItem(SEEN); }catch(e){}
+    try{ JUKU_LS.removeItem(SHELF); JUKU_LS.removeItem(SEEN); }catch(e){}
   }
   function sizeKB(){
-    try{ return Math.round((localStorage.getItem(SHELF)||'').length/1024); }catch(e){ return 0; }
+    try{ return Math.round((JUKU_LS.getItem(SHELF)||'').length/1024); }catch(e){ return 0; }
   }
 
   /* どこまで取り込んだかの印。生徒と先生で別々に持つ（片方だけ更新されることがある） */
@@ -858,10 +983,10 @@ function paintRoundNote(want, use){
     el.textContent = 'テスト'+kai+'＝'+want+' の担当';
   }
 }
-function saveByTerm(){ try{ localStorage.setItem(BYTERM_KEY, JSON.stringify(rosterByTerm)); }catch(e){} }
+function saveByTerm(){ try{ JUKU_LS.setItem(BYTERM_KEY, JSON.stringify(rosterByTerm)); }catch(e){} }
 /* 前のかたち（1セットだけ）を、今の学期のぶんとして引き継ぐ */
 function migrateByTerm(){
-  try{ const r=localStorage.getItem(BYTERM_KEY); if(r){ rosterByTerm=JSON.parse(r); return; } }catch(e){}
+  try{ const r=JUKU_LS.getItem(BYTERM_KEY); if(r){ rosterByTerm=JSON.parse(r); return; } }catch(e){}
   const t = JUKU_TERM.mark('grade') || JUKU_TERM.want('grade');
   rosterByTerm = { tantou:{}, tantouHigh:{}, schedule:{}, scheduleHigh:{}, rosterGrade:{} };
   if(!tantou || !Object.keys(tantou).length){ saveByTerm(); return; }   /* まだ名簿が無いなら空のまま */
@@ -905,8 +1030,8 @@ var JUKU_SYNC = (function(){
   var DEV='juku_device_v1';          /* 端末の名前（全ツール共通） */
   var LAST='juku_sync_last_v1';      /* {tool: {at, by}} この端末が最後に保存した時刻 */
 
-  function rd(k,d){ try{ return JSON.parse(localStorage.getItem(k)||'null') || d; }catch(e){ return d; } }
-  function wr(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+  function rd(k,d){ try{ return JSON.parse(JUKU_LS.getItem(k)||'null') || d; }catch(e){ return d; } }
+  function wr(k,v){ try{ JUKU_LS.setItem(k, JSON.stringify(v)); }catch(e){} }
 
   function deviceName(){
     var n = rd(DEV,'');
@@ -1009,12 +1134,12 @@ var JUKU_SYNC = (function(){
    ツールごとの「最後に手入力した時刻」（touch）で決める。 */
 (function(){
   var TOUCH='juku_touched_v1';    /* {tool: ISO} この端末で最後に手入力した時刻 */
-  function rd(){ try{ return JSON.parse(localStorage.getItem(TOUCH)||'{}')||{}; }catch(e){ return {}; } }
+  function rd(){ try{ return JSON.parse(JUKU_LS.getItem(TOUCH)||'{}')||{}; }catch(e){ return {}; } }
 
   /* 手で入れたものを保存したときに呼ぶ */
   JUKU_SYNC.touch = function(tool){
     var o=rd(); o[tool]=new Date().toISOString();
-    try{ localStorage.setItem(TOUCH, JSON.stringify(o)); }catch(e){}
+    try{ JUKU_LS.setItem(TOUCH, JSON.stringify(o)); }catch(e){}
   };
   JUKU_SYNC.touchedAt = function(tool){ return rd()[tool] || ''; };
 
@@ -1071,13 +1196,13 @@ var JUKU_SYNC = (function(){
    ・切りたい人のために、入／切のスイッチを付ける（既定は入） */
 (function(){
   var AUTO='juku_auto_sync_v1';       /* {tool: true/false} */
-  function rd(){ try{ return JSON.parse(localStorage.getItem(AUTO)||'{}')||{}; }catch(e){ return {}; } }
+  function rd(){ try{ return JSON.parse(JUKU_LS.getItem(AUTO)||'{}')||{}; }catch(e){ return {}; } }
 
   JUKU_SYNC.autoOn = function(tool){ var v=rd()[tool]; return v===undefined ? true : !!v; };
   var watch = [];
   JUKU_SYNC.setAuto = function(tool, on){
     var o=rd(); o[tool]=!!on;
-    try{ localStorage.setItem(AUTO, JSON.stringify(o)); }catch(e){}
+    try{ JUKU_LS.setItem(AUTO, JSON.stringify(o)); }catch(e){}
     watch.forEach(function(f){ try{ f(); }catch(e){} });
   };
 
@@ -1140,10 +1265,10 @@ var JUKU_SYNC = (function(){
      これが無いと、読み込んでもこの端末の保存時刻は古いままなので、
      3分おきに同じものを何度も読み直してしまう。 */
   var SEEN='juku_sync_seen_v1';
-  function seenAt(tool){ try{ return (JSON.parse(localStorage.getItem(SEEN)||'{}')||{})[tool]||''; }catch(e){ return ''; } }
+  function seenAt(tool){ try{ return (JSON.parse(JUKU_LS.getItem(SEEN)||'{}')||{})[tool]||''; }catch(e){ return ''; } }
   function noteSeen(tool, at){
-    try{ var o=JSON.parse(localStorage.getItem(SEEN)||'{}')||{}; o[tool]=at;
-         localStorage.setItem(SEEN, JSON.stringify(o)); }catch(e){}
+    try{ var o=JSON.parse(JUKU_LS.getItem(SEEN)||'{}')||{}; o[tool]=at;
+         JUKU_LS.setItem(SEEN, JSON.stringify(o)); }catch(e){}
   }
 
   /* スプシのほうが新しいときだけ読み込む。
@@ -1225,59 +1350,59 @@ const KANA_KEY = 'gradeTracker_kana_v1';
 const SETTINGS_KEY = 'gradeTracker_settings_v1';
 
 function load() {
-  try { const r=localStorage.getItem(STORAGE_KEY); if(r) students=JSON.parse(r); } catch(e){}
-  try { const r=localStorage.getItem(NAMES_KEY); if(r) names=JSON.parse(r); } catch(e){}
-  try { const r=localStorage.getItem(KANA_KEY); if(r) kana=JSON.parse(r); } catch(e){}
-  try { const r=localStorage.getItem(ROSTER_GRADE_KEY); if(r) rosterGrade=JSON.parse(r); } catch(e){}
-  try { const r=localStorage.getItem(TANTOU_KEY); if(r) tantou=JSON.parse(r); } catch(e){}
-  try { const r=localStorage.getItem(TANTOU_HIGH_KEY); if(r) tantouHigh=JSON.parse(r); } catch(e){}
-  try { const r=localStorage.getItem(SCHEDULE_KEY); if(r) schedule=JSON.parse(r); } catch(e){}
-  try { const r=localStorage.getItem(SCHEDULE_HIGH_KEY); if(r) scheduleHigh=JSON.parse(r); } catch(e){}
-  try { const r=localStorage.getItem(NOTIMPL_KEY); if(r) notImplemented=JSON.parse(r); } catch(e){}
-  try { const r=localStorage.getItem(MANUAL_COL_KEY); if(r) manualCollected=JSON.parse(r); } catch(e){}
-  try { const r=localStorage.getItem(ACTIONS_KEY); if(r) actions=JSON.parse(r); } catch(e){}
-  try { const r=localStorage.getItem(NOTES_KEY); if(r) notes=JSON.parse(r); } catch(e){}
-  try { const r=localStorage.getItem(SETTINGS_KEY); if(r){const s=JSON.parse(r); if(s.thSubject!=null)TH_SUBJECT=s.thSubject; if(s.thTotal!=null)TH_TOTAL=s.thTotal;} } catch(e){}
+  try { const r=JUKU_LS.getItem(STORAGE_KEY); if(r) students=JSON.parse(r); } catch(e){}
+  try { const r=JUKU_LS.getItem(NAMES_KEY); if(r) names=JSON.parse(r); } catch(e){}
+  try { const r=JUKU_LS.getItem(KANA_KEY); if(r) kana=JSON.parse(r); } catch(e){}
+  try { const r=JUKU_LS.getItem(ROSTER_GRADE_KEY); if(r) rosterGrade=JSON.parse(r); } catch(e){}
+  try { const r=JUKU_LS.getItem(TANTOU_KEY); if(r) tantou=JSON.parse(r); } catch(e){}
+  try { const r=JUKU_LS.getItem(TANTOU_HIGH_KEY); if(r) tantouHigh=JSON.parse(r); } catch(e){}
+  try { const r=JUKU_LS.getItem(SCHEDULE_KEY); if(r) schedule=JSON.parse(r); } catch(e){}
+  try { const r=JUKU_LS.getItem(SCHEDULE_HIGH_KEY); if(r) scheduleHigh=JSON.parse(r); } catch(e){}
+  try { const r=JUKU_LS.getItem(NOTIMPL_KEY); if(r) notImplemented=JSON.parse(r); } catch(e){}
+  try { const r=JUKU_LS.getItem(MANUAL_COL_KEY); if(r) manualCollected=JSON.parse(r); } catch(e){}
+  try { const r=JUKU_LS.getItem(ACTIONS_KEY); if(r) actions=JSON.parse(r); } catch(e){}
+  try { const r=JUKU_LS.getItem(NOTES_KEY); if(r) notes=JSON.parse(r); } catch(e){}
+  try { const r=JUKU_LS.getItem(SETTINGS_KEY); if(r){const s=JSON.parse(r); if(s.thSubject!=null)TH_SUBJECT=s.thSubject; if(s.thTotal!=null)TH_TOTAL=s.thTotal;} } catch(e){}
 }
 function save() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(students)); } catch(e) { alert('保存に失敗（容量超過の可能性）'); }
+  try { JUKU_LS.setItem(STORAGE_KEY, JSON.stringify(students)); } catch(e) { alert('保存に失敗（容量超過の可能性）'); }
 }
-function saveNames(){ try{localStorage.setItem(NAMES_KEY,JSON.stringify(names));}catch(e){} }
-function saveKana(){ try{localStorage.setItem(KANA_KEY,JSON.stringify(kana));}catch(e){} }
-function saveRosterGrade(){ try{localStorage.setItem(ROSTER_GRADE_KEY,JSON.stringify(rosterGrade));}catch(e){} }
-function saveTantou(){ try{localStorage.setItem(TANTOU_KEY,JSON.stringify(tantou));}catch(e){} }
-function saveTantouHigh(){ try{localStorage.setItem(TANTOU_HIGH_KEY,JSON.stringify(tantouHigh));}catch(e){} }
-function saveSchedule(){ try{localStorage.setItem(SCHEDULE_KEY,JSON.stringify(schedule));}catch(e){} }
-function saveScheduleHigh(){ try{localStorage.setItem(SCHEDULE_HIGH_KEY,JSON.stringify(scheduleHigh));}catch(e){} }
-function saveNotImplemented(){ JUKU_SYNC.touch('grade'); JUKU_SYNC.queueSave('grade', syncSave); try{localStorage.setItem(NOTIMPL_KEY,JSON.stringify(notImplemented));}catch(e){} }
-function saveManualCollected(){ JUKU_SYNC.touch('grade'); JUKU_SYNC.queueSave('grade', syncSave); try{localStorage.setItem(MANUAL_COL_KEY,JSON.stringify(manualCollected));}catch(e){} }
-function saveActions(){ JUKU_SYNC.touch('grade'); JUKU_SYNC.queueSave('grade', syncSave); try{localStorage.setItem(ACTIONS_KEY,JSON.stringify(actions));}catch(e){} }
-function saveNotes(){ JUKU_SYNC.touch('grade'); JUKU_SYNC.queueSave('grade', syncSave); try{localStorage.setItem(NOTES_KEY,JSON.stringify(notes));}catch(e){} }
+function saveNames(){ try{JUKU_LS.setItem(NAMES_KEY,JSON.stringify(names));}catch(e){} }
+function saveKana(){ try{JUKU_LS.setItem(KANA_KEY,JSON.stringify(kana));}catch(e){} }
+function saveRosterGrade(){ try{JUKU_LS.setItem(ROSTER_GRADE_KEY,JSON.stringify(rosterGrade));}catch(e){} }
+function saveTantou(){ try{JUKU_LS.setItem(TANTOU_KEY,JSON.stringify(tantou));}catch(e){} }
+function saveTantouHigh(){ try{JUKU_LS.setItem(TANTOU_HIGH_KEY,JSON.stringify(tantouHigh));}catch(e){} }
+function saveSchedule(){ try{JUKU_LS.setItem(SCHEDULE_KEY,JSON.stringify(schedule));}catch(e){} }
+function saveScheduleHigh(){ try{JUKU_LS.setItem(SCHEDULE_HIGH_KEY,JSON.stringify(scheduleHigh));}catch(e){} }
+function saveNotImplemented(){ JUKU_SYNC.touch('grade'); JUKU_SYNC.queueSave('grade', syncSave); try{JUKU_LS.setItem(NOTIMPL_KEY,JSON.stringify(notImplemented));}catch(e){} }
+function saveManualCollected(){ JUKU_SYNC.touch('grade'); JUKU_SYNC.queueSave('grade', syncSave); try{JUKU_LS.setItem(MANUAL_COL_KEY,JSON.stringify(manualCollected));}catch(e){} }
+function saveActions(){ JUKU_SYNC.touch('grade'); JUKU_SYNC.queueSave('grade', syncSave); try{JUKU_LS.setItem(ACTIONS_KEY,JSON.stringify(actions));}catch(e){} }
+function saveNotes(){ JUKU_SYNC.touch('grade'); JUKU_SYNC.queueSave('grade', syncSave); try{JUKU_LS.setItem(NOTES_KEY,JSON.stringify(notes));}catch(e){} }
 const SYNC_CFG_KEY = 'gradeTracker_syncConfig_v1';
-function loadSyncCfg(){ try{ return JSON.parse(localStorage.getItem(SYNC_CFG_KEY)||'{}'); }catch(e){ return {}; } }
-function saveSyncCfg(cfg){ try{ localStorage.setItem(SYNC_CFG_KEY, JSON.stringify(cfg)); }catch(e){} }
+function loadSyncCfg(){ try{ return JSON.parse(JUKU_LS.getItem(SYNC_CFG_KEY)||'{}'); }catch(e){ return {}; } }
+function saveSyncCfg(cfg){ try{ JUKU_LS.setItem(SYNC_CFG_KEY, JSON.stringify(cfg)); }catch(e){} }
 function syncPayload(){
   return { students, names, kana, rosterGrade, tantou, tantouHigh, schedule, scheduleHigh,
     notImplemented, manualCollected, actions, notes,
     settings:{ thSubject: TH_SUBJECT, thTotal: TH_TOTAL } };
 }
 function applySyncPayload(d){
-  if(d.students){ students=d.students; localStorage.setItem(STORAGE_KEY, JSON.stringify(students)); }
-  if(d.names){ names=d.names; localStorage.setItem(NAMES_KEY, JSON.stringify(names)); }
-  if(d.kana){ kana=d.kana; localStorage.setItem(KANA_KEY, JSON.stringify(kana)); }
-  if(d.rosterGrade){ rosterGrade=d.rosterGrade; localStorage.setItem(ROSTER_GRADE_KEY, JSON.stringify(rosterGrade)); }
-  if(d.tantou){ tantou=d.tantou; localStorage.setItem(TANTOU_KEY, JSON.stringify(tantou)); }
-  if(d.tantouHigh){ tantouHigh=d.tantouHigh; localStorage.setItem(TANTOU_HIGH_KEY, JSON.stringify(tantouHigh)); }
-  if(d.schedule){ schedule=d.schedule; localStorage.setItem(SCHEDULE_KEY, JSON.stringify(schedule)); }
-  if(d.scheduleHigh){ scheduleHigh=d.scheduleHigh; localStorage.setItem(SCHEDULE_HIGH_KEY, JSON.stringify(scheduleHigh)); }
+  if(d.students){ students=d.students; JUKU_LS.setItem(STORAGE_KEY, JSON.stringify(students)); }
+  if(d.names){ names=d.names; JUKU_LS.setItem(NAMES_KEY, JSON.stringify(names)); }
+  if(d.kana){ kana=d.kana; JUKU_LS.setItem(KANA_KEY, JSON.stringify(kana)); }
+  if(d.rosterGrade){ rosterGrade=d.rosterGrade; JUKU_LS.setItem(ROSTER_GRADE_KEY, JSON.stringify(rosterGrade)); }
+  if(d.tantou){ tantou=d.tantou; JUKU_LS.setItem(TANTOU_KEY, JSON.stringify(tantou)); }
+  if(d.tantouHigh){ tantouHigh=d.tantouHigh; JUKU_LS.setItem(TANTOU_HIGH_KEY, JSON.stringify(tantouHigh)); }
+  if(d.schedule){ schedule=d.schedule; JUKU_LS.setItem(SCHEDULE_KEY, JSON.stringify(schedule)); }
+  if(d.scheduleHigh){ scheduleHigh=d.scheduleHigh; JUKU_LS.setItem(SCHEDULE_HIGH_KEY, JSON.stringify(scheduleHigh)); }
   /* ここから下は「手で入れたもの」。上書きせずに混ぜる。
      片方にしか無いものは両方残し、同じところがぶつかったら あとから触ったほうを採る。 */
   const mineNewer = JUKU_SYNC.iAmNewer('grade', d._touchedAt);
-  if(d.notImplemented){ notImplemented=JUKU_SYNC.merge(notImplemented, d.notImplemented, mineNewer); localStorage.setItem(NOTIMPL_KEY, JSON.stringify(notImplemented)); }
-  if(d.manualCollected){ manualCollected=JUKU_SYNC.merge(manualCollected, d.manualCollected, mineNewer); localStorage.setItem(MANUAL_COL_KEY, JSON.stringify(manualCollected)); }
-  if(d.actions){ actions=JUKU_SYNC.merge(actions, d.actions, mineNewer); localStorage.setItem(ACTIONS_KEY, JSON.stringify(actions)); }
-  if(d.notes){ notes=JUKU_SYNC.merge(notes, d.notes, mineNewer); localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); }
-  if(d.settings){ localStorage.setItem(SETTINGS_KEY, JSON.stringify(d.settings)); }
+  if(d.notImplemented){ notImplemented=JUKU_SYNC.merge(notImplemented, d.notImplemented, mineNewer); JUKU_LS.setItem(NOTIMPL_KEY, JSON.stringify(notImplemented)); }
+  if(d.manualCollected){ manualCollected=JUKU_SYNC.merge(manualCollected, d.manualCollected, mineNewer); JUKU_LS.setItem(MANUAL_COL_KEY, JSON.stringify(manualCollected)); }
+  if(d.actions){ actions=JUKU_SYNC.merge(actions, d.actions, mineNewer); JUKU_LS.setItem(ACTIONS_KEY, JSON.stringify(actions)); }
+  if(d.notes){ notes=JUKU_SYNC.merge(notes, d.notes, mineNewer); JUKU_LS.setItem(NOTES_KEY, JSON.stringify(notes)); }
+  if(d.settings){ JUKU_LS.setItem(SETTINGS_KEY, JSON.stringify(d.settings)); }
 }
 async function syncSave(opts){
   opts = opts || {};
@@ -1330,7 +1455,7 @@ async function syncLoad(opts){
     } else { msg.textContent='エラー: '+(data.error||'不明'); msg.style.color='#dc2626'; }
   }catch(e){ msg.textContent='通信エラー: ネット接続を確認してください'; msg.style.color='#dc2626'; }
 }
-function saveSettings(){ try{localStorage.setItem(SETTINGS_KEY,JSON.stringify({thSubject:TH_SUBJECT,thTotal:TH_TOTAL}));}catch(e){} }
+function saveSettings(){ try{JUKU_LS.setItem(SETTINGS_KEY,JSON.stringify({thSubject:TH_SUBJECT,thTotal:TH_TOTAL}));}catch(e){} }
 
 // ===== CSVパース =====
 function parseCSV(text) {
