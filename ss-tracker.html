@@ -806,7 +806,38 @@ function dbLoad() {
   DB.out   = lsGet(LS_OUT, {});
   DB.ui    = lsGet(LS_UI, {});
 }
-function saveSnaps() { bust(); return lsSet(LS_SNAP, DB.snaps); }
+/* SSの日付データは大きいので IndexedDB に置く。
+   localStorage はスマホ(Safari)だと全ツール合わせて約5MBしかなく、すぐ満杯になるため。
+   画面の描画は同期のままにしたいので、メモリ(DB.snaps)を正とし、保存だけ非同期で書く。
+   起動直後は IndexedDB の読み込みが終わるまで書かない（途中の中身で上書きしないため）。 */
+var SNAP_READY = null;
+function snapsLoad() {
+  if (SNAP_READY) return SNAP_READY;
+  SNAP_READY = (async function () {
+    var stored = null;
+    try { stored = await idbGet('snaps'); } catch (e) { return false; }   // 使えなければ localStorage のまま
+    var legacy = lsGet(LS_SNAP, null);
+    // 起動後にもう取り込んだ分（メモリ）を最優先し、IndexedDB → 旧 localStorage の順で埋める
+    DB.snaps = Object.assign({}, legacy || {}, stored || {}, DB.snaps);
+    bust();
+    try {
+      await idbSet('snaps', DB.snaps);
+      if (legacy) localStorage.removeItem(LS_SNAP);   // 移し終えたら空ける（他のツールの容量も空く）
+    } catch (e) { return false; }
+    return true;
+  })();
+  return SNAP_READY;
+}
+function saveSnaps() {
+  bust();
+  snapsLoad().then(function (idbOk) {
+    if (!idbOk) { lsSet(LS_SNAP, DB.snaps); return; }
+    return idbSet('snaps', DB.snaps).catch(function (e) {
+      alert('保存できませんでした。\n\n' + (e && e.message ? e.message : e));
+    });
+  });
+  return true;
+}
 function saveCfg()   { bust(); lsSet(LS_CFG, DB.cfg); }
 function saveMemo()  { JUKU_SYNC.touch('ss'); JUKU_SYNC.queueSave('ss', syncSave); lsSet(LS_MEMO, DB.memo); }
 function saveOut()   { bust(); JUKU_SYNC.touch('ss'); JUKU_SYNC.queueSave('ss', syncSave); lsSet(LS_OUT, DB.out); }
@@ -2377,7 +2408,7 @@ function noTestNote() {
 }
 
 function sizeKB() {
-  try { return Math.round((localStorage.getItem(LS_SNAP) || '').length / 1024); } catch (e) { return '?'; }
+  try { return Math.round(JSON.stringify(DB.snaps).length / 1024); } catch (e) { return '?'; }
 }
 /* ==========================================================================
    貢献シート(PDF)の読み取り
@@ -3124,7 +3155,7 @@ async function importFiles(files, msgId) {
    いつもの importFiles に渡す。設定は同期（DB.cfg）に混ぜず端末ごとに持つ。 */
 var LS_MAIL = 'ss_mail_v1';
 function mailCfg() {
-  return Object.assign({ url: '', key: '', auto: true, seen: {} }, lsGet(LS_MAIL, {}));
+  return Object.assign({ url: '', key: '', auto: true, got: {} }, lsGet(LS_MAIL, {}));
 }
 function mailCfgFromForm() {
   var c = mailCfg();
@@ -3157,9 +3188,10 @@ async function mailPull(verbose) {
   mailBusy = true;
   setMsg('mailmsg', 'メールを確認しています…');
   try {
+    await snapsLoad();
     var d = await mailPost(c, { action: 'ssList' });
     var list = d.files || [];
-    var fresh = list.filter(function (f) { return !c.seen[f.id]; });
+    var fresh = list.filter(function (f) { return !c.got[f.id]; });
     if (!fresh.length) { setMsg('mailmsg', '新しいSSはありません。', 'ok'); return; }
     var files = [];
     for (var i = 0; i < fresh.length; i++) {
@@ -3170,9 +3202,9 @@ async function mailPull(verbose) {
     await importFiles(files, 'mailmsg');
     // 読めなかったファイルも既読にする（毎回同じエラーを出さないため。理由は上に表示済み）
     var keep = {};
-    list.forEach(function (f) { if (c.seen[f.id]) keep[f.id] = 1; });
+    list.forEach(function (f) { if (c.got[f.id]) keep[f.id] = 1; });
     fresh.forEach(function (f) { keep[f.id] = 1; });
-    c.seen = keep;
+    c.got = keep;
     lsSet(LS_MAIL, c);
     var m = el('mailmsg'), mt = m ? m.textContent : '', mc = m ? m.className : '';
     refreshAll(true);                       // 設定タブを開いていると描き直されるので、結果を戻す
@@ -3775,7 +3807,7 @@ function wireCfg() {
   el('wipe').onclick = function () {
     if (!confirm('取り込んだSSデータ・タッチ履歴・設定をすべて消します。よろしいですか？')) return;
     [LS_SNAP, LS_CFG, LS_MEMO, LS_OUT, LS_UI].forEach(function (k) { try { localStorage.removeItem(k); } catch (e) {} });
-    location.reload();
+    idbSet('snaps', null).catch(function () {}).then(function () { location.reload(); });
   };
 }
 
@@ -3844,6 +3876,10 @@ function boot(reload) {
   });
   show(DB.ui.tab && PANES[DB.ui.tab] ? DB.ui.tab : 'touch');
   // フォルダを登録済みなら、開いた時点で未取込のファイルを静かに取り込む
+  if (!reload) {
+    var before = allDates().length;
+    snapsLoad().then(function () { if (allDates().length !== before) refreshAll(true); });
+  }
   if (!reload && fsSupported()) { setTimeout(function () { fsScan(false); }, 400); }
   // メールから自動取込を設定済みなら、開いた時点で新しいSSを受け取る
   if (!reload) { setTimeout(function () { var c = mailCfg(); if (c.auto && c.url && c.key) mailPull(false); }, 600); }
