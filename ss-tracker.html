@@ -2230,6 +2230,17 @@ function renderCfg() {
     noTestNote() +
     '</div>';
 
+  var mc = mailCfg();
+  h += '<div class="card"><h3>メールから自動取込 <span class="sub">スマホだけで完結</span></h3>' +
+    '<div class="muted">仕事用アカウントの Apps Script（<code>gas/seiseki_import.gs</code>）が、' +
+    '毎日の「成績進捗」メールのスプシを xlsx にしておきます。ここからそれを受け取って取り込みます。</div>' +
+    '<div class="row"><label>ウェブアプリURL</label>' +
+    '<input type="text" id="mailUrl" style="flex:1;min-width:240px" value="' + esc(mc.url) + '" placeholder="https://script.google.com/macros/s/.../exec"></div>' +
+    '<div class="row"><label>合言葉</label><input type="password" id="mailKey" value="' + esc(mc.key) + '"></div>' +
+    '<div class="row"><button class="btn" id="mailPull">メールから取り込む</button>' +
+    '<label style="font-size:12px;color:#5a6b7d;"><input type="checkbox" id="mailAuto"' + (mc.auto ? ' checked' : '') + '> 開いたときに自動で確認</label></div>' +
+    '<div class="msg" id="mailmsg"></div></div>';
+
   var kk = lsGet(LS_KOUKEN, null);
   h += '<div class="card"><h3>貢献シートの取り込み <span class="sub">成績との相関に使う</span></h3>' +
     '<div class="drop" id="kdrop">ここに <b>貢献シートのPDF</b> をドラッグ＆ドロップ<br>' +
@@ -3107,6 +3118,72 @@ async function importFiles(files, msgId) {
   return { ok: ok, ng: ng.length, added: added };
 }
 
+/* ---------- メールから自動取込（仕事用アカウントの Apps Script 経由） ----------
+   gas/seiseki_import.gs が成績進捗メールのスプシを xlsx にして置いておく。
+   ここではその一覧を聞き、まだ取り込んでいないものだけ受け取って
+   いつもの importFiles に渡す。設定は同期（DB.cfg）に混ぜず端末ごとに持つ。 */
+var LS_MAIL = 'ss_mail_v1';
+function mailCfg() {
+  return Object.assign({ url: '', key: '', auto: true, seen: {} }, lsGet(LS_MAIL, {}));
+}
+function mailCfgFromForm() {
+  var c = mailCfg();
+  if (el('mailUrl')) c.url = el('mailUrl').value.trim();
+  if (el('mailKey')) c.key = el('mailKey').value.trim();
+  if (el('mailAuto')) c.auto = el('mailAuto').checked;
+  lsSet(LS_MAIL, c);
+  return c;
+}
+async function mailPost(c, body) {
+  body.key = c.key;
+  var res = await fetch(c.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(body) });
+  var d;
+  try { d = await res.json(); }
+  catch (e) { throw new Error('応答が読めません（URLかデプロイの「アクセスできるユーザー」を確認してください）'); }
+  if (!d.ok) throw new Error(d.error || '不明なエラー');
+  return d;
+}
+function b64Bytes(s) {
+  var bin = atob(s), u = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return u;
+}
+var mailBusy = false;
+async function mailPull(verbose) {
+  if (mailBusy) return;
+  var c = mailCfg();
+  if (!c.url || !c.key) { if (verbose) setMsg('mailmsg', 'ウェブアプリURLと合言葉を入れてください。', 'er'); return; }
+  mailBusy = true;
+  setMsg('mailmsg', 'メールを確認しています…');
+  try {
+    var d = await mailPost(c, { action: 'ssList' });
+    var list = d.files || [];
+    var fresh = list.filter(function (f) { return !c.seen[f.id]; });
+    if (!fresh.length) { setMsg('mailmsg', '新しいSSはありません。', 'ok'); return; }
+    var files = [];
+    for (var i = 0; i < fresh.length; i++) {
+      setMsg('mailmsg', '受け取り中… ' + (i + 1) + ' / ' + fresh.length);
+      var r = await mailPost(c, { action: 'ssFile', id: fresh[i].id });
+      files.push(new File([b64Bytes(r.data)], r.name || fresh[i].name));
+    }
+    await importFiles(files, 'mailmsg');
+    // 読めなかったファイルも既読にする（毎回同じエラーを出さないため。理由は上に表示済み）
+    var keep = {};
+    list.forEach(function (f) { if (c.seen[f.id]) keep[f.id] = 1; });
+    fresh.forEach(function (f) { keep[f.id] = 1; });
+    c.seen = keep;
+    lsSet(LS_MAIL, c);
+    var m = el('mailmsg'), mt = m ? m.textContent : '', mc = m ? m.className : '';
+    refreshAll(true);                       // 設定タブを開いていると描き直されるので、結果を戻す
+    var m2 = el('mailmsg'); if (m2 && mt) { m2.textContent = mt; m2.className = mc; }
+  } catch (e) {
+    setMsg('mailmsg', '取り込めませんでした: ' + (e && e.message ? e.message : e), 'er');
+  } finally {
+    mailBusy = false;
+  }
+}
+
 /* ---------- 貢献シート(PDF)の取り込み ---------------------------------- */
 async function importKouken(file) {
   if (!file) return;
@@ -3631,6 +3708,10 @@ function wireCfg() {
     setMsg('fsmsg', 'この開き方ではフォルダ監視が使えません（file:// で開いているか、対応していないブラウザです）。', 'er');
   }
 
+  el('mailPull').onclick = function () { mailCfgFromForm(); mailPull(true); };
+  el('mailAuto').onchange = function () { mailCfgFromForm(); };
+  el('mailUrl').onchange = el('mailKey').onchange = function () { mailCfgFromForm(); };
+
   el('syncSave').onclick = function () {
     DB.cfg.syncUrl = el('syncUrl').value.trim(); DB.cfg.syncKey = el('syncKey').value.trim(); saveCfg(); syncSave();
   };
@@ -3764,6 +3845,8 @@ function boot(reload) {
   show(DB.ui.tab && PANES[DB.ui.tab] ? DB.ui.tab : 'touch');
   // フォルダを登録済みなら、開いた時点で未取込のファイルを静かに取り込む
   if (!reload && fsSupported()) { setTimeout(function () { fsScan(false); }, 400); }
+  // メールから自動取込を設定済みなら、開いた時点で新しいSSを受け取る
+  if (!reload) { setTimeout(function () { var c = mailCfg(); if (c.auto && c.url && c.key) mailPull(false); }, 600); }
 }
 
 if (typeof document !== 'undefined' && document.getElementById('selDate')) boot();
