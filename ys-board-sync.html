@@ -13204,6 +13204,28 @@ var JUKU_SYNC = (function(){
      先生を登録する前に取り込んだ記録は先生と結びつかないまま残り、
      後で同じCSVを取り込むと二重に作られていたため（2026-11-17） */
   var STATUS_RANK = { not_contacted: 0, multi: 1, declined: 2, considering: 3, line_sent: 4, interested: 5, hot: 6, rang: 7, enrolled: 8 };
+  /* ===== 消した紹介記録の id（墓標）=====
+     スプシの読込は「混ぜる」ので、消したことを伝えないと別の端末から生き返る。
+     消えた id を日時つきで覚え、スプシにも載せて、読込のときに取り除く。 */
+  var YS_DEL_KEY = "ysboard-deleted";
+  function ysDelRead() { try { return JSON.parse(JUKU_LS.getItem(YS_DEL_KEY) || "{}") || {}; } catch (e) { return {}; } }
+  function ysDelWrite(o) {
+    const lim = Date.now() - 180 * 864e5;   // 半年より前のものは忘れる（溜めすぎないため）
+    Object.keys(o).forEach((k) => { if (!(new Date(o[k]).getTime() >= lim)) delete o[k]; });
+    try { JUKU_LS.setItem(YS_DEL_KEY, JSON.stringify(o)); } catch (e) {}
+  }
+  function ysDelMark(ids) {
+    if (!ids.length) return;
+    const o = ysDelRead(), now = (/* @__PURE__ */ new Date()).toISOString();
+    ids.forEach((id) => { o[String(id)] = now; });
+    ysDelWrite(o);
+  }
+  function ysDelMerge(other) {
+    const o = ysDelRead();
+    if (other) Object.keys(other).forEach((k) => { if (!o[k] || other[k] > o[k]) o[k] = other[k]; });
+    ysDelWrite(o);
+    return o;
+  }
   function relinkAndMerge(recs, teachers) {
     const nm = (s) => String(s || "").normalize("NFKC").replace(/\s|先生/g, "");
     const byId = new Set(teachers.map((t) => t.id));
@@ -13576,9 +13598,19 @@ var JUKU_SYNC = (function(){
         JUKU_LS.setItem("ysboard-sync-config", JSON.stringify({ url: syncUrl, key: syncKey }));
       } catch (e) {
       }
+      /* 開いたときの「スプシのほうが新しければ読む」は、接続先がまだ入っていない
+         最初の描画で登録されるため空振りしていた。接続先が入ったここで1回確かめる。 */
+      if (syncUrl && syncKey && !window.__ysOpenChecked) {
+        window.__ysOpenChecked = true;
+        JUKU_SYNC.recheck("ysboard");
+      }
     }, [syncUrl, syncKey, loaded]);
     (0, import_react.useEffect)(() => {
       if (!loaded) return;
+      /* 前回あって今回ない記録 = 消した（手で消した・重複をまとめた・リセット） */
+      const ids = new Set(records.map((r) => String(r.id)));
+      if (window.__ysPrevIds) ysDelMark([...window.__ysPrevIds].filter((id) => !ids.has(id)));
+      window.__ysPrevIds = ids;
       const pointPeriod = { term: filterTerm, start: periodStart, end: periodEnd };
       const data = { students, teachers, schedule, records, studentSchedules, teamNames, teamGoals, lastImportDate, pointPeriod };
       try {
@@ -13883,7 +13915,7 @@ var JUKU_SYNC = (function(){
       setSyncStatus("saving");
       setSyncMsg(opts.auto ? "自動で保存中…" : "スプシに保存中…");
       try {
-        const payload = JUKU_SYNC.stamp({ students, teachers, schedule, records, studentSchedules, teamNames, teamGoals, lastImportDate, pointPeriod: { term: filterTerm, start: periodStart, end: periodEnd } });
+        const payload = JUKU_SYNC.stamp({ students, teachers, schedule, records, studentSchedules, teamNames, teamGoals, lastImportDate, pointPeriod: { term: filterTerm, start: periodStart, end: periodEnd }, _touchedAt: JUKU_SYNC.touchedAt("ysboard"), deleted: ysDelRead() });
         const res = await fetch(syncUrl, {
           method: "POST",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
@@ -13941,8 +13973,18 @@ var JUKU_SYNC = (function(){
         if (d.students) setStudents(d.students);
         if (d.teachers) setTeachers(d.teachers);
         if (d.schedule) setSchedule(d.schedule);
-        if (d.records) setRecords(d.records);
-        if (d.studentSchedules) setStudentSchedules(d.studentSchedules);
+        /* 紹介記録は置き換えずに id ごとに混ぜる。置き換えると、この端末で
+           手入力してまだスプシに送れていない記録が消えてしまう（取込の翌日に消える原因だった）。
+           ぶつかった項目は「あとから手入力した端末」を採る。消した記録（墓標）は取り除く。 */
+        const mineNewer = JUKU_SYNC.iAmNewer("ysboard", d._touchedAt);
+        const del = ysDelMerge(d.deleted);
+        let onlyMine = false;
+        if (d.records) setRecords((cur) => {
+          const theirs = new Set(d.records.map((r) => String(r.id)));
+          onlyMine = cur.some((r) => !theirs.has(String(r.id)) && !del[String(r.id)]);
+          return JUKU_SYNC.merge(cur, d.records, mineNewer).filter((r) => !del[String(r.id)]);
+        });
+        if (d.studentSchedules) setStudentSchedules((cur) => JUKU_SYNC.merge(cur, d.studentSchedules, mineNewer));
         if (d.teamNames) setTeamNames(d.teamNames);
         if (d.teamGoals) setTeamGoals(d.teamGoals);
         if (d.lastImportDate) setLastImportDate(d.lastImportDate);
@@ -13951,6 +13993,8 @@ var JUKU_SYNC = (function(){
           setPeriodStart(d.pointPeriod.start || "");
           setPeriodEnd(d.pointPeriod.end || "");
         }
+        await new Promise((r) => setTimeout(r, 150));
+        if (onlyMine) JUKU_SYNC.queueSave("ysboard", (o) => window.__ysSync && window.__ysSync.save(o));
         setSyncStatus("ok");
         setSyncMsg(`✅ ${opts.auto ? "スプシのほうが新しかったので読み込みました" : "読み込みました"}（記録${(d.records || []).length}件 / 先生${(d.teachers || []).length}名）`);
       } catch (e) {
@@ -14231,6 +14275,10 @@ var JUKU_SYNC = (function(){
         });
         setStudentSchedules((s) => ({ ...s, ...newSchedules }));
         setLastImportDate((/* @__PURE__ */ new Date()).toLocaleString("ja-JP"));
+        /* 取り込んだ分は必ずスプシへ送る。普段の自動保存は「読込の直後3秒は送らない」ので、
+           開いてすぐ取り込むと（取込タブから入れるとちょうどそうなる）送られないままになっていた。 */
+        JUKU_SYNC.touch("ysboard");
+        JUKU_SYNC.queueSave("ysboard", (o) => window.__ysSync && window.__ysSync.save(o));
         if (unmatchedTeachers.size > 0) {
           setConfirmModal({
             message: `\u26A0\uFE0F \u4EE5\u4E0B\u306E\u5148\u751F\u540D\u304C\u30EA\u30B9\u30C8\u3068\u4E00\u81F4\u3057\u307E\u305B\u3093\u3067\u3057\u305F\u3002
