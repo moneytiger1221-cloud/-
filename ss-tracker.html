@@ -3987,7 +3987,23 @@ function show(p) {
       esc(e.message) + '</div></div>';
   }
 }
+/* コマ組の「ブース割」に、SSの結果が良くない先生を渡す（2ブース候補の自動判定に使う）。
+   最新日の判定できる先生のうち、点数が下から1/4に入る先生を low にする。 */
+function exportTeacherFlags() {
+  try {
+    var d = latestDate(); if (!d) return;
+    var list = evalAll(d, defaultBlock(snapAt(d))).filter(function (T) {
+      return !T.out && T.score !== null && T.evs.some(function (e) { return e.rate !== null && e.season && !e.few; });
+    }).sort(function (a, b) { return a.score - b.score; });
+    var cut = list.length >= 4 ? Math.floor(list.length / 4) : 0, names = {};
+    list.forEach(function (T, i) {
+      names[String(T.name).normalize('NFKC').replace(/[\s　]|先生/g, '')] = { score: T.score, low: i < cut };
+    });
+    JUKU_LS.setItem('ss_teacher_flags_v1', JSON.stringify({ at: d, names: names }));
+  } catch (e) {}
+}
 function refreshAll(toNewest) {
+  exportTeacherFlags();
   fillSelectors(toNewest);
   var t = DB.ui.tab && PANES[DB.ui.tab] ? DB.ui.tab : 'touch';
   show(t);

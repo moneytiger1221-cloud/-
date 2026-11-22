@@ -166,6 +166,36 @@ tr.drow.ddone td:not(.dck){text-decoration:line-through;}
   .drow,.dpsep{page-break-inside:avoid;}
   .dpsep td{background:#eee!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
 }
+/* ブース割 */
+.boothbox{width:min(1100px,96vw)!important;}
+.boothbody{padding:10px 14px;overflow:auto;}
+.btabs{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 14px 0;}
+.bmaps{display:flex;flex-wrap:wrap;gap:12px;}
+.bmap{border:1px solid #dbe3ec;border-radius:8px;padding:8px;background:#fafbfd;}
+.bmaphd{font-weight:800;font-size:13px;margin-bottom:6px;color:#33465a;}
+.bsub{font-weight:600;font-size:11px;color:#7d8b99;margin-left:6px;}
+.btbl{border-collapse:collapse;}
+.btbl th{font-size:11px;color:#7d8b99;padding:2px 5px;}
+.bcell{width:78px;height:50px;border:1px solid #c9d3de;background:#fff;vertical-align:top;padding:2px 4px;cursor:pointer;}
+.bcell.bempty{background:#f0f2f5;}
+.bcell.bsel{outline:3px solid #2b6fe0;outline-offset:-3px;}
+.blab{font-size:9.5px;color:#9aa7b4;}
+.bnm{font-size:13px;font-weight:800;color:#22303f;line-height:1.2;}
+.bbd{margin-top:1px;}
+.bdot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:2px;vertical-align:-1px;border:1px solid rgba(0,0,0,.15);}
+.btag{display:inline-block;font-size:9px;font-weight:800;padding:0 3px;border-radius:3px;background:#22303f;color:#fff;margin-right:2px;}
+.btag.bnew{background:#e07b00;} .btag.btr{background:#7a5bc7;}
+.bmsgs{margin-top:6px;font-size:11.5px;line-height:1.6;max-width:300px;}
+.berr{color:#b8433a;font-weight:700;} .bwarn{color:#8a6a06;}
+.btlist{border-collapse:collapse;font-size:12.5px;margin:6px 0;}
+.btlist th,.btlist td{border:1px solid #dbe3ec;padding:4px 8px;}
+.btlist th{background:#f4f6f9;}
+.bnote{font-size:12px;line-height:1.7;margin:4px 0 8px;padding:8px 10px;border-radius:8px;background:#f4f6f9;}
+.bnote.bwarnbox{background:#fdf6e3;border:1px solid #f0d99a;}
+.bsec{font-weight:800;font-size:13px;margin:14px 0 4px;color:#33465a;}
+.bprinttitle{display:none;}
+@media print{ .bnoprint{display:none!important;} .bprinttitle{display:block;font-weight:800;font-size:16px;margin-bottom:8px;}
+  .boothbody{overflow:visible!important;} .bmap{page-break-inside:avoid;} .bcell{width:90px;height:44px;} }
 /* 名簿モーダル */
 .modal{display:none;position:fixed;inset:0;z-index:200;background:rgba(20,28,40,.5);align-items:center;justify-content:center;}
 .modalbox{background:#fff;border-radius:12px;width:min(560px,92vw);max-height:86vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.3);}
@@ -438,6 +468,7 @@ body.trayh-x .traycnt2{top:2px;}
   <span class="modeswitch" id="modeSwitch"></span>
   <span class="modeswitch" id="fltSwitch"></span>
   <button class="toolbtn" id="btnTeachers" title="先生情報（スキル・追加・削除）">先生情報</button>
+  <button class="toolbtn primary" id="btnBooth" title="先生の座るブースを自動で決める">🪑 ブース割</button>
   <span id="komaImportBtns"><button class="toolbtn primary" id="btnImportBtn">生徒CSV取込</button>
   <button class="toolbtn primary" id="btnImportTBtn">先生CSV取込</button></span>
   <input type="file" id="fileImport" accept=".csv,.html,.htm" style="display:none">
@@ -3169,7 +3200,7 @@ document.getElementById('btnReset').onclick=()=>{if(!confirm('直近に取り込
 /* ブラウザ保存(localStorage)はブラウザ側の都合で消えることがある（特に file:// で開いた場合）。
    作業内容をファイルに書き出せるようにして、消えても確実に戻せるようにする。
    キーの一覧は関数にして呼び出し時に評価する（constの宣言順に依存しないため）。 */
-function backupKeys(){return [LSK,LSK+'_tsu',LSG,LSGRP,LSNB,LSSCSV,LSTCSV,LSTK,LSDN,LSTH,LSCT,LSFP,LSMG,LSFLT,LSMODE,LSPN,LSWD];}
+function backupKeys(){return [LSK,LSK+'_tsu',LSG,LSGRP,LSNB,LSSCSV,LSTCSV,LSTK,LSDN,LSTH,LSCT,LSFP,LSMG,LSFLT,LSMODE,LSPN,LSWD,'komawari_booth_v1'];}
 /* ============ スプレッドシート同期 ============
    個人情報（生徒名・電話番号）はこのHTMLには一切埋め込まない。
    実データはApps Script経由でしか取得できず、合言葉の照合はGoogle側で行われるため、
@@ -3315,6 +3346,324 @@ document.getElementById('search').addEventListener('input',e=>{
   if(!q)return;const low=q.toLowerCase();
   document.querySelectorAll('.koma').forEach(el=>{const s=students[el.dataset.sid];
     if(s.id.includes(q)||s.name.toLowerCase().includes(low))el.classList.add('hl');});});
+
+/* ============ ブース割（先生の座席を自動で決める） ============
+   ルール（校舎で決めているもの）
+   ・ブースは列(A,B,C…)×行(1〜5)。1が入口側で、1の前に2、その前に3…と並ぶ。1ブースから詰めて座る
+   ・社員は必ず1ブース（電話番）。カラーが上の先生（運営に協力している先生）ほど1ブースへ
+     カラー：レッド(社員) > イエロー > ブルー > グリーン > ホワイト
+   ・新人は2ブース（1ブースの社員・カラーの目の前なので助けやすい）
+     新人がいない席には、期が浅い先生・授業に課題がある先生・育てたいホワイトを
+   ・1ブースからあふれたカラーは3・4ブース。新人が多いときは新人を3、カラーを4にして挟む
+   ・メンターとメンティー（1期目の新人）は同じ列の前後
+   ・同じ日に続けて授業がある先生は、なるべく同じブースのまま（ただし上のルールが優先）
+   ・兄弟（保護者名か電話番号が同じ）・仲の良い生徒は、同じ列の前後にしない（横並びは壁があるので気にしない）
+   ・集団授業（DOJO・入試自立など）は集団部屋なのでブースを使わない
+   決め方：ルールを「点数（コスト）」にして、合計がいちばん小さい並びを入れ替えながら探す。 */
+const LSBOOTH='komawari_booth_v1';
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const BOOTH_COLORS=[['red','レッド','#d64541'],['yellow','イエロー','#e0a800'],['blue','ブルー','#2b6fe0'],
+  ['green','グリーン','#1e9e5a'],['white','ホワイト','#8a99a8']];
+const COLOR_RANK={red:5,yellow:4,blue:3,green:2,white:1};
+function boothLoad(){
+  let b={};try{b=JSON.parse(LS.get(LSBOOTH)||'{}')||{};}catch(e){}
+  b.cfg=Object.assign({cols:'ABC',rows:5},b.cfg||{});
+  b.colors=b.colors||{}; b.concern=b.concern||{}; b.pairs=b.pairs||''; b.assign=b.assign||{};
+  return b;
+}
+let BOOTH=boothLoad();
+function boothSave(){
+  try{LS.set(LSBOOTH,JSON.stringify(BOOTH));}catch(e){}
+  JUKU_SYNC.touch('komawari'); JUKU_SYNC.queueSave('komawari',komaSyncSave); flashSave();
+}
+/* 今の学期（カラーは学期ごとに見直す） 4〜8月=1学期 / 9〜12月=2学期 / 1〜3月=3学期 */
+function boothTermNow(){
+  const d=new Date(), m=d.getMonth()+1, fy=m>=4?d.getFullYear():d.getFullYear()-1;
+  return fy+'年度'+(m>=4&&m<=8?1:m>=9?2:3)+'学期';
+}
+function boothCols(){return String(BOOTH.cfg.cols||'ABC').replace(/[^A-Za-z]/g,'').toUpperCase().split('');}
+function boothRows(){return Math.max(1,Math.min(9,parseInt(BOOTH.cfg.rows,10)||5));}
+/* 1ブースから詰める：使うブースは「行1の全列 → 行2の全列 → …」の先頭から人数分 */
+function boothSlots(n){
+  const out=[], cols=boothCols(), R=boothRows();
+  for(let r=1;r<=R;r++)cols.forEach((c,ci)=>{if(out.length<n)out.push({c:ci,r,label:c+r});});
+  return out;
+}
+
+/* ---- 他ツールからの「授業に課題がある」の自動判定 ---- */
+const bNameKey=s=>String(s||'').normalize('NFKC').replace(/[\s　]|先生/g,'');
+function boothAutoConcern(tid){
+  const t=teacherById[tid]; if(!t)return [];
+  const why=[];
+  try{
+    const ss=JSON.parse(LS.get('ss_teacher_flags_v1')||'null');
+    const f=ss&&ss.names&&ss.names[bNameKey(t.name)];
+    if(f&&f.low)why.push('SS低め');
+  }catch(e){}
+  try{
+    const sv=JSON.parse(LS.get('survey_teacher_flags_v1')||'null');
+    // アンケートの先生コードは先生番号の下3桁のことがあるので、末尾一致か名前で照合する
+    const hit=sv&&sv.codes&&Object.entries(sv.codes).find(([c,f])=>c===tid||(c.length>=3&&tid.endsWith(c))||
+      (f.name&&bNameKey(f.name)===bNameKey(t.name)));
+    if(hit&&hit[1].low)why.push('アンケート要検討');
+  }catch(e){}
+  return why;
+}
+/* 先生の属性（その曜日・期ごと） */
+function boothInfo(tid,period){
+  const t=teacherById[tid]||{}, staff=STAFF.has(tid);
+  const color=staff?'red':(BOOTH.colors[tid]||'');
+  const newbie=NEWBIE.has(tid);
+  const shallow=!newbie&&!isNaN(t.terms)&&t.terms>=0&&t.terms<=2;
+  const auto=boothAutoConcern(tid), concern=!!BOOTH.concern[tid]||auto.length>0;
+  const mentor=newbie?((newbieInfo[tid]||{}).mentor||{})[period]||'':'';
+  return {tid,staff,color,rank:COLOR_RANK[color]||0,newbie,shallow,concern,auto,mentor,
+    train:!newbie&&(color==='white'||shallow||concern)};
+}
+
+/* ---- 生徒どうしの「前後にしたくない」組 ---- */
+function boothPairSet(){
+  const set=new Set(), ids=Object.keys(students);
+  const add=(a,b)=>{if(a&&b&&a!==b)set.add(a<b?a+'|'+b:b+'|'+a);};
+  // 兄弟：保護者名か電話番号が同じ
+  const byG={}, byT={};
+  ids.forEach(id=>{const s=students[id];
+    if(s.guardian)(byG[s.guardian]=byG[s.guardian]||[]).push(id);
+    if(s.tel1&&s.tel1.length>=8)(byT[s.tel1]=byT[s.tel1]||[]).push(id);});
+  [byG,byT].forEach(m=>Object.values(m).forEach(g=>{for(let i=0;i<g.length;i++)for(let j=i+1;j<g.length;j++)add(g[i],g[j]);}));
+  boothFriendPairs().pairs.forEach(p=>add(p[0],p[1]));
+  return set;
+}
+/* 仲の良い生徒：1行に2人（名前か生徒番号）。名前は空白を無視して照合 */
+function boothFriendPairs(){
+  const idx={};Object.keys(students).forEach(id=>{const k=noSpace(students[id].name);(idx[k]=idx[k]||[]).push(id);});
+  const find=w=>{w=w.trim();if(!w)return null;if(students[w])return w;const h=idx[noSpace(w)];return h&&h.length===1?h[0]:null;};
+  const pairs=[], bad=[];
+  String(BOOTH.pairs||'').split(/\n/).forEach(line=>{
+    const ws=line.split(/[,、，\t]|\s{2,}|・|\//).map(s=>s.trim()).filter(Boolean);
+    if(!ws.length)return;
+    const a=find(ws[0]||''), b=find(ws[1]||'');
+    if(ws.length>=2&&a&&b)pairs.push([a,b]); else bad.push(line.trim());
+  });
+  return {pairs,bad};
+}
+
+/* その曜日・限にブースで授業する先生と、その生徒 */
+function boothTeachersAt(period,limit){
+  const m={};
+  komas.forEach(k=>{if(k.period===period&&k.limitNo===limit&&k.teacherId){(m[k.teacherId]=m[k.teacherId]||[]).push(k.sid);}});
+  return m;
+}
+function boothLimitsOf(period){
+  const set={};komas.forEach(k=>{if(k.period===period&&k.teacherId)set[k.limitNo]=1;});
+  return Object.keys(set).map(Number).sort((a,b)=>a-b);
+}
+function boothLimitLabel(period,l){
+  if(MODE!=='tsu'){const x=limitsK[l-1];return x?x[1]+' '+x[0]:l+'限';}
+  const s=(limitsNByDay[period]||[]).find(x=>x.limit===l);
+  return (l?l+'限':'時間外')+(s?' '+s.time+'〜':'');
+}
+
+/* ---- 点数（小さいほど良い） ---- */
+function boothRowCost(I,r){
+  if(I.staff)return r===1?0:1000;                          // 社員は必ず1ブース
+  if(I.newbie)return ({1:80,2:0,3:12,4:45})[r]!==undefined?({1:80,2:0,3:12,4:45})[r]:60;
+  if(I.rank>=2){                                           // イエロー・ブルー・グリーン
+    if(r===1)return 0;
+    return I.rank*10+(r===2?15:0)+Math.max(0,r-4)*10;      // 上のカラーほど1ブースから外すと痛い。2は新人・育成用に空けたい
+  }
+  if(I.train)return r===2?0:r===1?20:8+(r-3);              // ホワイト・期が浅い・課題あり → 2ブース
+  return r===1?25:r===2?6:2+Math.max(0,r-3);               // それ以外は3ブース以降
+}
+function boothCost(order,slots,infos,ctx){
+  // order[i] = slots[i] に座る先生のID
+  let cost=0; const pos={};
+  order.forEach((tid,i)=>{pos[tid]=slots[i];});
+  const at={}; order.forEach((tid,i)=>{at[slots[i].c+'-'+slots[i].r]=tid;});
+  order.forEach((tid,i)=>{
+    const I=infos[tid], s=slots[i];
+    cost+=boothRowCost(I,s.r);
+    if(I.newbie){                                           // 新人の前後に社員・カラーがいると助けやすい
+      const nb=[at[s.c+'-'+(s.r-1)],at[s.c+'-'+(s.r+1)]].filter(Boolean);
+      if(nb.some(x=>infos[x].staff||infos[x].rank>=2))cost-=15;
+    }
+    if(I.mentor&&pos[I.mentor]){                            // メンターと同じ列の前後
+      const m=pos[I.mentor]; if(!(m.c===s.c&&Math.abs(m.r-s.r)===1))cost+=40;
+    }
+    const prev=ctx.prev[tid];                               // 続けて授業がある先生は同じブースのまま
+    if(prev&&prev!==s.label)cost+=12;
+  });
+  // 兄弟・仲の良い生徒が同じ列の前後
+  ctx.adjPairs=0;
+  order.forEach((tid,i)=>{const s=slots[i], back=at[s.c+'-'+(s.r+1)]; if(!back)return;
+    (ctx.studs[tid]||[]).forEach(a=>(ctx.studs[back]||[]).forEach(b=>{
+      if(ctx.pairSet.has(a<b?a+'|'+b:b+'|'+a)){cost+=20;ctx.adjPairs++;}}));});
+  return cost;
+}
+/* 入れ替えを繰り返して点数の小さい並びを探す（人数は多くても十数人なので十分速い） */
+function boothSolve(tids,infos,ctx){
+  const slots=boothSlots(tids.length);
+  const seated=tids.slice(0,slots.length);
+  // 初期値：1ブースに入れたい順に並べる
+  const pri=t=>{const I=infos[t];return I.staff?0:I.rank>=2?10-I.rank:I.newbie?20:I.train?30:40;};
+  let best=null,bestCost=Infinity;
+  for(let trial=0;trial<24;trial++){
+    let o=seated.slice().sort((a,b)=>pri(a)-pri(b)||(trial?Math.random()-.5:0));
+    let c=boothCost(o,slots,infos,ctx), improved=true;
+    while(improved){improved=false;
+      for(let i=0;i<o.length;i++)for(let j=i+1;j<o.length;j++){
+        const n=o.slice();[n[i],n[j]]=[n[j],n[i]];const nc=boothCost(n,slots,infos,ctx);
+        if(nc<c-1e-9){o=n;c=nc;improved=true;}}}
+    if(c<bestCost){bestCost=c;best=o;}
+  }
+  const res={};(best||[]).forEach((tid,i)=>res[tid]=slots[i].label);
+  return res;
+}
+/* 先生の優先順：ブースが足りないときに外れるのは下の人から */
+function boothOrderTeachers(tids,infos){
+  return tids.slice().sort((a,b)=>{const A=infos[a],B=infos[b];
+    return (B.staff-A.staff)||(B.rank-A.rank)||(B.newbie-A.newbie)||(a<b?-1:1);});
+}
+function boothAutoDay(period){
+  const pairSet=boothPairSet(); let prev={};
+  const day={};
+  boothLimitsOf(period).forEach(l=>{
+    const studs=boothTeachersAt(period,l), tids=boothOrderTeachers(Object.keys(studs),
+      Object.fromEntries(Object.keys(studs).map(t=>[t,boothInfo(t,period)])));
+    const infos={};tids.forEach(t=>infos[t]=boothInfo(t,period));
+    const res=boothSolve(tids,infos,{prev,studs,pairSet});
+    day[l]=res; prev=res;
+  });
+  ((BOOTH.assign[MODE]=BOOTH.assign[MODE]||{}))[period]=day;
+}
+
+/* ---- 画面 ---- */
+let boothDay='', boothPick=null, boothView='map';
+function boothCheck(period,l,res,studs){
+  // 表示用：ルールから外れているところを書き出す
+  const msgs=[], at={}, cols=boothCols();
+  Object.entries(res).forEach(([tid,lab])=>{at[lab]=tid;});
+  const lab=(c,r)=>cols[c]+r, cpos=x=>({c:cols.indexOf(x[0]),r:+x.slice(1)});
+  const pairSet=boothPairSet();
+  Object.entries(res).forEach(([tid,b])=>{
+    const I=boothInfo(tid,period), p=cpos(b);
+    if(I.staff&&p.r!==1)msgs.push(['err',tShort(tid)+'先生（社員）が1ブースではありません']);
+    if(I.mentor&&res[I.mentor]){const m=cpos(res[I.mentor]);
+      if(!(m.c===p.c&&Math.abs(m.r-p.r)===1))msgs.push(['warn',tShort(tid)+'先生とメンターの'+tShort(I.mentor)+'先生が前後になっていません']);}
+    const back=at[lab(p.c,p.r+1)];
+    if(back)(studs[tid]||[]).forEach(a=>(studs[back]||[]).forEach(b2=>{
+      if(pairSet.has(a<b2?a+'|'+b2:b2+'|'+a))msgs.push(['warn',students[a].name+'さんと'+students[b2].name+'さんが前後（'+b+'・'+lab(p.c,p.r+1)+'）']);}));
+  });
+  const missing=Object.keys(studs).filter(t=>!res[t]);
+  if(missing.length)msgs.push(['err','ブースが決まっていない先生：'+missing.map(t=>tShort(t)).join('・')+
+    (Object.keys(studs).length>boothCols().length*boothRows()?'（ブースが足りません）':'（自動で割り振り直してください）')]);
+  Object.keys(res).forEach(t=>{if(!studs[t])msgs.push(['warn',tShort(t)+'先生はこの時間に授業がなくなっています（割り振り直してください）']);});
+  return msgs;
+}
+function boothBadge(I){
+  const c=BOOTH_COLORS.find(x=>x[0]===I.color);
+  return (c?'<span class="bdot" style="background:'+c[2]+'" title="'+c[1]+'"></span>':'')+
+    (I.staff?'<span class="btag">社</span>':'')+(I.newbie?'<span class="btag bnew">新</span>':'')+
+    (I.train&&!I.staff?'<span class="btag btr">育</span>':'');
+}
+function boothMapHTML(period,l){
+  const day=((BOOTH.assign[MODE]||{})[period]||{}), res=day[l]||{}, studs=boothTeachersAt(period,l);
+  const at={};Object.entries(res).forEach(([t,b])=>at[b]=t);
+  const cols=boothCols(), R=boothRows();
+  let h='<div class="bmap"><div class="bmaphd">'+esc(boothLimitLabel(period,l))+'<span class="bsub">'+Object.keys(studs).length+'名</span></div><table class="btbl">';
+  for(let r=R;r>=1;r--){   // 印刷して壁に貼ったときと同じ向き：入口側(1)を下に
+    h+='<tr><th>'+r+'</th>';
+    cols.forEach(c=>{const b=c+r, tid=at[b], I=tid?boothInfo(tid,period):null;
+      const sel=boothPick&&boothPick.l===l&&boothPick.b===b;
+      h+='<td class="bcell'+(tid?'':' bempty')+(sel?' bsel':'')+'" data-bl="'+l+'" data-bb="'+b+'"><div class="blab">'+b+'</div>'+
+        (tid?'<div class="bnm">'+esc(tShort(tid))+'</div><div class="bbd">'+boothBadge(I)+'</div>':'')+'</td>';});
+    h+='</tr>';
+  }
+  h+='<tr><th></th>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr></table>';
+  const msgs=boothCheck(period,l,res,studs);
+  if(msgs.length)h+='<div class="bmsgs">'+msgs.map(m=>'<div class="b'+m[0]+'">'+(m[0]==='err'?'⚠ ':'・')+esc(m[1])+'</div>').join('')+'</div>';
+  return h+'</div>';
+}
+function boothListHTML(period){
+  // 先生ごとの一覧（掲示用の時間割に書き込む順）
+  const day=((BOOTH.assign[MODE]||{})[period]||{}), lims=boothLimitsOf(period);
+  const tids=[...new Set(lims.flatMap(l=>Object.keys(boothTeachersAt(period,l))))]
+    .sort((a,b)=>teachers.findIndex(t=>t.id===a)-teachers.findIndex(t=>t.id===b));
+  let h='<table class="btlist"><thead><tr><th>先生</th>'+lims.map(l=>'<th>'+esc(boothLimitLabel(period,l).split(' ')[0])+'</th>').join('')+'</tr></thead><tbody>';
+  tids.forEach(t=>{h+='<tr><td>'+esc(teacherById[t].name)+'</td>'+lims.map(l=>{
+    const has=boothTeachersAt(period,l)[t];return '<td>'+(has?esc((day[l]||{})[t]||'未定'):'')+'</td>';}).join('')+'</tr>';});
+  return h+'</tbody></table>';
+}
+function boothTeacherSettingsHTML(){
+  const term=boothTermNow(), stale=BOOTH.colorTerm&&BOOTH.colorTerm!==term;
+  const list=teachers.filter(t=>!t.retire&&komas.some(k=>k.teacherId===t.id));
+  let h='<div class="bnote'+(stale||!BOOTH.colorTerm?' bwarnbox':'')+'">'+
+    (stale?'学期が変わりました（前回の確認：'+esc(BOOTH.colorTerm)+'）。カラーを見直して、終わったら「この学期のカラーで確定」を押してください。'
+      :BOOTH.colorTerm?'カラーは '+esc(BOOTH.colorTerm)+' の内容です。学期が変わるまで保持します。'
+      :'カラーを入れて「この学期のカラーで確定」を押してください。次の学期まで保持します。')+
+    ' <button class="toolbtn" id="bTermOk">この学期（'+esc(term)+'）のカラーで確定</button></div>';
+  h+='<table class="btlist"><thead><tr><th>先生</th><th>カラー</th><th>授業に課題（主観）</th><th>自動で分かること</th></tr></thead><tbody>';
+  list.forEach(t=>{const I=boothInfo(t.id,boothDay);
+    const sel=I.staff?'<span class="muted">レッド（社員）</span>':
+      '<select data-bcol="'+t.id+'"><option value="">なし</option>'+BOOTH_COLORS.filter(c=>c[0]!=='red'||BOOTH.colors[t.id]==='red')
+        .map(c=>'<option value="'+c[0]+'"'+(BOOTH.colors[t.id]===c[0]?' selected':'')+'>'+c[1]+'</option>').join('')+'</select>';
+    const auto=[I.newbie?'新人':'',I.shallow?'期が浅い':''].concat(I.auto).filter(Boolean).join('・');
+    h+='<tr><td>'+esc(t.name)+'</td><td>'+sel+'</td><td style="text-align:center"><input type="checkbox" data-bcon="'+t.id+'"'+(BOOTH.concern[t.id]?' checked':'')+'></td><td>'+esc(auto||'—')+'</td></tr>';});
+  h+='</tbody></table>';
+  const fp=boothFriendPairs();
+  h+='<div class="bsec">仲の良い生徒（同じ列の前後にしない）</div>'+
+    '<div class="muted" style="font-size:11.5px">1行に2人ずつ。名前か生徒番号を「,」か「・」で区切って入れてください。兄弟（保護者名か電話番号が同じ）は自動で見分けます。</div>'+
+    '<textarea id="bPairs" rows="4" style="width:100%;box-sizing:border-box" placeholder="山田 太郎, 鈴木 花子">'+esc(BOOTH.pairs||'')+'</textarea>'+
+    '<div class="muted" style="font-size:11.5px">'+fp.pairs.length+'組を登録'+(fp.bad.length?'／<span style="color:#b8433a">見つからない行：'+esc(fp.bad.join('／'))+'</span>':'')+'</div>';
+  h+='<div class="bsec">ブースの数</div><div>列 <input id="bCols" value="'+esc(boothCols().join(''))+'" size="6"> 行 <input id="bRows" value="'+boothRows()+'" size="2"> <button class="toolbtn" id="bCfgSave">変更</button>'+
+    ' <span class="muted" style="font-size:11.5px">今は '+boothCols().length*boothRows()+'ブース</span></div>';
+  return h;
+}
+function openBoothModal(){
+  BOOTH=boothLoad();
+  if(PERIODS.indexOf(boothDay)<0)boothDay=PERIODS.indexOf(activePeriod)>=0?activePeriod:(PERIODS[0]||'');
+  const day=boothDay, lims=boothLimitsOf(day), done=((BOOTH.assign[MODE]||{})[day]);
+  let h='<div class="modalbox boothbox"><div class="modalhd"><b>🪑 ブース割</b><button class="mclose" onclick="closeModal()">×</button></div>';
+  h+='<div class="btabs bnoprint">'+PERIODS.map(p=>'<button class="dmode'+(p===day?' on':'')+'" data-bday="'+esc(p)+'">'+esc(p)+'</button>').join('')+'</div>';
+  h+='<div class="btabs bnoprint">'+[['map','ブース図'],['list','先生ごと'],['set','先生の設定']].map(v=>'<button class="dmode'+(boothView===v[0]?' on':'')+'" data-bview="'+v[0]+'">'+v[1]+'</button>').join('')+
+    ' <button class="toolbtn primary" id="bAuto">'+esc(day)+'を自動で割り振る</button> <button class="toolbtn" id="bAutoAll">全部の'+(MODE==='tsu'?'曜日':'期')+'</button> <button class="toolbtn" id="bPrint">印刷</button></div>';
+  h+='<div class="boothbody"><div class="bprinttitle">'+esc(day)+'　ブース割（'+esc(MODE==='tsu'?'通常':'講習')+'）</div>';
+  if(boothView==='set')h+=boothTeacherSettingsHTML();
+  else if(!lims.length)h+='<div class="muted">この'+(MODE==='tsu'?'曜日':'期')+'にブースで授業する先生がいません。</div>';
+  else if(!done)h+='<div class="muted" style="padding:14px 0">まだ割り振っていません。上の「自動で割り振る」を押してください。<br>先に「先生の設定」でカラーを入れておくと、ルールどおりに並びます。</div>';
+  else if(boothView==='list')h+=boothListHTML(day);
+  else h+='<div class="muted bnoprint" style="font-size:11.5px;margin-bottom:6px">ブースを2つ続けて押すと入れ替わります。下が入口側（1ブース）。　'+
+      '<span class="btag">社</span>社員 <span class="btag bnew">新</span>新人 <span class="btag btr">育</span>2ブース候補（ホワイト・期が浅い・課題あり）</div>'+
+      '<div class="bmaps">'+lims.map(l=>boothMapHTML(day,l)).join('')+'</div>';
+  h+='</div><div class="modalfoot"><button class="toolbtn" onclick="closeModal()">閉じる</button></div></div>';
+  const md=document.getElementById('modal'); md.innerHTML=h; md.style.display='flex';
+  md.querySelectorAll('[data-bday]').forEach(b=>b.onclick=()=>{boothDay=b.dataset.bday;boothPick=null;openBoothModal();});
+  md.querySelectorAll('[data-bview]').forEach(b=>b.onclick=()=>{boothView=b.dataset.bview;openBoothModal();});
+  const auto=(list)=>{
+    const has=list.some(p=>(BOOTH.assign[MODE]||{})[p]);
+    if(has&&!confirm('今のブース割（手で入れ替えた分も）を、自動で割り振り直します。よろしいですか？'))return;
+    list.forEach(p=>boothAutoDay(p)); boothSave(); boothView=boothView==='set'?'map':boothView; openBoothModal();};
+  document.getElementById('bAuto').onclick=()=>auto([day]);
+  document.getElementById('bAutoAll').onclick=()=>auto(PERIODS.slice());
+  document.getElementById('bPrint').onclick=()=>window.print();
+  md.querySelectorAll('[data-bb]').forEach(td=>td.onclick=()=>{
+    const l=+td.dataset.bl, b=td.dataset.bb;
+    if(!boothPick||boothPick.l!==l){boothPick={l,b};openBoothModal();return;}
+    if(boothPick.b!==b){const res=BOOTH.assign[MODE][day][l], at={};
+      Object.entries(res).forEach(([t,x])=>at[x]=t);
+      const t1=at[boothPick.b], t2=at[b];
+      if(t1)res[t1]=b; if(t2)res[t2]=boothPick.b; boothSave();}
+    boothPick=null; openBoothModal();});
+  md.querySelectorAll('[data-bcol]').forEach(s=>s.onchange=()=>{
+    if(s.value)BOOTH.colors[s.dataset.bcol]=s.value; else delete BOOTH.colors[s.dataset.bcol]; boothSave();});
+  md.querySelectorAll('[data-bcon]').forEach(c=>c.onchange=()=>{
+    if(c.checked)BOOTH.concern[c.dataset.bcon]=1; else delete BOOTH.concern[c.dataset.bcon]; boothSave();});
+  const bt=document.getElementById('bTermOk'); if(bt)bt.onclick=()=>{BOOTH.colorTerm=boothTermNow();boothSave();openBoothModal();};
+  const bp=document.getElementById('bPairs'); if(bp)bp.onchange=()=>{BOOTH.pairs=bp.value;boothSave();openBoothModal();};
+  const bc=document.getElementById('bCfgSave'); if(bc)bc.onclick=()=>{
+    BOOTH.cfg={cols:document.getElementById('bCols').value,rows:document.getElementById('bRows').value};boothSave();openBoothModal();};
+}
+document.getElementById('btnBooth').onclick=openBoothModal;
 
 /* ============ init ============ */
 function renderAll(){computeSeq();buildStudentNameIndex();computeCompat();computeErrors();computeChecks();renderTabs();renderBoard();renderCounters();wireCounters();renderPanel();}

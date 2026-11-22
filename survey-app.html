@@ -2182,8 +2182,25 @@ function toast(msg){ state.err=msg; render(); showToast(msg,toastKind(msg));
 // ════════════════════════════════════════════════════════════
 //  描画
 // ════════════════════════════════════════════════════════════
+/* コマ組の「ブース割」に、授業に課題がありそうな先生を渡す（2ブース候補の自動判定に使う）。
+   ①〜⑤の平均が3.5未満か、要検討の理由が2件以上ある先生を low にする。 */
+function exportTeacherFlags(rs,rev){
+  try{
+    const codes={};
+    teachers().forEach(c=>{
+      const tr=rs.filter(r=>r.teacherCode===c); if(!tr.length) return;
+      const avg=tr.reduce((s,r)=>s+rowAvg(r),0)/tr.length;
+      const n=(rev.find(x=>x.code===c)||{reasons:[]}).reasons.length;
+      codes[c]={name:tName(c),avg:+avg.toFixed(2),reasons:n,low:avg<3.5||n>=2};
+    });
+    const key=JSON.stringify(codes);
+    if(key!==exportTeacherFlags.last){ exportTeacherFlags.last=key;   // 画面を描くたびに書かない
+      JUKU_LS.setItem('survey_teacher_flags_v1',JSON.stringify({at:new Date().toISOString(),codes})); }
+  }catch(e){}
+}
 function render(){
   const rs=responses(),tch=teachers(),dp=dups(),rev=reviewCandidates();
+  exportTeacherFlags(rs,rev);
   const arc=state.viewingArchive;
   document.getElementById("app").innerHTML=`
     <div class="header">
