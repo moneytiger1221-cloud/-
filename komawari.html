@@ -3357,7 +3357,8 @@ document.getElementById('search').addEventListener('input',e=>{
    ・1ブースからあふれたカラーは3・4ブース。新人が多いときは新人を3、カラーを4にして挟む
    ・メンターとメンティー（1期目の新人）は同じ列の前後
    ・同じ日に続けて授業がある先生は、なるべく同じブースのまま（ただし上のルールが優先）
-   ・兄弟（保護者名か電話番号が同じ）・仲の良い生徒は、同じ列の前後にしない（横並びは壁があるので気にしない）
+   ・兄弟（保護者名か電話番号が同じ）は、同じ列の前後にしない（横並びは壁があるので気にしない）
+   ・1期目（新人）と2期目（期が浅い）は先生番号で分ける。番号は入った順なので、学期ごとに「この番号から」を決める
    ・集団授業（DOJO・入試自立など）は集団部屋なのでブースを使わない
    決め方：ルールを「点数（コスト）」にして、合計がいちばん小さい並びを入れ替えながら探す。 */
 const LSBOOTH='komawari_booth_v1';
@@ -3368,7 +3369,8 @@ const COLOR_RANK={red:5,yellow:4,blue:3,green:2,white:1};
 function boothLoad(){
   let b={};try{b=JSON.parse(LS.get(LSBOOTH)||'{}')||{};}catch(e){}
   b.cfg=Object.assign({cols:'ABC',rows:5},b.cfg||{});
-  b.colors=b.colors||{}; b.concern=b.concern||{}; b.pairs=b.pairs||''; b.assign=b.assign||{};
+  b.colors=b.colors||{}; b.concern=b.concern||{}; b.assign=b.assign||{};
+  delete b.pairs;   // 仲の良い生徒の登録はやめた（運用が現実的でないため）
   return b;
 }
 let BOOTH=boothLoad();
@@ -3409,12 +3411,21 @@ function boothAutoConcern(tid){
   }catch(e){}
   return why;
 }
+/* 在籍の期：先生番号は入った順なので、学期ごとに「1期目はこの番号から」「2期目はこの番号から」を決めて判定する。
+   コマ組で手で「新人」にした先生（先生情報）も1期目に含める。 */
+const bNum=x=>parseInt(String(x||'').replace(/\D/g,''),10)||0;
+function boothStage(tid){
+  if(BOOTH.first&&bNum(tid)>=bNum(BOOTH.first))return 1;
+  if(NEWBIE.has(tid))return 1;
+  if(BOOTH.second&&bNum(tid)>=bNum(BOOTH.second))return 2;
+  return 0;
+}
 /* 先生の属性（その曜日・期ごと） */
 function boothInfo(tid,period){
   const t=teacherById[tid]||{}, staff=STAFF.has(tid);
   const color=staff?'red':(BOOTH.colors[tid]||'');
-  const newbie=NEWBIE.has(tid);
-  const shallow=!newbie&&!isNaN(t.terms)&&t.terms>=0&&t.terms<=2;
+  const newbie=boothStage(tid)===1;
+  const shallow=boothStage(tid)===2;
   const auto=boothAutoConcern(tid), concern=!!BOOTH.concern[tid]||auto.length>0;
   const mentor=newbie?((newbieInfo[tid]||{}).mentor||{})[period]||'':'';
   return {tid,staff,color,rank:COLOR_RANK[color]||0,newbie,shallow,concern,auto,mentor,
@@ -3431,23 +3442,8 @@ function boothPairSet(){
     if(s.guardian)(byG[s.guardian]=byG[s.guardian]||[]).push(id);
     if(s.tel1&&s.tel1.length>=8)(byT[s.tel1]=byT[s.tel1]||[]).push(id);});
   [byG,byT].forEach(m=>Object.values(m).forEach(g=>{for(let i=0;i<g.length;i++)for(let j=i+1;j<g.length;j++)add(g[i],g[j]);}));
-  boothFriendPairs().pairs.forEach(p=>add(p[0],p[1]));
   return set;
 }
-/* 仲の良い生徒：1行に2人（名前か生徒番号）。名前は空白を無視して照合 */
-function boothFriendPairs(){
-  const idx={};Object.keys(students).forEach(id=>{const k=noSpace(students[id].name);(idx[k]=idx[k]||[]).push(id);});
-  const find=w=>{w=w.trim();if(!w)return null;if(students[w])return w;const h=idx[noSpace(w)];return h&&h.length===1?h[0]:null;};
-  const pairs=[], bad=[];
-  String(BOOTH.pairs||'').split(/\n/).forEach(line=>{
-    const ws=line.split(/[,、，\t]|\s{2,}|・|\//).map(s=>s.trim()).filter(Boolean);
-    if(!ws.length)return;
-    const a=find(ws[0]||''), b=find(ws[1]||'');
-    if(ws.length>=2&&a&&b)pairs.push([a,b]); else bad.push(line.trim());
-  });
-  return {pairs,bad};
-}
-
 /* その曜日・限にブースで授業する先生と、その生徒 */
 function boothTeachersAt(period,limit){
   const m={};
@@ -3551,7 +3547,7 @@ function boothCheck(period,l,res,studs){
     if(I.mentor&&res[I.mentor]){const m=cpos(res[I.mentor]);
       if(!(m.c===p.c&&Math.abs(m.r-p.r)===1))msgs.push(['warn',tShort(tid)+'先生とメンターの'+tShort(I.mentor)+'先生が前後になっていません']);}
     const back=at[lab(p.c,p.r+1)];
-    if(back)(studs[tid]||[]).forEach(a=>(studs[back]||[]).forEach(b2=>{
+    if(back)(studs[tid]||[]).forEach(a=>(studs[back]||[]).forEach(b2=>{   // 兄弟
       if(pairSet.has(a<b2?a+'|'+b2:b2+'|'+a))msgs.push(['warn',students[a].name+'さんと'+students[b2].name+'さんが前後（'+b+'・'+lab(p.c,p.r+1)+'）']);}));
   });
   const missing=Object.keys(studs).filter(t=>!res[t]);
@@ -3598,23 +3594,42 @@ function boothTeacherSettingsHTML(){
   const term=boothTermNow(), stale=BOOTH.colorTerm&&BOOTH.colorTerm!==term;
   const list=teachers.filter(t=>!t.retire&&komas.some(k=>k.teacherId===t.id));
   let h='<div class="bnote'+(stale||!BOOTH.colorTerm?' bwarnbox':'')+'">'+
-    (stale?'学期が変わりました（前回の確認：'+esc(BOOTH.colorTerm)+'）。カラーを見直して、終わったら「この学期のカラーで確定」を押してください。'
-      :BOOTH.colorTerm?'カラーは '+esc(BOOTH.colorTerm)+' の内容です。学期が変わるまで保持します。'
-      :'カラーを入れて「この学期のカラーで確定」を押してください。次の学期まで保持します。')+
-    ' <button class="toolbtn" id="bTermOk">この学期（'+esc(term)+'）のカラーで確定</button></div>';
-  h+='<table class="btlist"><thead><tr><th>先生</th><th>カラー</th><th>授業に課題（主観）</th><th>自動で分かること</th></tr></thead><tbody>';
+    (stale?'学期が変わりました（前回の確認：'+esc(BOOTH.colorTerm)+'）。カラーと1期目・2期目の境目を見直して、終わったら「この学期の内容で確定」を押してください。'
+      :BOOTH.colorTerm?'カラーと1期目・2期目の境目は '+esc(BOOTH.colorTerm)+' の内容です。学期が変わるまで保持します。'
+      :'カラーと1期目・2期目の境目を入れて「この学期の内容で確定」を押してください。次の学期まで保持します。')+
+    ' <button class="toolbtn" id="bTermOk">この学期（'+esc(term)+'）の内容で確定</button></div>';
+  // 1期目・2期目の境目（先生番号）
+  const byNum=teachers.filter(t=>!t.retire).slice().sort((a,b)=>bNum(a.id)-bNum(b.id));
+  const thrSel=(id,cur)=>'<select id="'+id+'"><option value="">決めていない</option>'+
+    byNum.map(t=>'<option value="'+t.id+'"'+(cur===t.id?' selected':'')+'>'+esc(t.id+' '+t.name)+' から</option>').join('')+'</select>';
+  h+='<div class="bsec">1期目・2期目の先生（先生番号で分けます）</div>'+
+    '<div class="muted" style="font-size:11.5px">先生番号は入った順です。今の学期に1期目・2期目になる最初の先生を選んでください。学期が変わったら選び直します。</div>'+
+    '<div style="margin:6px 0 10px;line-height:2.2">1期目（新人）：'+thrSel('bFirst',BOOTH.first||'')+'　2期目（期が浅い）：'+thrSel('bSecond',BOOTH.second||'')+'</div>';
+  h+='<table class="btlist"><thead><tr><th>先生</th><th>在籍</th><th>カラー</th><th>授業に課題（主観）</th><th>自動で分かること</th></tr></thead><tbody>';
   list.forEach(t=>{const I=boothInfo(t.id,boothDay);
     const sel=I.staff?'<span class="muted">レッド（社員）</span>':
       '<select data-bcol="'+t.id+'"><option value="">なし</option>'+BOOTH_COLORS.filter(c=>c[0]!=='red'||BOOTH.colors[t.id]==='red')
         .map(c=>'<option value="'+c[0]+'"'+(BOOTH.colors[t.id]===c[0]?' selected':'')+'>'+c[1]+'</option>').join('')+'</select>';
-    const auto=[I.newbie?'新人':'',I.shallow?'期が浅い':''].concat(I.auto).filter(Boolean).join('・');
-    h+='<tr><td>'+esc(t.name)+'</td><td>'+sel+'</td><td style="text-align:center"><input type="checkbox" data-bcon="'+t.id+'"'+(BOOTH.concern[t.id]?' checked':'')+'></td><td>'+esc(auto||'—')+'</td></tr>';});
+    const auto=I.auto.join('・');
+    const stage=I.newbie?'<b style="color:#e07b00">1期目</b>':I.shallow?'<span style="color:#7a5bc7">2期目</span>':'';
+    h+='<tr><td>'+esc(t.id+' '+t.name)+'</td><td>'+stage+'</td><td>'+sel+'</td><td style="text-align:center"><input type="checkbox" data-bcon="'+t.id+'"'+(BOOTH.concern[t.id]?' checked':'')+'></td><td>'+esc(auto||'—')+'</td></tr>';});
   h+='</tbody></table>';
-  const fp=boothFriendPairs();
-  h+='<div class="bsec">仲の良い生徒（同じ列の前後にしない）</div>'+
-    '<div class="muted" style="font-size:11.5px">1行に2人ずつ。名前か生徒番号を「,」か「・」で区切って入れてください。兄弟（保護者名か電話番号が同じ）は自動で見分けます。</div>'+
-    '<textarea id="bPairs" rows="4" style="width:100%;box-sizing:border-box" placeholder="山田 太郎, 鈴木 花子">'+esc(BOOTH.pairs||'')+'</textarea>'+
-    '<div class="muted" style="font-size:11.5px">'+fp.pairs.length+'組を登録'+(fp.bad.length?'／<span style="color:#b8433a">見つからない行：'+esc(fp.bad.join('／'))+'</span>':'')+'</div>';
+  // 1期目の先生のメンター（曜日ごと）。コマ組の新人メンター設定と同じデータ
+  const firsts=list.filter(t=>boothStage(t.id)===1);
+  h+='<div class="bsec">1期目の先生のメンター（'+(MODE==='tsu'?'曜日':'期')+'ごと）</div>';
+  if(!firsts.length)h+='<div class="muted" style="font-size:11.5px">1期目の先生がいません。上で「1期目」の境目を選んでください。</div>';
+  else{
+    h+='<div class="muted" style="font-size:11.5px">その'+(MODE==='tsu'?'曜日':'期')+'に出勤している先生から選べます。メンターとは同じ列の前後に座ります。</div><table class="btlist"><tbody>';
+    firsts.forEach(t=>{const mm=(newbieInfo[t.id]||{}).mentor||{};
+      const days=PERIODS.filter(p=>workingInPeriod(t.id,p));
+      h+='<tr><td>'+esc(t.name)+'</td><td>'+(days.length?days.map(p=>{
+        const cands=teachers.filter(x=>x.id!==t.id&&!x.retire&&boothStage(x.id)!==1&&workingInPeriod(x.id,p));
+        const cur=mm[p]||'';
+        return '<span style="white-space:nowrap;margin-right:10px">'+esc(p)+' <select data-bmt="'+t.id+'" data-bmp="'+esc(p)+'"><option value="">なし</option>'+
+          (cur&&!cands.some(x=>x.id===cur)?'<option value="'+cur+'" selected>'+esc(tShort(cur))+'（この日は出勤なし）</option>':'')+
+          cands.map(x=>'<option value="'+x.id+'"'+(cur===x.id?' selected':'')+'>'+esc(x.name)+'</option>').join('')+'</select></span>';}).join(''):'<span class="muted">出勤なし</span>')+'</td></tr>';});
+    h+='</tbody></table>';
+  }
   h+='<div class="bsec">ブースの数</div><div>列 <input id="bCols" value="'+esc(boothCols().join(''))+'" size="6"> 行 <input id="bRows" value="'+boothRows()+'" size="2"> <button class="toolbtn" id="bCfgSave">変更</button>'+
     ' <span class="muted" style="font-size:11.5px">今は '+boothCols().length*boothRows()+'ブース</span></div>';
   return h;
@@ -3658,8 +3673,13 @@ function openBoothModal(){
     if(s.value)BOOTH.colors[s.dataset.bcol]=s.value; else delete BOOTH.colors[s.dataset.bcol]; boothSave();});
   md.querySelectorAll('[data-bcon]').forEach(c=>c.onchange=()=>{
     if(c.checked)BOOTH.concern[c.dataset.bcon]=1; else delete BOOTH.concern[c.dataset.bcon]; boothSave();});
+  ['bFirst','bSecond'].forEach(id=>{const el=document.getElementById(id);if(el)el.onchange=()=>{
+    BOOTH[id==='bFirst'?'first':'second']=el.value||'';boothSave();openBoothModal();};});
+  md.querySelectorAll('[data-bmt]').forEach(sel=>sel.onchange=()=>{
+    const tid=sel.dataset.bmt, p=sel.dataset.bmp, info=newbieInfo[tid]||{}, m=Object.assign({},info.mentor||{});
+    if(sel.value)m[p]=sel.value; else delete m[p];
+    newbieInfo[tid]=Object.assign({},info,{mentor:m}); saveNewbie(); boothSave();});
   const bt=document.getElementById('bTermOk'); if(bt)bt.onclick=()=>{BOOTH.colorTerm=boothTermNow();boothSave();openBoothModal();};
-  const bp=document.getElementById('bPairs'); if(bp)bp.onchange=()=>{BOOTH.pairs=bp.value;boothSave();openBoothModal();};
   const bc=document.getElementById('bCfgSave'); if(bc)bc.onclick=()=>{
     BOOTH.cfg={cols:document.getElementById('bCols').value,rows:document.getElementById('bRows').value};boothSave();openBoothModal();};
 }
