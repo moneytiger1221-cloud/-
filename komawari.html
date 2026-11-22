@@ -2021,7 +2021,11 @@ function openDiff(){
 function lskFor(){return MODE==='tsu'?LSK+'_tsu':LSK;}
 function loadSaved(){
   try{const dK=JSON.parse(LS.get(LSK)||'{}');
-    komasK.forEach(k=>{if(dK[k.kid]){k.teacherId=dK[k.kid].teacherId;k.limitNo=dK[k.kid].limitNo;k.period=dK[k.kid].period;}});}catch(e){}
+    komasK.forEach(k=>{if(dK[k.kid]){k.teacherId=dK[k.kid].teacherId;
+      /* 以前は時間割に無い時刻で9限ができていた。そこに保存されたコマは、名簿の時刻から決めた限に戻す
+         （無い限のままだと盤面から消えて見えなくなる） */
+      if(dK[k.kid].limitNo<=limitsK.length)k.limitNo=dK[k.kid].limitNo;
+      k.period=dK[k.kid].period;}});}catch(e){}
   try{const dN=JSON.parse(LS.get(LSK+'_tsu')||'{}');
     komasN.forEach(k=>{if(dN[k.kid]){k.teacherId=dN[k.kid].teacherId;k.limitNo=dN[k.kid].limitNo;k.period=dN[k.kid].period;}});}catch(e){}
   try{const g=JSON.parse(LS.get(LSGRP)||'{}');groupClasses.forEach(c=>{if(c.gid in g)c.teacherId=g[c.gid];});}catch(e){}}
