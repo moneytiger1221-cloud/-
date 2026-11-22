@@ -1897,7 +1897,9 @@ const LSK='komawari2026_v1', LSG='komawari2026_grey_v1', LSGRP='komawari2026_grp
       LSNB='komawari2026_newbie_v1', LSSCSV='komawari_studentcsv_v1', LSTCSV='komawari_teachercsv_v1';
 // 新人先生のランク(A/B/C)と期ごとのメンター: {tid:{rank:'A', mentor:{期:先生ID}}}
 let newbieInfo={};try{newbieInfo=JSON.parse(LS.get(LSNB)||'{}');}catch(e){}
-function saveNewbie(){try{LS.set(LSNB,JSON.stringify(newbieInfo));}catch(e){}flashSave();}
+function saveNewbie(){try{LS.set(LSNB,JSON.stringify(newbieInfo));}catch(e){}flashSave();
+  if(typeof bcMark==='function')bcMark('newbie');   // メンターはブース割と一緒にすぐスプシへ
+  JUKU_SYNC.touch('komawari'); JUKU_SYNC.queueSave('komawari',komaSyncSave);}
 let orig={}, origGroup={};
 function snapshotOrig(){orig={};
   komasK.concat(komasN).forEach(k=>orig[k.kid]={teacherId:k.teacherId,limitNo:k.limitNo,period:k.period});
@@ -3258,7 +3260,11 @@ function applySyncPayload(d){
     if(d.csv.student){curStudentCsv=d.csv.student;LS.set(LSSCSV,d.csv.student);}
     if(d.csv.teacher){curTeacherCsv=d.csv.teacher;LS.set(LSTCSV,d.csv.teacher);}
   }
-  if(d.keys)Object.keys(d.keys).forEach(k=>{if(backupKeys().indexOf(k)>=0)LS.set(k,d.keys[k]);});
+  /* ブース割とメンターは専用の同期（komawari_booth）で受け取る。ここで書くと古い内容に戻ってしまう */
+  const own=bcAt();
+  if(d.keys)Object.keys(d.keys).forEach(k=>{if(backupKeys().indexOf(k)<0)return;
+    if(k===LSBOOTH&&own.booth)return; if(k===LSNB&&own.newbie)return;
+    LS.set(k,d.keys[k]);});
 }
 async function syncSave(opts){
   opts = opts || {};
@@ -3411,8 +3417,58 @@ function boothLoad(){
 let BOOTH=boothLoad();
 function boothSave(){
   try{LS.set(LSBOOTH,JSON.stringify(BOOTH));}catch(e){}
-  JUKU_SYNC.touch('komawari'); JUKU_SYNC.queueSave('komawari',komaSyncSave); flashSave();
+  bcMark('booth'); flashSave();
 }
+/* ===== ブース割・メンターだけのスプシ同期 =====
+   コマ組本体の同期は「まるごと置き換え」で、送れていない変更があると読み込みを見送るため、
+   スマホで入れたカラーや座席がパソコンに届かなかった。
+   ブース割（カラー・課題・期の境目・座席）とメンターは小さいので、別の行（komawari_booth）に置き、
+   変えたらすぐ送り、開くたびに読む。どちらが新しいかは、ブース割とメンターそれぞれの更新時刻で決める。 */
+const LSBOOTH_AT='komawari_booth_at_v1';   // {booth:ISO, newbie:ISO} この端末の内容がいつのものか
+function bcAt(){try{return JSON.parse(LS.get(LSBOOTH_AT)||'{}')||{};}catch(e){return {};}}
+function bcMark(kind){const o=bcAt();o[kind]=new Date().toISOString();try{LS.set(LSBOOTH_AT,JSON.stringify(o));}catch(e){}bcQueue();}
+let bcTimer=null;
+function bcQueue(){clearTimeout(bcTimer);bcTimer=setTimeout(bcSave,800);}
+function bcNote(t){const el=document.getElementById('autosave');if(el){el.textContent=t;clearTimeout(bcNote.t);bcNote.t=setTimeout(()=>el.textContent='',3000);}}
+async function bcPost(body){
+  const c=syncCfg(); if(!c.url||!c.key)return null;
+  const res=await fetch(c.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify(Object.assign({key:c.key,tool:'komawari_booth'},body))});
+  return res.json();
+}
+/* スプシのほうが新しければ取り込む。取り込んだら true */
+async function bcLoad(){
+  const d=await bcPost({action:'load'}); if(!d||!d.ok||!d.data)return false;
+  const r=JSON.parse(d.data), at=bcAt(), ra=r.at||{}; let changed=false;
+  if(r.booth&&(ra.booth||'')>(at.booth||'')){LS.set(LSBOOTH,JSON.stringify(r.booth));BOOTH=boothLoad();at.booth=ra.booth;changed=true;}
+  if(r.newbie&&(ra.newbie||'')>(at.newbie||'')){newbieInfo=r.newbie;LS.set(LSNB,JSON.stringify(newbieInfo));at.newbie=ra.newbie;changed=true;}
+  if(changed)LS.set(LSBOOTH_AT,JSON.stringify(at));
+  return changed;
+}
+let bcSaving=false;
+async function bcSave(){
+  if(bcSaving){bcQueue();return;}
+  bcSaving=true;
+  try{
+    await bcLoad();   // 先にスプシ側の新しいほうを取り込んでから送る（相手の分を消さないため）
+    const d=await bcPost({data:JSON.stringify({booth:boothLoad(),newbie:newbieInfo,at:bcAt()})});
+    if(d&&d.ok)bcNote('✓ ブース割をスプシに保存');
+  }catch(e){bcNote('ブース割をスプシに送れませんでした（通信）');}
+  finally{bcSaving=false;}
+}
+/* 開いたとき・画面に戻ってきたときに読む。読んだら画面を描き直す */
+async function bcRefresh(){
+  try{
+    const changed=await bcLoad();
+    if(changed){renderAll();const md=document.getElementById('modal');
+      if(md&&md.style.display!=='none'&&md.querySelector('.boothbox'))openBoothModal(true);
+      bcNote('✓ ブース割をスプシから読み込みました');}
+    else if(!(await bcPost({action:'load'})||{}).data&&(Object.keys(BOOTH.colors).length||Object.keys(BOOTH.assign).length))bcSave();   // スプシにまだ無ければ送る
+  }catch(e){}
+}
+setTimeout(bcRefresh,600);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)bcRefresh();});
+window.addEventListener('focus',bcRefresh);
 /* 今の学期（カラーは学期ごとに見直す） 4〜8月=1学期 / 9〜12月=2学期 / 1〜3月=3学期 */
 function boothTermNow(){
   const d=new Date(), m=d.getMonth()+1, fy=m>=4?d.getFullYear():d.getFullYear()-1;
@@ -3745,8 +3801,9 @@ function boothTeacherSettingsHTML(){
     ' <span class="muted" style="font-size:11.5px">今は '+boothCols().length*boothRows()+'ブース</span></div>';
   return h;
 }
-function openBoothModal(){
+function openBoothModal(fromSync){
   BOOTH=boothLoad();
+  if(!fromSync)bcRefresh();
   if(PERIODS.indexOf(boothDay)<0)boothDay=PERIODS.indexOf(activePeriod)>=0?activePeriod:(PERIODS[0]||'');
   const day=boothDay, lims=boothLimitsOf(day), done=((BOOTH.assign[MODE]||{})[day]);
   let h='<div class="modalbox boothbox"><div class="modalhd"><b>🪑 ブース割</b><button class="mclose" onclick="closeModal()">×</button></div>';
