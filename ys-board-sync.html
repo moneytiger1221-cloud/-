@@ -72,7 +72,12 @@
     usingIdb: function () { return !!db; },
     /* スプシ同期が動いているか。動いているときは、各ツールの古い同期は止める */
     syncOn: function () { return !!db && !!syncCfg().url; },
-    syncStatus: function () { return SYNC.status; }
+    syncStatus: function () { return SYNC.status; },
+    /* 今すぐ同期する。接続先を入れたばかりで、まだ同期係になっていなければ、ここで始める */
+    syncNow: function () {
+      if (!SYNC.role && db && window.top === window && syncCfg().url) { SYNC.role = true; SYNC.start(); }
+      return SYNC.role ? SYNC.cycle() : Promise.resolve();
+    }
   };
   Object.defineProperty(api, 'length', { get: function () {
     if (!db) { var l = LS(); return l ? l.length : 0; }
@@ -15334,80 +15339,6 @@ ${mPts}pt${mGoal}
                   nameEl.value = "";
                 }, style: { ...btnPri, padding: "6px 12px", fontSize: 12, flexShrink: 0 }, children: "\u8FFD\u52A0" })
               ] })
-            ] })
-          ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: "#0a1f14", borderRadius: 14, padding: 18, border: "1px solid #166534" }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontWeight: 700, fontSize: 14, color: "#4ade80", marginBottom: 4 }, children: "\u2601\uFE0F \u30B9\u30D7\u30EC\u30C3\u30C9\u30B7\u30FC\u30C8\u540C\u671F" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: 12, color: "#64748b", marginBottom: 12 }, children: "複数の端末で同じデータを共有します。取り込むと自動でスプシに保存され、別の端末は開くだけで最新になります。" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginBottom: 10 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: 11, color: "#64748b", marginBottom: 4 }, children: "\u63A5\u7D9A\u5148URL\uFF08Apps Script\u306E\u30A6\u30A7\u30D6\u30A2\u30D7\u30EAURL\uFF09" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                "input",
-                {
-                  value: syncUrl,
-                  onChange: (e) => setSyncUrl(e.target.value),
-                  placeholder: "https://script.google.com/macros/s/.../exec",
-                  style: { ...inp, fontSize: 12, width: "100%", boxSizing: "border-box" }
-                }
-              )
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { marginBottom: 14 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: 11, color: "#64748b", marginBottom: 4 }, children: "\u5408\u8A00\u8449" }),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                "input",
-                {
-                  value: syncKey,
-                  onChange: (e) => setSyncKey(e.target.value),
-                  placeholder: "\u5408\u8A00\u8449",
-                  style: { ...inp, fontSize: 12, width: "100%", boxSizing: "border-box" }
-                }
-              )
-            ] }),
-            ysAuto && !ysShowManual ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { fontSize: 12, color: "#64748b", marginBottom: 10, lineHeight: 1.7 }, children: [
-              "自動でやりとりしているので、押す必要はありません。 ",
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-                onClick: () => setYsShowManual(true),
-                style: { ...btnOut, fontSize: 11, padding: "2px 8px" },
-                children: "手動でやる"
-              })
-            ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", gap: 8, marginBottom: 10 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                "button",
-                {
-                  onClick: syncLoad,
-                  disabled: syncStatus === "loading" || syncStatus === "saving",
-                  style: { ...btnOut, flex: 1, fontSize: 13, color: "#38bdf8", borderColor: "#0c4a6e" },
-                  children: "\u2B07\uFE0F \u30B9\u30D7\u30B7\u304B\u3089\u8AAD\u8FBC"
-                }
-              ),
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-                "button",
-                {
-                  onClick: syncSave,
-                  disabled: syncStatus === "loading" || syncStatus === "saving",
-                  style: { ...btnPri, flex: 1, fontSize: 13 },
-                  children: "\u2B06\uFE0F \u30B9\u30D7\u30B7\u306B\u4FDD\u5B58"
-                }
-              )
-            ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { style: { display: "block", fontSize: 12, color: "#64748b", marginBottom: 10 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-                type: "checkbox",
-                checked: ysAuto,
-                onChange: (e) => { const v = e.target.checked; setYsAuto(v); JUKU_SYNC.setAuto("ysboard", v); }
-              }),
-              " 自動でやりとりする"
-            ] }),
-            syncMsg && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: {
-              fontSize: 12,
-              padding: "8px 10px",
-              borderRadius: 8,
-              textAlign: "center",
-              background: syncStatus === "error" ? "#2d0a0a" : syncStatus === "ok" ? "#052e16" : "#1e293b",
-              color: syncStatus === "error" ? "#f87171" : syncStatus === "ok" ? "#4ade80" : "#94a3b8"
-            }, children: [
-              syncStatus === "loading" || syncStatus === "saving" ? "\u23F3 " : "",
-              syncMsg
             ] })
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { background: "#0f172a", borderRadius: 14, padding: 18, border: "1px solid #1e293b" }, children: [

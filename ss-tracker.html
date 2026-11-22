@@ -307,7 +307,12 @@ tr.area .v{font-weight:700;color:#5b6c7e;}
     usingIdb: function () { return !!db; },
     /* スプシ同期が動いているか。動いているときは、各ツールの古い同期は止める */
     syncOn: function () { return !!db && !!syncCfg().url; },
-    syncStatus: function () { return SYNC.status; }
+    syncStatus: function () { return SYNC.status; },
+    /* 今すぐ同期する。接続先を入れたばかりで、まだ同期係になっていなければ、ここで始める */
+    syncNow: function () {
+      if (!SYNC.role && db && window.top === window && syncCfg().url) { SYNC.role = true; SYNC.start(); }
+      return SYNC.role ? SYNC.cycle() : Promise.resolve();
+    }
   };
   Object.defineProperty(api, 'length', { get: function () {
     if (!db) { var l = LS(); return l ? l.length : 0; }
@@ -1786,24 +1791,6 @@ function dowNewer(a, b) {
   return (a.savedAt || '') > (b.savedAt || '');
 }
 var dowFetching = false;
-async function fetchKomaRoster() {
-  if (JUKU_LS.syncOn && JUKU_LS.syncOn()) return;   // 共通のスプシ同期でコマ組の出勤先生も届く
-  var url = (DB.cfg.syncUrl || '').trim(), key = (DB.cfg.syncKey || '').trim();
-  if (!url || !key || dowFetching) return;
-  dowFetching = true;
-  try {
-    var res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ key: key, tool: 'komawari', action: 'load' }) });
-    var j = await res.json();
-    if (!j.ok || !j.data) return;
-    var remote = (JSON.parse(j.data) || {}).dowRoster;
-    if (dowNewer(remote, lsGet(LS_DOW, null))) {
-      lsSet(LS_DOW, remote);
-      if ((DB.ui.tab || 'touch') === 'touch' && VIEW.date) renderTouch();
-    }
-  } catch (e) { /* つながらないときは手元のものを使う */ }
-  finally { dowFetching = false; }
-}
 
 /* 曜日の切り替えボタン。その曜日に授業がある人数も出す（0名の曜日が一目で分かる） */
 function dowTabs(roster, all) {
@@ -2628,10 +2615,7 @@ function renderCfg() {
   var h = '';
 
   h += '<div class="card"><h3>SSファイルの取り込み</h3>' +
-    '<div class="drop" id="drop">ここに <b>xlsx</b> をドラッグ＆ドロップ<br>' +
-    '<span class="muted">フォルダの全ファイルをまとめて放り込めます。同じ日付は上書きされます。</span><br>' +
-    '<button class="btn sec" id="pick" style="margin-top:9px">ファイルを選ぶ</button>' +
-    '<input type="file" id="fin" accept=".xlsx" multiple style="display:none"></div>' +
+    '<div class="muted">SSのxlsxと貢献シートのPDFは、統合版の<b>「取込」タブ</b>から取り込みます。</div>' +
     '<div class="prog" id="prog" style="display:none"><i id="progi"></i></div>' +
     '<div class="msg" id="impmsg"></div>' +
     '<div class="row"><label><input type="checkbox" id="cbTests"' + (DB.cfg.tests ? ' checked' : '') + '> ' +
@@ -2652,43 +2636,13 @@ function renderCfg() {
     '<div class="msg" id="mailmsg"></div></div>';
 
   var kk = lsGet(LS_KOUKEN, null);
-  h += '<div class="card"><h3>貢献シートの取り込み <span class="sub">成績との相関に使う</span></h3>' +
-    '<div class="drop" id="kdrop">ここに <b>貢献シートのPDF</b> をドラッグ＆ドロップ<br>' +
-    '<span class="muted">先生ごとの担当（生徒×科目）と、前学期→今学期の点数が取れます。</span><br>' +
-    '<button class="btn sec" id="kpick" style="margin-top:9px">ファイルを選ぶ</button>' +
-    '<input type="file" id="kfin" accept=".pdf" style="display:none"></div>' +
+  h += '<div class="card"><h3>貢献シート <span class="sub">成績との相関に使う</span></h3>' +
+    '<div class="muted">先生ごとの担当（生徒×科目）と、前学期→今学期の点数が取れます。統合版の「取込」タブから取り込みます。</div>' +
     '<div class="msg" id="kmsg">' +
     (kk ? '取込済み: ' + esc(kk.term || '') + '　先生' + (kk.sheets || []).length + '名／' +
           (kk.sheets || []).reduce(function (a, s) { return a + s.rows.length; }, 0) + '行' +
           (kk.importedAt ? '（' + esc(String(kk.importedAt).slice(0, 10)) + ' 取込）' : '') : '') + '</div>' +
     '</div>';
-
-  h += '<div class="card"><h3>ダウンロードフォルダの監視 <span class="sub">毎回の取り込みを省く</span></h3>' +
-    '<div class="muted">ダウンロードフォルダを一度だけ許可すると、次からはこのツールを開くだけで' +
-    '<b>未取込のSSファイルだけ</b>を自動で読み込みます。<br>' +
-    'メールのリンクが社内システムのため取得の自動化はできませんが、' +
-    '「いつも通りダウンロードする」だけで済むようになります。</div>' +
-    '<div class="row"><button class="btn" id="fsPick">フォルダを選ぶ</button>' +
-    '<button class="btn sec" id="fsScan">今すぐ確認</button>' +
-    '<button class="btn dgr" id="fsClear">解除</button></div>' +
-    '<div class="msg" id="fsmsg"></div>' +
-    '<div class="muted">この機能は Chrome / Edge のパソコンで、' +
-    '<b>START-TOOL.bat（localhost）か公開版（https）から開いたとき</b>に使えます。' +
-    'ファイルを直接ダブルクリックして開いた場合は使えません。</div></div>';
-
-  h += '<div class="card"><h3>スプレッドシート同期 <span class="sub">パソコンで取込 → スマホで見る</span></h3>' +
-    '<div class="row"><label>ウェブアプリURL</label>' +
-    '<input type="text" id="syncUrl" style="flex:1;min-width:240px" value="' + esc(DB.cfg.syncUrl || '') + '" placeholder=".../exec"></div>' +
-    '<div class="row"><label>合言葉</label><input type="password" id="syncKey" value="' + esc(DB.cfg.syncKey || '') + '"></div>' +
-    '<div class="row" id="syncManual"><button class="btn" id="syncSave">保存する</button>' +
-    '<button class="btn sec" id="syncLoad">読み込む</button></div>' +
-    '<div class="msg" id="syncmsg"></div>' +
-    '<label style="display:block;margin-top:8px;font-size:12px;color:#5a6b7d;">' +
-    '<input type="checkbox" id="syncAuto"> 自動でやりとりする</label>' +
-    '<div id="syncInfo" style="margin-top:10px;"></div>' +
-    '<div class="muted">他の塾ツールと同じ <code>Code.gs</code> をそのまま使えます（sync_ss シートが自動で作られます）。' +
-    '取り込むと自動でスプシに保存され、別の端末は開くだけで最新になります。' +
-    'メモと「対象外」は上書きせずに混ぜるので、両方の端末で書いても消えません。</div></div>';
 
   h += '<div class="card"><h3>判定の設定</h3><div class="tblwrap"><table><thead><tr>' +
     '<th class="name">指標</th><th>SSの目標</th><th>手動で上書き</th></tr></thead><tbody>';
@@ -2771,7 +2725,6 @@ function renderCfg() {
   host.innerHTML = h;
   wireCfg();
   /* 取り込み口は取込タブにまとめた。統合版の中だけ隠す（フォルダ監視も取込タブ側にある） */
-  jukuHideImports('#drop, #kdrop', 'SSのxlsxと貢献シートPDFの取り込みは、上の<b>「取込」タブ</b>にまとまりました。');
 }
 /* 既に取り込んだ日に回別が入っていなければ、取り込み直しを促す */
 function noTestNote() {
@@ -3669,56 +3622,7 @@ async function idbGet(k) {
 
 function fsSupported() { return typeof window.showDirectoryPicker === 'function'; }
 
-async function fsPickDir() {
-  if (!fsSupported()) {
-    setMsg('fsmsg', 'このブラウザ／開き方ではフォルダ監視が使えません。\n' +
-      'START-TOOL.bat（localhost）か公開版のURLから、Chrome か Edge で開いてください。', 'er');
-    return;
-  }
-  try {
-    var h = await window.showDirectoryPicker({ id: 'ssdl', mode: 'read' });
-    await idbSet('dir', h);
-    setMsg('fsmsg', 'フォルダを登録しました。未取込のファイルを確認します…', 'ok');
-    await fsScan(true);
-  } catch (e) {
-    if (e && e.name === 'AbortError') return;
-    setMsg('fsmsg', '登録できませんでした: ' + e.message, 'er');
-  }
-}
 
-async function fsScan(verbose) {
-  if (!fsSupported()) { if (verbose) setMsg('fsmsg', 'このブラウザ／開き方では使えません。', 'er'); return; }
-  var h;
-  try { h = await idbGet('dir'); } catch (e) { h = null; }
-  if (!h) { if (verbose) setMsg('fsmsg', 'まだフォルダが登録されていません。', 'er'); return; }
-
-  var perm = await h.queryPermission({ mode: 'read' });
-  if (perm !== 'granted') {
-    if (!verbose) { setMsg('fsmsg', 'フォルダの読み取り許可が切れています。「今すぐ確認」を押して許可してください。', 'er'); return; }
-    perm = await h.requestPermission({ mode: 'read' });
-    if (perm !== 'granted') { setMsg('fsmsg', '許可されませんでした。', 'er'); return; }
-  }
-
-  var seen = DB.ui.seen || (DB.ui.seen = {});
-  var picks = [];
-  for await (var ent of h.values()) {
-    if (ent.kind !== 'file') continue;
-    if (!/\.xlsx$/i.test(ent.name)) continue;
-    if (!/成績進捗/.test(ent.name)) continue;
-    if (seen[ent.name]) continue;
-    picks.push(ent);
-  }
-  if (!picks.length) { if (verbose) setMsg('fsmsg', '新しいSSファイルはありませんでした。', 'ok'); return; }
-
-  var files = [];
-  for (var i = 0; i < picks.length; i++) files.push(await picks[i].getFile());
-  var res = await importFiles(files, 'fsmsg');
-  picks.forEach(function (p) { seen[p.name] = 1; });
-  saveUi();
-  setMsg('fsmsg', '新しく ' + res.ok + '件 取り込みました。' + (res.ng ? '（' + res.ng + '件は読めませんでした）' : ''),
-    res.ng ? 'er' : 'ok');
-  refreshAll(true);   // フォルダ監視で拾ったときも新しい日へ
-}
 
 /* ---------- スプレッドシート同期 ---------------------------------------- */
 /* ===== 同期の「いつ・どの端末で保存したか」（塾ツール共通）=====
@@ -4079,32 +3983,8 @@ async function syncLoad(opts) {
 
 /* ---------- 設定画面の配線 ---------------------------------------------- */
 function wireCfg() {
-  var drop = el('drop');
-  ['dragenter', 'dragover'].forEach(function (ev) {
-    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); });
-  });
-  ['dragleave', 'drop'].forEach(function (ev) {
-    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); });
-  });
-  drop.addEventListener('drop', async function (e) {
-    await importFiles(e.dataTransfer.files, 'impmsg'); refreshAll(true);   // 取り込んだらいちばん新しい日を出す
-  });
-  el('pick').onclick = function () { el('fin').click(); };
-  el('fin').onchange = async function () { await importFiles(this.files, 'impmsg'); this.value = ''; refreshAll(true); };
   el('cbTests').onchange = function () { DB.cfg.tests = this.checked; saveCfg(); renderCfg(); };
 
-  var kdrop = el('kdrop');
-  if (kdrop && kdrop.addEventListener) {
-    ['dragenter', 'dragover'].forEach(function (ev) {
-      kdrop.addEventListener(ev, function (e) { e.preventDefault(); kdrop.classList.add('over'); });
-    });
-    ['dragleave', 'drop'].forEach(function (ev) {
-      kdrop.addEventListener(ev, function (e) { e.preventDefault(); kdrop.classList.remove('over'); });
-    });
-    kdrop.addEventListener('drop', function (e) { importKouken(e.dataTransfer.files[0]); });
-  }
-  el('kpick').onclick = function () { el('kfin').click(); };
-  el('kfin').onchange = function () { importKouken(this.files[0]); this.value = ''; };
   el('cbShowOut').onchange = function () { DB.cfg.showOut = this.checked; saveCfg(); refreshAll(); renderCfg(); };
   el('pruneOut').onclick = function () {
     if (!confirm('在籍外の先生のデータを保存から消します。画面の表示は変わりません（もともと出していないため）。よろしいですか？')) return;
@@ -4113,32 +3993,9 @@ function wireCfg() {
     setMsg('impmsg', n + '名分を消しました。保存サイズは ' + sizeKB() + ' KB になりました。', 'ok');
   };
 
-  el('fsPick').onclick = fsPickDir;
-  el('fsScan').onclick = function () { fsScan(true); };
-  el('fsClear').onclick = async function () {
-    await idbSet('dir', null); DB.ui.seen = {}; saveUi();
-    setMsg('fsmsg', 'フォルダの登録を解除しました。', 'ok');
-  };
-  if (!fsSupported()) {
-    setMsg('fsmsg', 'この開き方ではフォルダ監視が使えません（file:// で開いているか、対応していないブラウザです）。', 'er');
-  }
-
   el('mailPull').onclick = function () { mailCfgFromForm(); mailPull(true); };
   el('mailAuto').onchange = function () { mailCfgFromForm(); };
   el('mailUrl').onchange = el('mailKey').onchange = function () { mailCfgFromForm(); };
-
-  el('syncSave').onclick = function () {
-    DB.cfg.syncUrl = el('syncUrl').value.trim(); DB.cfg.syncKey = el('syncKey').value.trim(); saveCfg(); syncSave();
-  };
-  el('syncAuto').checked = JUKU_SYNC.autoOn('ss');
-  el('syncAuto').onchange = function () { JUKU_SYNC.setAuto('ss', this.checked); };
-  JUKU_SYNC.tuckManual('ss', '#syncManual');
-  JUKU_SYNC.mount('syncInfo', 'ss', function () {
-    return { url: (DB.cfg.syncUrl || '').trim(), key: (DB.cfg.syncKey || '').trim() };
-  });
-  el('syncLoad').onclick = function () {
-    DB.cfg.syncUrl = el('syncUrl').value.trim(); DB.cfg.syncKey = el('syncKey').value.trim(); saveCfg(); syncLoad();
-  };
 
   Array.prototype.forEach.call(document.querySelectorAll('.wIn'), function (s) {
     s.oninput = function () { el('w-' + s.getAttribute('data-k')).textContent = s.value; };
@@ -4279,11 +4136,8 @@ function boot(reload) {
     var before = allDates().length;
     snapsLoad().then(function () { if (allDates().length !== before) refreshAll(true); });
   }
-  if (!reload && fsSupported()) { setTimeout(function () { fsScan(false); }, 400); }
   // メールから自動取込を設定済みなら、開いた時点で新しいSSを受け取る
   if (!reload) { setTimeout(function () { var c = mailCfg(); if (c.auto && c.url && c.key) mailPull(false); }, 600); }
-  // コマ組の出勤先生をスプシから受け取る（パソコンで組んだ配置をスマホでも使う）
-  if (!reload) { setTimeout(fetchKomaRoster, 900); }
 }
 
 if (typeof document !== 'undefined' && document.getElementById('selDate')) boot();
@@ -4321,12 +4175,6 @@ window.JUKU_IMPORT = {
   ss:     async function (f) { var r = await importFiles([f], 'impmsg'); refreshAll(true); return r; },
   kouken: function (f) { return importKouken(f); }
 };
-/* 取り込んだ結果も自動でスプシへ */
-JUKU_SYNC.autoAfterImport('ss', syncSave);
-/* 開いたとき、スプシのほうが新しければ自動で読む */
-JUKU_SYNC.autoLoad('ss', function () {
-  return { url: (DB.cfg.syncUrl || '').trim(), key: (DB.cfg.syncKey || '').trim() };
-}, syncLoad, function (t) { setMsg('syncmsg', t); });
 
 </script>
 </body>

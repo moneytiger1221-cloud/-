@@ -216,9 +216,8 @@ details.fold>div{padding:0 10px 10px;}
   <button class="tab on" data-p="suggest">私立の提案</button>
   <button class="tab" data-p="public">公立の提案</button>
   <button class="tab" data-p="schools">私立一覧</button>
-  <button class="tab" data-p="access">通学時間</button>
   <button class="tab" data-p="import">取込・版</button>
-  <button class="tab" data-p="settings">設定・同期</button>
+  <button class="tab" data-p="settings">設定</button>
 </div>
 
 <div id="body">
@@ -348,11 +347,6 @@ details.fold>div{padding:0 10px 10px;}
 
     <div class="card">
       <h3>学校マスタ <span class="sub" id="pStat"></span></h3>
-      <div id="pDrop" style="border:2px dashed #b9c8d8;border-radius:10px;padding:18px;text-align:center;color:#6a7c8e;background:#fbfdff;cursor:pointer;">
-        「公立高校合格判定用.xlsx」をここにドラッグ＆ドロップ<br>
-        <span class="small">またはクリックしてファイルを選ぶ（CSVも可）</span>
-        <input type="file" id="pFile" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" style="display:none;">
-      </div>
       <div id="pImpLog" style="margin-top:10px;"></div>
       <div class="row" style="margin-top:10px;">
         <button class="btn" id="pPaste">表を貼り付けて取り込む</button>
@@ -387,46 +381,10 @@ details.fold>div{padding:0 10px 10px;}
     </div>
   </div>
 
-  <!-- ============ 通学時間 ============ -->
-  <div class="pane" id="p-access">
-    <div class="card">
-      <h3>起点と乗換</h3>
-      <div class="row">
-        <label>起点の駅</label><input type="text" id="acOrigin" style="width:120px;">
-        <label>乗換1回あたり</label><input type="number" id="acTransfer" min="0" max="30"> 分
-        <button class="btn" id="acSave">保存</button>
-        <span class="grow"></span>
-        <span class="small muted" id="acStat"></span>
-      </div>
-      <div class="hint" style="margin-top:8px;">
-        時間は<b>乗換案内で調べた実測値</b>です（平日の朝、乗換の待ち時間込み）。
-        結果を見ていて「その学校そんなに遠くない／近くない」と思った駅だけ、ここで直してください。
-        直した駅は<b>自分で設定</b>と表示され、以後そちらが使われます。<br>
-        ここの駅時間は<b>私立の通学時間の計算</b>に使います。
-        <b>公立</b>は学校ごとに戸塚からの時間を直接実測してあるので、駅を直しても合計は変わりません
-        （最寄り駅からの徒歩・バスの表示だけが変わります）。
-      </div>
-    </div>
-    <div class="card">
-      <div class="row" style="margin-bottom:8px;">
-        <input type="text" id="acWord" placeholder="駅名で絞る" style="width:160px;">
-        <label><input type="checkbox" id="acOnlyBlank"> 未設定だけ</label>
-        <span class="grow"></span>
-        <button class="btn sm" id="acAdd">＋ 駅を追加</button>
-      </div>
-      <div class="scroller"><table class="tbl" id="acTbl"></table></div>
-    </div>
-  </div>
-
   <!-- ============ 取込・版 ============ -->
   <div class="pane" id="p-import">
     <div class="card">
-      <h3>打診値のPDFを取り込む <span class="sub">解析はこの画面の中だけで行われます</span></h3>
-      <div id="drop">
-        ここに打診値一覧のPDFをドラッグ＆ドロップ<br>
-        <span class="small">またはクリックしてファイルを選ぶ</span>
-        <input type="file" id="file" accept="application/pdf,.pdf" style="display:none;">
-      </div>
+      <h3>打診値のPDF <span class="sub">統合版の「取込」タブで取り込むと、ここで確認して保存します</span></h3>
       <div id="impLog" style="margin-top:10px;"></div>
       <div id="impActions" style="margin-top:10px;display:none;">
         <div class="row">
@@ -450,47 +408,12 @@ details.fold>div{padding:0 10px 10px;}
   <!-- ============ 設定・同期 ============ -->
   <div class="pane" id="p-settings">
     <div class="card">
-      <h3>🔄 スプレッドシート同期 <span class="sub">他のツールと同じ仕組み（同じURL・同じ合言葉が使えます）</span></h3>
-      <div class="row" style="margin-bottom:6px;">
-        <label style="width:100%;font-size:11px;">接続先URL（Apps Scriptのウェブアプリ URL）</label>
-        <input type="text" id="syncUrl" placeholder="https://script.google.com/macros/s/.../exec" style="width:100%;">
-      </div>
-      <div class="row" style="margin-bottom:8px;">
-        <label style="width:100%;font-size:11px;">合言葉</label>
-        <input type="text" id="syncKey" placeholder="合言葉" style="width:100%;">
-      </div>
-      <div class="row" id="syncManual">
-        <button class="btn" id="syncLoadBtn">⬇️ スプシから読込</button>
-        <button class="btn pri" id="syncSaveBtn">⬆️ スプシに保存</button>
-        <span class="grow"></span>
-        <span class="small" id="syncMsg"></span>
-      </div>
-      <label style="display:block;margin-top:8px;font-size:12px;color:#5a6b7d;">
-        <input type="checkbox" id="syncAuto"> 自動でやりとりする</label>
-      <div id="syncInfo" style="margin-top:10px;"></div>
-      <div class="warnbox" style="margin-top:8px;">
-        保存すると<b>打診値と生徒の内申がご自身のスプレッドシートに入ります</b>。
-        共有設定を「自分だけ」にしたまま使ってください。合言葉は教室の鍵と同じ扱いで。
-      </div>
-    </div>
-    <div class="card">
       <h3>この端末に保存されているもの</h3>
       <div id="stStorage"></div>
     </div>
     <div class="card">
       <h3>手で直した内容</h3>
       <div id="stEdits"></div>
-    </div>
-    <div class="card">
-      <h3>バックアップ（ファイル）</h3>
-      <div class="row">
-        <button class="btn" id="stExport">JSONに書き出す</button>
-        <button class="btn" id="stImport">JSONから読み込む</button>
-        <input type="file" id="stFile" accept="application/json,.json" style="display:none;">
-      </div>
-      <div class="hint" style="margin-top:6px;">
-        書き出したJSONには打診値が入ります。<b>共有フォルダやメールに置かないでください。</b>
-      </div>
     </div>
     <div class="card">
       <h3>全消去</h3>
@@ -582,7 +505,12 @@ details.fold>div{padding:0 10px 10px;}
     usingIdb: function () { return !!db; },
     /* スプシ同期が動いているか。動いているときは、各ツールの古い同期は止める */
     syncOn: function () { return !!db && !!syncCfg().url; },
-    syncStatus: function () { return SYNC.status; }
+    syncStatus: function () { return SYNC.status; },
+    /* 今すぐ同期する。接続先を入れたばかりで、まだ同期係になっていなければ、ここで始める */
+    syncNow: function () {
+      if (!SYNC.role && db && window.top === window && syncCfg().url) { SYNC.role = true; SYNC.start(); }
+      return SYNC.role ? SYNC.cycle() : Promise.resolve();
+    }
   };
   Object.defineProperty(api, 'length', { get: function () {
     if (!db) { var l = LS(); return l ? l.length : 0; }
@@ -2889,7 +2817,6 @@ function render(){
   if(CURPANE==='suggest')  renderSuggest();
   if(CURPANE==='public')   renderPublic();
   if(CURPANE==='schools')  renderSchools();
-  if(CURPANE==='access')   renderAccess();
   if(CURPANE==='import')   renderVersions();
   if(CURPANE==='settings') renderSettings();
 }
@@ -3303,78 +3230,6 @@ function openDetail(i){
   }, $('modalbd'));
 }
 
-/* ==========================================================
-   12. 通学時間（駅マスタ）
-   ========================================================== */
-$('acSave').onclick=function(){
-  S.settings.origin=$('acOrigin').value.trim()||'戸塚';
-  S.settings.transferMin=Math.max(0,+$('acTransfer').value||0);
-  lsSet(K.set,S.settings); invalidate(); render();
-};
-$('acWord').oninput=renderAccess;
-$('acOnlyBlank').onchange=renderAccess;
-$('acAdd').onclick=function(){
-  var n=prompt('追加する駅名を入れてください（「駅」は付けなくて構いません）');
-  if(!n) return; n=n.replace(/駅$/,'').trim(); if(!n) return;
-  if(!S.stations[n]) S.stations[n]={min:null,tr:0,ok:false,note:''};
-  lsSet(K.sta,S.stations); invalidate(); renderAccess();
-};
-function renderAccess(){
-  $('acOrigin').value=S.settings.origin;
-  $('acTransfer').value=S.settings.transferMin;
-  var used={};
-  rows().forEach(function(r){ r._acc.forEach(function(x){ used[x.station]=(used[x.station]||0)+1; }); });
-  pubSchools().forEach(function(sc){
-    ((sc.stations&&sc.stations.length)? sc.stations.map(function(p){return p[0];}) : (sc.station?[sc.station]:[]))
-      .forEach(function(n){ used[n]=(used[n]||0)+1; });
-  });
-  var names=Object.keys(S.stations);
-  var miss=Object.keys(used).filter(function(n){ var s=S.stations[n]; return !s||s.min==null||s.min===''; });
-  var meas=names.filter(function(n){ return /実測/.test(S.stations[n].note||''); }).length;
-  var mine=names.filter(function(n){ return S.stations[n].ok && !/実測/.test(S.stations[n].note||''); }).length;
-  $('acStat').innerHTML='登録 '+names.length+'駅／実測 '+meas+'／自分で設定 '+mine+
-     (miss.length? ' <span class="tag t-warn">未設定 '+miss.length+'駅</span>':'');
-
-  var w=($('acWord').value||'').trim(), onlyBlank=$('acOnlyBlank').checked;
-  var list=names.filter(function(n){
-    if(w && n.indexOf(w)<0) return false;
-    if(onlyBlank){ var s=S.stations[n]; if(!(s.min==null||s.min==='')) return false; }
-    return true;
-  });
-  list.sort(function(a,b){
-    var ua=used[a]||0, ub=used[b]||0;
-    if(ua!==ub) return ub-ua;
-    var sa=S.stations[a].min, sb=S.stations[b].min;
-    if(sa==null) return -1; if(sb==null) return 1;
-    return sa-sb;
-  });
-  var h='<thead><tr><th style="width:150px;">駅</th><th style="width:96px;">'+esc(S.settings.origin)+'から電車</th>'+
-        '<th style="width:78px;">乗換</th><th style="width:100px;">状態</th><th style="width:70px;">使用校数</th><th>メモ</th></tr></thead><tbody>';
-  list.forEach(function(n){
-    var s=S.stations[n];
-    h+='<tr data-n="'+esc(n)+'"><td class="nowrap">'+esc(n)+(used[n]?'':' <span class="small muted">(未使用)</span>')+'</td>'+
-       '<td><input type="number" class="num k-min" min="0" max="300" value="'+(s.min==null?'':s.min)+'"> 分</td>'+
-       '<td><input type="number" class="num k-tr" min="0" max="6" value="'+(+s.tr||0)+'"> 回</td>'+
-       '<td class="c small">'+(/実測/.test(s.note||'')? '<span class="tag t-ok">実測</span>'
-            : (s.ok? '<span class="tag t-info">自分で設定</span>' : '<span class="muted">目安</span>'))+'</td>'+
-       '<td class="c mono">'+(used[n]||0)+'</td>'+
-       '<td><input type="text" class="k-note" value="'+esc(s.note||'')+'" style="width:98%;"></td></tr>';
-  });
-  h+='</tbody>';
-  $('acTbl').innerHTML=h;
-  each('tbody tr',function(tr){
-    var n=tr.dataset.n;
-    function upd(){
-      var mi=tr.querySelector('.k-min').value;
-      S.stations[n]={ min: mi===''? null : +mi,
-                      tr:+tr.querySelector('.k-tr').value||0,
-                      ok:true,                       /* 触った＝自分で設定した、とみなす */
-                      note:String(tr.querySelector('.k-note').value||'').replace(/（乗換案内で実測）/,'').trim() };
-      lsSet(K.sta,S.stations); invalidate(); renderAccess();
-    }
-    ['.k-min','.k-tr','.k-note'].forEach(function(sel){ tr.querySelector(sel).onchange=upd; });
-  }, $('acTbl'));
-}
 
 
 /* ==========================================================
@@ -3795,18 +3650,6 @@ $('pStations').onclick=function(){
 
 /* ---- xlsx / CSV の取込 ---- */
 function pubLog(h){ $('pImpLog').innerHTML=h; }
-$('pDrop').onclick=function(){ $('pFile').click(); };
-$('pFile').onchange=function(){ if(this.files&&this.files[0]) pubHandleFile(this.files[0]); this.value=''; };
-['dragenter','dragover'].forEach(function(ev){
-  $('pDrop').addEventListener(ev,function(e){ e.preventDefault(); $('pDrop').style.borderColor='#2b6fe0'; });
-});
-['dragleave','drop'].forEach(function(ev){
-  $('pDrop').addEventListener(ev,function(e){ e.preventDefault(); $('pDrop').style.borderColor='#b9c8d8'; });
-});
-$('pDrop').addEventListener('drop',function(e){
-  var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
-  if(f) pubHandleFile(f);
-});
 async function pubHandleFile(file){
   pubLog('<div class="okbox">読み込んでいます… '+esc(file.name)+'</div>');
   try{
@@ -3922,18 +3765,6 @@ async function inflate(u8, mode){
 }
 var PENDING=null;
 function impLog(html){ $('impLog').innerHTML=html; }
-$('drop').onclick=function(){ $('file').click(); };
-$('file').onchange=function(){ if(this.files&&this.files[0]) handleFile(this.files[0]); this.value=''; };
-['dragenter','dragover'].forEach(function(ev){
-  $('drop').addEventListener(ev,function(e){ e.preventDefault(); $('drop').classList.add('hot'); });
-});
-['dragleave','drop'].forEach(function(ev){
-  $('drop').addEventListener(ev,function(e){ e.preventDefault(); $('drop').classList.remove('hot'); });
-});
-$('drop').addEventListener('drop',function(e){
-  var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
-  if(f) handleFile(f);
-});
 async function handleFile(file){
   PENDING=null; $('impActions').style.display='none';
   impLog('<div class="okbox">解析しています… '+esc(file.name)+'</div>');
@@ -4425,12 +4256,6 @@ async function syncPost(body, opts){
     body:JSON.stringify(Object.assign({key:key,tool:'shinro'},body))});
   return await res.json();
 }
-JUKU_SYNC.tuckManual('shinro', '#syncManual');
-if($('syncAuto')){ $('syncAuto').checked=JUKU_SYNC.autoOn('shinro');
-  $('syncAuto').onchange=function(){ JUKU_SYNC.setAuto('shinro', this.checked); }; }
-JUKU_SYNC.mount('syncInfo','shinro', function(){
-  return { url:($('syncUrl').value||'').trim(), key:($('syncKey').value||'').trim() };
-});
 async function shinroSyncSave(opts){
   opts = opts || {};
   var payload=JSON.stringify(Object.assign(JUKU_SYNC.stamp(syncPayload()), {_touchedAt:JUKU_SYNC.touchedAt('shinro')}));
@@ -4443,10 +4268,7 @@ async function shinroSyncSave(opts){
     else syncMsg('エラー: '+(d.error||'不明'),'#b83b34');
   }catch(e){ syncMsg('通信エラー: ネット接続とURLを確認してください','#b83b34'); }
 }
-$('syncSaveBtn').onclick=function(){ shinroSyncSave(); };
 /* 開いたとき、スプシのほうが新しければ自動で読む */
-JUKU_SYNC.autoLoad('shinro', function(){ return syncCfg()||{}; }, shinroSyncLoad, function(t){ syncMsg(t); });
-jukuHideImports('#drop, #pDrop', '打診値のPDFと公立のxlsxの取り込みは、上の<b>「取込」タブ</b>にまとまりました。');
 async function shinroSyncLoad(opts){
   opts = opts || {};
   /* 自動のときは確認を出さない。手で入れたもの（内申・手直し）は混ぜるので消えない。 */
@@ -4464,12 +4286,8 @@ async function shinroSyncLoad(opts){
     syncMsg(opts.auto? '✅ スプシのほうが新しかったので読み込みました' : '✅ 読み込みました','#2b7a45');
   }catch(e){ syncMsg('通信エラー: '+(e.message||e),'#b83b34'); }
 }
-$('syncLoadBtn').onclick=function(){ shinroSyncLoad(); };
 
 function renderSettings(){
-  var cfg=syncCfg();
-  if($('syncUrl').value==='') $('syncUrl').value=cfg.url||'';
-  if($('syncKey').value==='') $('syncKey').value=cfg.key||'';
   var bytes=0;
   Object.keys(K).forEach(function(k){ try{ var v=JUKU_LS.getItem(K[k]); if(v) bytes+=v.length; }catch(e){} });
   $('stStorage').innerHTML=
@@ -4501,32 +4319,6 @@ function renderSettings(){
     }, $('stEdits'));
   }
 }
-$('stExport').onclick=function(){
-  var data=Object.assign({_type:'shinro-backup', at:Date.now()}, syncPayload());
-  var blob=new Blob([JSON.stringify(data)],{type:'application/json'});
-  var a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download='shinro-backup-'+new Date().toISOString().slice(0,10)+'.json';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(function(){ URL.revokeObjectURL(a.href); },1000);
-};
-$('stImport').onclick=function(){ $('stFile').click(); };
-$('stFile').onchange=function(){
-  var f=this.files&&this.files[0]; this.value='';
-  if(!f) return;
-  var fr=new FileReader();
-  fr.onload=function(){
-    try{
-      var d=JSON.parse(fr.result);
-      if(d._type!=='shinro-backup') throw new Error('このツールのバックアップではありません。');
-      if(!confirm('今の内容を、このバックアップで置き換えます。よろしいですか？')) return;
-      applySyncPayload(d);
-      curStu=S.students[0]||null; invalidate(); render();
-      alert('読み込みました。');
-    }catch(e){ alert('読み込めませんでした：'+(e.message||e)); }
-  };
-  fr.readAsText(f);
-};
 $('stClear').onclick=function(){
   if(!confirm('この端末の進路データを全部消します。取り消せません。よろしいですか？')) return;
   if(!confirm('本当に消してよいですか？（版・生徒・駅・手直し・公立マスタがすべて消えます）')) return;
@@ -4552,7 +4344,6 @@ window.JUKU_IMPORT = {
   koritsu: function(f){ return pubHandleFile(f); }    /* 公立の合格判定xlsx */
 };
 /* 取り込んだ結果も自動でスプシへ */
-JUKU_SYNC.autoAfterImport('shinro', shinroSyncSave);
 </script>
 </body>
 </html>

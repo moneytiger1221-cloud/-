@@ -340,40 +340,11 @@
 <!-- ===== 設定画面 ===== -->
 <div id="view-settings" style="display:none;">
   <div style="padding:16px;">
-    <div style="font-weight:700;margin-bottom:8px;">データ取り込み</div>
-    <div id="gradeImportRow" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
-      <label class="btn btn-primary">
-        成績CSV取込
-        <input type="file" id="gradeFile" accept=".csv,text/csv,text/plain" multiple>
-      </label>
-      <label class="btn btn-ghost">
-        名簿CSV取込
-        <input type="file" id="nameFile" accept=".csv,text/csv,text/plain">
-      </label>
-      <button class="btn btn-ghost" id="pasteBtn">貼り付け取込</button>
-    </div>
     <div style="font-weight:700;margin-bottom:8px;">データ管理</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
       <button class="btn btn-ghost" id="clearBtn">全データ消去</button>
     </div>
     <div id="dataSummary" style="font-size:13px;color:#666;line-height:1.8;"></div>
-
-    <div style="font-weight:700;margin:20px 0 8px;">🔄 スプレッドシート同期</div>
-    <div style="font-size:12px;color:#888;margin-bottom:8px;">複数端末でデータを共有します。取り込むと自動でスプシに保存され、別の端末は開くだけで最新になります。</div>
-    <div style="background:#fff;border-radius:10px;padding:12px;border:1px solid #e2e4e8;margin-bottom:10px;">
-      <div style="font-size:11px;color:#888;margin-bottom:4px;">接続先URL（Apps Scriptのウェブアプリ URL）</div>
-      <input type="text" id="syncUrl" placeholder="https://script.google.com/macros/s/.../exec" style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;margin-bottom:8px;">
-      <div style="font-size:11px;color:#888;margin-bottom:4px;">合言葉</div>
-      <input type="text" id="syncKey" placeholder="合言葉" style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;margin-bottom:10px;">
-      <div style="display:flex;gap:8px;" id="syncManual">
-        <button class="btn btn-ghost" id="syncLoadBtn" style="flex:1">⬇️ スプシから読込</button>
-        <button class="btn btn-primary" id="syncSaveBtn" style="flex:1">⬆️ スプシに保存</button>
-      </div>
-      <div id="syncMsg" style="font-size:12px;margin-top:8px;color:#888;"></div>
-      <label style="display:block;margin-top:8px;font-size:12px;color:#475569;">
-        <input type="checkbox" id="syncAuto"> 自動でやりとりする</label>
-      <div id="syncInfo" style="margin-top:10px;"></div>
-    </div>
 
     <div style="font-weight:700;margin:20px 0 8px;">未実施テストの設定</div>
     <div style="font-size:12px;color:#888;margin-bottom:8px;">テストが実施されなかった「学校×学年×科目」を回収対象から除外します。日々のCSV取込では消えません。</div>
@@ -481,7 +452,12 @@
     usingIdb: function () { return !!db; },
     /* スプシ同期が動いているか。動いているときは、各ツールの古い同期は止める */
     syncOn: function () { return !!db && !!syncCfg().url; },
-    syncStatus: function () { return SYNC.status; }
+    syncStatus: function () { return SYNC.status; },
+    /* 今すぐ同期する。接続先を入れたばかりで、まだ同期係になっていなければ、ここで始める */
+    syncNow: function () {
+      if (!SYNC.role && db && window.top === window && syncCfg().url) { SYNC.role = true; SYNC.start(); }
+      return SYNC.role ? SYNC.cycle() : Promise.resolve();
+    }
   };
   Object.defineProperty(api, 'length', { get: function () {
     if (!db) { var l = LS(); return l ? l.length : 0; }
@@ -3229,59 +3205,10 @@ function buildTable(rounds, juku) {
 }
 
 // ===== イベント =====
-const fileInput = document.getElementById('gradeFile');
-dbg('準備完了。「成績CSV取込」を押してください。');
+dbg('準備完了。成績CSVは統合版の「取込」タブから取り込んでください。');
 
-fileInput.addEventListener('change', async (e)=>{
-  dbg('—— changeイベント発火 ——');
-  try {
-    const files = [...e.target.files];
-    dbg('選択ファイル数: ' + files.length);
-    if (files.length === 0) { dbg('ファイルが選ばれていません'); return; }
-    let total = 0;
-    for (const f of files) {
-      dbg('読込中: ' + f.name + ' (' + f.size + 'バイト)');
-      let text = await readFileSmart(f);
-      dbg('読込成功: ' + text.length + '文字');
-      const n = importGradeFile(text, f.name);
-      dbg('→ ' + f.name + ': ' + n + '件記録');
-      total += n;
-    }
-    dbg('合計 ' + total + '件。描画します。');
-    render();
-  } catch(err) {
-    dbg('!! エラー: ' + (err && err.message ? err.message : err));
-  }
-  e.target.value='';
-});
 
-// 貼り付けフォールバック（file inputが動かない環境向け）
-document.getElementById('pasteBtn').addEventListener('click', ()=>{
-  const text = prompt('CSVの中身を貼り付けてください（成績CSVを開いて全選択→コピー）');
-  if (!text) { dbg('貼り付けキャンセル'); return; }
-  dbg('貼り付け取込: ' + text.length + '文字');
-  try {
-    const n = importGradeFile(text);
-    dbg('→ ' + n + '件記録。描画します。');
-    render();
-  } catch(err){ dbg('!! エラー: ' + (err && err.message ? err.message : err)); }
-});
 
-document.getElementById('syncUrl').value = loadSyncCfg().url || '';
-document.getElementById('syncKey').value = loadSyncCfg().key || '';
-document.getElementById('syncSaveBtn').addEventListener('click', ()=>syncSave());
-jukuHideImports('#gradeImportRow', '成績CSVと名簿CSVの取り込みは、上の<b>「取込」タブ</b>にまとまりました。');
-document.getElementById('syncAuto').checked = JUKU_SYNC.autoOn('grade');
-document.getElementById('syncAuto').addEventListener('change', function(){ JUKU_SYNC.setAuto('grade', this.checked); });
-JUKU_SYNC.tuckManual('grade', '#syncManual');
-JUKU_SYNC.autoLoad('grade', function(){ return loadSyncCfg()||{}; }, syncLoad, (t)=>{
-  const m=document.getElementById('syncMsg'); if(m){ m.textContent=t; m.style.color='#888'; }
-});
-JUKU_SYNC.mount('syncInfo','grade', ()=>({
-  url:(document.getElementById('syncUrl').value||'').trim(),
-  key:(document.getElementById('syncKey').value||'').trim()
-}));
-document.getElementById('syncLoadBtn').addEventListener('click', ()=>syncLoad());
 document.getElementById('searchBox').addEventListener('input', renderSearch);
 document.getElementById('clearBtn').addEventListener('click', ()=>{
   if (confirm('全データを消去しますか？（成績・名前・担当・対応状況・メモ・未実施設定・高校生回収チェックすべて）')) {
@@ -3444,20 +3371,6 @@ function importNameCSV(text) {
   return matched;
 }
 
-document.getElementById('nameFile').addEventListener('change', async (e)=>{
-  const f = e.target.files[0];
-  if (!f) return;
-  try {
-    const text = await readFileSmart(f);
-    const n = importNameCSV(text);
-    dbg('名前CSV: ' + n + '名を照合しました');
-    if(!JUKU_TERM.mark('grade')) JUKU_TERM.setMark('grade', JUKU_TERM.want('grade'));
-    JUKU_TERM.paint('jtBar','grade');
-    alert(n + '名の氏名を取り込みました（' + JUKU_TERM.mark('grade') + 'の名簿として記録）');
-    render();
-  } catch(err){ dbg('名前CSVエラー: ' + err); }
-  e.target.value='';
-});
 
 // 閾値スライダー
 const thSubj = document.getElementById('thSubj');
@@ -3590,7 +3503,6 @@ window.JUKU_IMPORT = {
   }
 };
 /* 取り込んだ結果も自動でスプシへ */
-JUKU_SYNC.autoAfterImport('grade', syncSave);
 </script>
 </body>
 </html>

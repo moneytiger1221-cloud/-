@@ -71,7 +71,12 @@
     usingIdb: function () { return !!db; },
     /* スプシ同期が動いているか。動いているときは、各ツールの古い同期は止める */
     syncOn: function () { return !!db && !!syncCfg().url; },
-    syncStatus: function () { return SYNC.status; }
+    syncStatus: function () { return SYNC.status; },
+    /* 今すぐ同期する。接続先を入れたばかりで、まだ同期係になっていなければ、ここで始める */
+    syncNow: function () {
+      if (!SYNC.role && db && window.top === window && syncCfg().url) { SYNC.role = true; SYNC.start(); }
+      return SYNC.role ? SYNC.cycle() : Promise.resolve();
+    }
   };
   Object.defineProperty(api, 'length', { get: function () {
     if (!db) { var l = LS(); return l ? l.length : 0; }

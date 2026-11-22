@@ -494,23 +494,10 @@ body.trayh-x .traycnt2{top:2px;}
   <span class="modeswitch" id="fltSwitch"></span>
   <button class="toolbtn" id="btnTeachers" title="先生情報（スキル・追加・削除）">先生情報</button>
   <button class="toolbtn primary" id="btnBooth" title="先生の座るブースを自動で決める">🪑 ブース割</button>
-  <span id="komaImportBtns"><button class="toolbtn primary" id="btnImportBtn">生徒CSV取込</button>
-  <button class="toolbtn primary" id="btnImportTBtn">先生CSV取込</button></span>
-  <input type="file" id="fileImport" accept=".csv,.html,.htm" style="display:none">
-  <input type="file" id="fileImportT" accept=".csv,.html,.htm" style="display:none">
   <button class="toolbtn" id="btnTaiken">体験生設定</button>
   <button class="toolbtn" id="btnWithdraw" title="退塾日を登録。日付が来ると自動でコマ盤面から消えます">退塾生登録</button>
-  <button class="toolbtn primary" id="btnSync" title="別の端末とデータを同期する">☁️ 同期</button>
-  <button class="toolbtn" id="btnFemPref">女性希望</button>
-  <button class="toolbtn" id="btnShift">不可セル指定</button>
-  <button class="toolbtn" id="btnExport">CSV出力</button>
-  <button class="toolbtn" id="btnReset">現状に戻す</button>
   <button class="toolbtn" id="btnClearAll" title="取込CSV・配置・設定を全消去して初期状態へ">全消去</button>
-  <button class="toolbtn primary" id="btnBk" title="今の作業内容をファイルに保存する（ブラウザ保存が消えても戻せる）">バックアップ保存</button>
-  <button class="toolbtn" id="btnBkR" title="バックアップファイルから復元する">復元</button>
-  <input type="file" id="fileBk" accept=".json,application/json" style="display:none">
   <button class="toolbtn" id="btnPanel" title="右パネルを畳んで盤面を広く使う">パネル畳む</button>
-  <button class="toolbtn" id="btnDiff" title="前回CSV取込からの変更点を一覧（社内ツールへの転記用）">変更点</button>
   <span id="autosave" class="muted" style="font-size:11px;"></span>
   <div class="counters" id="counters"></div>
 </div>
@@ -612,7 +599,12 @@ body.trayh-x .traycnt2{top:2px;}
     usingIdb: function () { return !!db; },
     /* スプシ同期が動いているか。動いているときは、各ツールの古い同期は止める */
     syncOn: function () { return !!db && !!syncCfg().url; },
-    syncStatus: function () { return SYNC.status; }
+    syncStatus: function () { return SYNC.status; },
+    /* 今すぐ同期する。接続先を入れたばかりで、まだ同期係になっていなければ、ここで始める */
+    syncNow: function () {
+      if (!SYNC.role && db && window.top === window && syncCfg().url) { SYNC.role = true; SYNC.start(); }
+      return SYNC.role ? SYNC.cycle() : Promise.resolve();
+    }
   };
   Object.defineProperty(api, 'length', { get: function () {
     if (!db) { var l = LS(); return l ? l.length : 0; }
@@ -2133,7 +2125,6 @@ const LSK='komawari2026_v1', LSG='komawari2026_grey_v1', LSGRP='komawari2026_grp
 // 新人先生のランク(A/B/C)と期ごとのメンター: {tid:{rank:'A', mentor:{期:先生ID}}}
 let newbieInfo={};try{newbieInfo=JSON.parse(LS.get(LSNB)||'{}');}catch(e){}
 function saveNewbie(){try{LS.set(LSNB,JSON.stringify(newbieInfo));}catch(e){}flashSave();
-  if(typeof bcMark==='function')bcMark('newbie');   // メンターはブース割と一緒にすぐスプシへ
   JUKU_SYNC.touch('komawari'); JUKU_SYNC.queueSave('komawari',komaSyncSave);}
 let orig={}, origGroup={};
 function snapshotOrig(){orig={};
@@ -2292,7 +2283,7 @@ async function komaAutoLoad(opts){
   }
   return syncLoad(true, opts);
 }
-let grey=new Set();try{grey=new Set(JSON.parse(LS.get(LSG)||'[]'));}catch(e){}
+let grey=new Set();   // 不可セル指定はやめた（前に入れたものも使わない。見えないまま配置を止めないため）
 function saveGrey(){LS.set(LSG,JSON.stringify([...grey]));}
 // ---- 初回ロード ----
 // 個人情報はHTMLに埋め込まない方針のため、埋め込みCSVは持たない。
@@ -2543,38 +2534,6 @@ function jukuHideImports(sel, note){
 function readFileAs(file,cb){const rd=new FileReader();
   rd.onload=ev=>{try{cb(decodeCsvBuffer(ev.target.result));}catch(err){alert('CSVの読み込みに失敗しました: '+err.message);}};
   rd.readAsArrayBuffer(file);}
-document.getElementById('fileImport').addEventListener('change',e=>{
-  const f=e.target.files[0];if(!f){return;}
-  readFileAs(f,text=>{
-    if(!confirm(f.name+' を生徒名簿として取り込みます。\n現在の配置（保存済みの移動）は新しい名簿の内容に置き換わります。よろしいですか？')){e.target.value='';return;}
-    curStudentCsv=text;try{LS.set(LSSCSV,text);}catch(err){}
-    JUKU_TERM.setMark('koma', JUKU_TERM.want('koma'));
-    JUKU_TERM.paint('jtBar','koma');
-    rebuildAll(true);
-    const i=lastImportInfo;
-    alert(f.name+' を取り込みました。\n期: '+PERIODS.join('/')+'\n時限: '+LIMITS.length+'コマ制\n生徒 '+i.students+'名 / コマ '+i.komas+' / 集団枠 '+i.groups+
-      (i.skipped?'\n※先生名が一致せず読めなかった行: '+i.skipped+'件':''));
-    e.target.value='';
-  });
-});
-document.getElementById('fileImportT').addEventListener('change',e=>{
-  const f=e.target.files[0];if(!f){return;}
-  readFileAs(f,text=>{
-    if(!confirm(f.name+' を先生名簿として取り込みます。よろしいですか？')){e.target.value='';return;}
-    curTeacherCsv=text;try{LS.set(LSTCSV,text);}catch(err){}
-    /* 学期ごとの棚にも置く。ここに置いておかないと、学期を切り替えたときに
-       その学期の先生名簿を出せず、前の学期のまま（または空）になる。 */
-    var tm=JUKU_TERM.mark('koma')||JUKU_TERM.want('koma');
-    if(!JUKU_TERM.mark('koma')) JUKU_TERM.setMark('koma', tm);
-    var shelved=JUKU_ROSTER.put(tm,'teacher',f.name,text);
-    rebuildAll(false);
-    JUKU_TERM.paint('jtBar','koma', function(){ JUKU_ROSTER.forget('koma'); shelfNotice(); teacherWarn(); });
-    teacherWarn();
-    alert(f.name+' を取り込みました。\n先生 '+teachers.length+'名（新人 '+NEWBIE.size+'名 / スタッフ '+STAFF.size+'名 / 退職予定 '+RETIRE.size+'名）'+
-      (shelved?'\n'+tm+' の先生名簿として保存しました。':'\n※保存する場所がいっぱいで、学期ごとの棚には置けませんでした。'));
-    e.target.value='';
-  });
-});
 
 /* ============ state ============ */
 activePeriod=PERIODS[0]||'';
@@ -3449,13 +3408,8 @@ function renderLegend(){
      <div style="margin-top:4px">コマ右下「1/2」＝同科目の何コマ目/総数 / <b>移動は同じ限の中だけ</b>（申込時限は固定・先生のみ変更） / 未定コマ・未割当集団は最下段🅿️待機列から上へドラッグ / <b>集団授業</b>は先生1枠を専有＝個別は入りません。クリックで名簿（促進ターゲット＝通常未受講を強調） / 「先生の科目兼任」＝同じ先生が同じ生徒の別科目も担当（科目ごとに専任が基本）</div>`;
 }
 /* ============ top buttons ============ */
-document.getElementById('btnImportBtn').onclick=()=>document.getElementById('fileImport').click();
-document.getElementById('btnImportTBtn').onclick=()=>document.getElementById('fileImportT').click();
 document.getElementById('btnTaiken').onclick=()=>openTaikenSettings();
 document.getElementById('btnWithdraw').onclick=()=>openWithdrawModal();
-document.getElementById('btnSync').onclick=()=>openSyncModal();
-document.getElementById('btnFemPref').onclick=()=>{fpQuery='';openFemPref();};
-document.getElementById('btnDiff').onclick=()=>openDiff();
 document.getElementById('btnTeachers').onclick=()=>openTeachers();
 const LSPN='komawari_nopanel_v1';
 function applyPanel(){const off=LS.get(LSPN)==='1';
@@ -3464,10 +3418,6 @@ function applyPanel(){const off=LS.get(LSPN)==='1';
 document.getElementById('btnPanel').onclick=()=>{
   LS.set(LSPN,LS.get(LSPN)==='1'?'0':'1');applyPanel();};
 applyPanel();
-document.getElementById('btnReset').onclick=()=>{if(!confirm('直近に取り込んだ名簿CSVの状態（初期状態）に戻します。手動の移動は破棄されます。よろしいですか？'))return;
-  komas.forEach(k=>{if(orig[k.kid]){k.teacherId=orig[k.kid].teacherId;k.limitNo=orig[k.kid].limitNo;k.period=orig[k.kid].period;}});
-  groupClasses.forEach(g=>g.teacherId=null);
-  LS.del(LSK);LS.del(LSGRP);renderAll();};
 /* ============ バックアップ（ファイルに保存／復元） ============ */
 /* ブラウザ保存(localStorage)はブラウザ側の都合で消えることがある（特に file:// で開いた場合）。
    作業内容をファイルに書き出せるようにして、消えても確実に戻せるようにする。
@@ -3543,38 +3493,6 @@ async function syncLoad(silent){
 }
 /* 開いたとき、スプシのほうが新しければ自動で読む
    （この端末に未送信の変更があるときは見送る） */
-JUKU_SYNC.autoLoad('komawari', syncCfg, komaAutoLoad, function(t){ syncMsgSet(t,'#6a7889'); });
-function triggerStudentImport(){const b=document.getElementById("btnImportBtn");if(b)b.click();}
-function openSyncModal(){
-  const c=syncCfg();
-  document.getElementById('modal').innerHTML=
-    '<div class="modalbox"><div class="modalhd"><b>☁️ スプレッドシート同期</b><button class="mclose" onclick="closeModal()">×</button></div>'+
-    '<div class="modalmeta">複数の端末で同じデータを使うための設定です。組んだ内容は自動でスプシに保存され、別の端末は開くだけで最新になります。<br>合言葉は<b>教室の鍵と同じ</b>扱いで管理してください。</div>'+
-    '<div style="padding:10px 14px">'+
-    '<div style="font-size:11px;color:#6a7889;margin-bottom:4px">接続先URL（Apps Scriptのウェブアプリ URL）</div>'+
-    '<input type="text" id="syncUrlBox" value="'+(c.url||'').replace(/"/g,'&quot;')+'" placeholder="https://script.google.com/macros/s/.../exec" style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;margin-bottom:8px">'+
-    '<div style="font-size:11px;color:#6a7889;margin-bottom:4px">合言葉</div>'+
-    '<input type="password" id="syncKeyBox" value="'+(c.key||'').replace(/"/g,'&quot;')+'" placeholder="合言葉" style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;margin-bottom:12px">'+
-    '<div style="display:flex;gap:8px" id="syncManual">'+
-    '<button class="toolbtn" id="btnSyncLoad" style="flex:1">⬇️ スプシから読込</button>'+
-    '<button class="toolbtn primary" id="btnSyncSave" style="flex:1">⬆️ スプシに保存</button>'+
-    '</div>'+
-    '<div id="syncMsgBox" style="font-size:12px;margin-top:10px;color:#6a7889"></div>'+
-    '<label style="display:block;margin-top:8px;font-size:12px;color:#5a6b7d;">'+
-      '<input type="checkbox" id="syncAuto"'+(JUKU_SYNC.autoOn('komawari')?' checked':'')+'> 自動でやりとりする</label>'+
-    '<div id="syncInfoBox" style="margin-top:10px;"></div>'+
-    '</div><div class="modalfoot"><button class="toolbtn" onclick="closeModal()">閉じる</button></div></div>';
-  document.getElementById('modal').style.display='flex';
-  const save=()=>saveSyncCfg({url:document.getElementById('syncUrlBox').value.trim(),
-                              key:document.getElementById('syncKeyBox').value.trim()});
-  document.getElementById('syncUrlBox').onchange=save;
-  document.getElementById('syncKeyBox').onchange=save;
-  document.getElementById('btnSyncSave').onclick=()=>{save();syncSave();};
-  document.getElementById('btnSyncLoad').onclick=()=>{save();syncLoad(false);};
-  document.getElementById('syncAuto').onchange=function(){ JUKU_SYNC.setAuto('komawari', this.checked); };
-  JUKU_SYNC.tuckManual('komawari', '#syncManual');
-  JUKU_SYNC.mount('syncInfoBox','komawari', syncCfg);
-}
 function backupSave(){
   const d={_v:1,_at:new Date().toISOString()};
   let cnt=0;
@@ -3600,23 +3518,10 @@ function backupLoad(file){
   };
   rd.readAsText(file);
 }
-document.getElementById('btnBk').onclick=()=>backupSave();
-document.getElementById('btnBkR').onclick=()=>document.getElementById('fileBk').click();
-document.getElementById('fileBk').onchange=ev=>{const f=ev.target.files[0];if(f)backupLoad(f);ev.target.value='';};
 document.getElementById('btnClearAll').onclick=()=>{
   if(!confirm('取り込んだ生徒CSV・先生CSV、配置、不可指定、新人のランク/メンターを全て消して初期状態に戻します。よろしいですか？'))return;
   [LSK,LSG,LSGRP,LSNB,LSSCSV,LSTCSV,LSTK,LSDN,LSTH,LSCT,LSFP,LSMG,LSFLT,LSWD].forEach(k=>LS.del(k));
   location.reload();};
-document.getElementById('btnShift').onclick=()=>{editMode=!editMode;
-  document.getElementById('btnShift').textContent=editMode?'不可指定:ON（セルをクリック）':'不可セル指定';
-  document.getElementById('btnShift').classList.toggle('primary',editMode);};
-document.getElementById('btnExport').onclick=()=>{
-  let csv='期,時限,時間,先生番号,先生名,座席,生徒番号,生徒名,学校,学年,科目\n';
-  PERIODS.forEach(p=>{const sm=seatMapFor(p);
-    teachers.forEach(t=>{for(let l=1;l<=7;l++){const arr=(komas.filter(k=>k.period===p&&k.teacherId===t.id&&k.limitNo===l));
-      arr.forEach((k,si)=>{const s=students[k.sid];csv+=[p,l+'限',LIMITS[l-1][0],t.id,t.name,si+1,k.sid,s.name,s.school,s.grade,k.subject].join(',')+'\n';});}});});
-  const blob=new Blob(['﻿'+csv],{type:'text/csv'});const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);a.download='コマ割_'+activePeriod+'_'+new Date().toISOString().slice(0,10)+'.csv';a.click();};
 document.getElementById('search').addEventListener('input',e=>{
   const q=e.target.value.trim();document.querySelectorAll('.koma').forEach(el=>el.classList.remove('hl'));
   if(!q)return;const low=q.toLowerCase();
@@ -3652,60 +3557,8 @@ function boothLoad(){
 let BOOTH=boothLoad();
 function boothSave(){
   try{LS.set(LSBOOTH,JSON.stringify(BOOTH));}catch(e){}
-  bcMark('booth'); flashSave();
+  flashSave();   // スプシへの同期は JUKU_LS が自動でやる
 }
-/* ===== ブース割・メンターだけのスプシ同期 =====
-   コマ組本体の同期は「まるごと置き換え」で、送れていない変更があると読み込みを見送るため、
-   スマホで入れたカラーや座席がパソコンに届かなかった。
-   ブース割（カラー・課題・期の境目・座席）とメンターは小さいので、別の行（komawari_booth）に置き、
-   変えたらすぐ送り、開くたびに読む。どちらが新しいかは、ブース割とメンターそれぞれの更新時刻で決める。 */
-const LSBOOTH_AT='komawari_booth_at_v1';   // {booth:ISO, newbie:ISO} この端末の内容がいつのものか
-function bcAt(){try{return JSON.parse(LS.get(LSBOOTH_AT)||'{}')||{};}catch(e){return {};}}
-function bcMark(kind){const o=bcAt();o[kind]=new Date().toISOString();try{LS.set(LSBOOTH_AT,JSON.stringify(o));}catch(e){}bcQueue();}
-let bcTimer=null;
-function bcQueue(){if(JUKU_LS.syncOn&&JUKU_LS.syncOn())return;   // 共通のスプシ同期が動いていれば、そちらで送る
-  clearTimeout(bcTimer);bcTimer=setTimeout(bcSave,800);}
-function bcNote(t){const el=document.getElementById('autosave');if(el){el.textContent=t;clearTimeout(bcNote.t);bcNote.t=setTimeout(()=>el.textContent='',3000);}}
-async function bcPost(body){
-  const c=syncCfg(); if(!c.url||!c.key)return null;
-  const res=await fetch(c.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body:JSON.stringify(Object.assign({key:c.key,tool:'komawari_booth'},body))});
-  return res.json();
-}
-/* スプシのほうが新しければ取り込む。取り込んだら true */
-async function bcLoad(){
-  const d=await bcPost({action:'load'}); if(!d||!d.ok||!d.data)return false;
-  const r=JSON.parse(d.data), at=bcAt(), ra=r.at||{}; let changed=false;
-  if(r.booth&&(ra.booth||'')>(at.booth||'')){LS.set(LSBOOTH,JSON.stringify(r.booth));BOOTH=boothLoad();at.booth=ra.booth;changed=true;}
-  if(r.newbie&&(ra.newbie||'')>(at.newbie||'')){newbieInfo=r.newbie;LS.set(LSNB,JSON.stringify(newbieInfo));at.newbie=ra.newbie;changed=true;}
-  if(changed)LS.set(LSBOOTH_AT,JSON.stringify(at));
-  return changed;
-}
-let bcSaving=false;
-async function bcSave(){
-  if(bcSaving){bcQueue();return;}
-  bcSaving=true;
-  try{
-    await bcLoad();   // 先にスプシ側の新しいほうを取り込んでから送る（相手の分を消さないため）
-    const d=await bcPost({data:JSON.stringify({booth:boothLoad(),newbie:newbieInfo,at:bcAt()})});
-    if(d&&d.ok)bcNote('✓ ブース割をスプシに保存');
-  }catch(e){bcNote('ブース割をスプシに送れませんでした（通信）');}
-  finally{bcSaving=false;}
-}
-/* 開いたとき・画面に戻ってきたときに読む。読んだら画面を描き直す */
-async function bcRefresh(){
-  if(JUKU_LS.syncOn&&JUKU_LS.syncOn())return;
-  try{
-    const changed=await bcLoad();
-    if(changed){renderAll();const md=document.getElementById('modal');
-      if(md&&md.style.display!=='none'&&md.querySelector('.boothbox'))openBoothModal(true);
-      bcNote('✓ ブース割をスプシから読み込みました');}
-    else if(!(await bcPost({action:'load'})||{}).data&&(Object.keys(BOOTH.colors).length||Object.keys(BOOTH.assign).length))bcSave();   // スプシにまだ無ければ送る
-  }catch(e){}
-}
-setTimeout(bcRefresh,600);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)bcRefresh();});
-window.addEventListener('focus',bcRefresh);
 /* 今の学期（カラーは学期ごとに見直す） 4〜8月=1学期 / 9〜12月=2学期 / 1〜3月=3学期 */
 function boothTermNow(){
   const d=new Date(), m=d.getMonth()+1, fy=m>=4?d.getFullYear():d.getFullYear()-1;
@@ -4038,9 +3891,8 @@ function boothTeacherSettingsHTML(){
     ' <span class="muted" style="font-size:11.5px">今は '+boothCols().length*boothRows()+'ブース</span></div>';
   return h;
 }
-function openBoothModal(fromSync){
+function openBoothModal(){
   BOOTH=boothLoad();
-  if(!fromSync)bcRefresh();
   if(PERIODS.indexOf(boothDay)<0)boothDay=PERIODS.indexOf(activePeriod)>=0?activePeriod:(PERIODS[0]||'');
   const day=boothDay, lims=boothLimitsOf(day), done=((BOOTH.assign[MODE]||{})[day]);
   let h='<div class="modalbox boothbox"><div class="modalhd"><b>🪑 ブース割</b><button class="mclose" onclick="closeModal()">×</button></div>';
@@ -4098,19 +3950,11 @@ if(PERIODS.indexOf(activePeriod)<0)activePeriod=PERIODS[0]||'';
 renderModeUI();loadLinkData();renderLegend();renderAll();
 // データが1件も無い＝新しい端末で初めて開いた状態。何をすればいいか盤面に出す。
 if(!curStudentCsv){
-  const c=syncCfg();
   const bd=document.getElementById('board');
   if(bd)bd.innerHTML=
     '<div style="padding:40px 24px;text-align:center;color:#4a5b6d;line-height:2">'+
     '<div style="font-size:15px;font-weight:700;margin-bottom:10px">データがまだありません</div>'+
-    (c.url&&c.key
-      ? '<div>この端末には保存されたデータがありません。<br>上の「☁️ 同期」から<b>スプシから読込</b>を押してください。</div>'+
-        '<div style="margin-top:16px"><button class="toolbtn primary" onclick="openSyncModal()">☁️ 同期をひらく</button></div>'
-      : '<div>個人情報を守るため、このツールには生徒データが入っていません。<br>次のどちらかでデータを読み込んでください。</div>'+
-        '<div style="margin-top:16px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">'+
-        '<button class="toolbtn primary" onclick="openSyncModal()">☁️ 同期の設定をする</button>'+
-        '<button class="toolbtn" onclick="triggerStudentImport()">生徒CSVを取り込む</button>'+
-        '</div>')+
+    '<div>統合版の<b>「取込」タブ</b>で、スプシ同期の設定をするか、生徒CSV・先生CSVを取り込んでください。</div>'+
     '</div>';
 }
 console.log('komas on board:',komas.length,'skipped(no teacher match):',skipped);
@@ -4187,7 +4031,6 @@ function teacherWarn(){
 JUKU_TERM.paint('jtBar','koma', function(){ JUKU_ROSTER.forget('koma'); shelfNotice(); teacherWarn(); });
 shelfNotice();
 teacherWarn();   // 先生名簿が空のまま気づかず使ってしまうのを防ぐ
-jukuHideImports('#komaImportBtns', '生徒CSVと先生CSVの取り込みは、上の<b>「取込」タブ</b>にまとまりました。');
 </script>
 </body>
 </html>
