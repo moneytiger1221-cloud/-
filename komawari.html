@@ -1447,8 +1447,14 @@ function buildDataFromCSV(csvText){
     kousyuKind=tbl.name;
     limitsK=tbl.rows.map((p,i)=>[p[0],(i+1)+'限']);
     t2lK={}; tbl.rows.forEach((p,i)=>{ t2lK[p[0]]=i+1; });
-    // 表に無い時刻が名簿にあれば、落とさずに後ろへ足す（時間割が変わったとき用）
-    times.forEach(t=>{ if(!(t in t2lK)){ limitsK.push([t,(limitsK.length+1)+'限']); t2lK[t]=limitsK.length; } });
+    /* 表に無い時刻が名簿にあっても、限は増やさない（冬期に9限ができてしまっていた）。
+       その時刻を含む限に入れる。どの限にも入らなければ、開始がいちばん近い限に入れる。 */
+    const mins=t=>{const m=t.split(':');return (+m[0])*60+(+m[1]);};
+    times.forEach(t=>{ if(t in t2lK)return;
+      const x=mins(t);
+      let i=tbl.rows.findIndex(p=>x>=mins(p[0])&&x<mins(p[1]));
+      if(i<0){ let best=Infinity; tbl.rows.forEach((p,j)=>{const d=Math.abs(x-mins(p[0]));if(d<best){best=d;i=j;}}); }
+      t2lK[t]=i+1; });
   }else{
     limitsK=times.map((t,i)=>[t,(i+1)+'限']);
     t2lK={};limitsK.forEach((l,i)=>t2lK[l[0]]=i+1);
