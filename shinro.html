@@ -1005,12 +1005,68 @@ async function streamText(rec, u8, inflate){
   var b=await streamBytes(rec,u8,inflate);
   return b? bytesToLatin1(b) : '';
 }
+/* 新しめのPDFは、フォントやページの設定を「オブジェクトストリーム（ObjStm）」に詰めて圧縮している。
+   その中身を取り出して、ふつうのオブジェクトと同じように引けるようにする */
+async function expandObjStms(objs, u8, inflate){
+  var nums=Object.keys(objs);
+  for(var i=0;i<nums.length;i++){
+    var rec=objs[nums[i]];
+    if(!rec || rec.start<0 || !/\/Type\s*\/ObjStm/.test(rec.dict)) continue;
+    var txt=await streamText(rec, u8, inflate); if(!txt) continue;
+    var n=+((/\/N\s+(\d+)/.exec(rec.dict)||[])[1]||0), first=+((/\/First\s+(\d+)/.exec(rec.dict)||[])[1]||0);
+    var head=txt.slice(0,first).trim().split(/\s+/).map(Number);
+    for(var k=0;k<n;k++){
+      var on=head[k*2], off=head[k*2+1]; if(isNaN(on)||isNaN(off)) break;
+      var end = (k+1<n) ? first+head[k*2+3] : txt.length;
+      if(!objs[on]) objs[on]={num:on, dict:txt.slice(first+off, end), start:-1, end:-1};
+    }
+  }
+}
+/* 「/キー 12 0 R」なら参照先の中身、「/キー << … >>」ならその中身を返す */
+function dictOf(objs, dict, key){
+  var r=new RegExp('\\/'+key+'\\s+(\\d+)\\s+\\d+\\s+R').exec(dict);
+  if(r) return objs[+r[1]] ? objs[+r[1]].dict : '';
+  var i=dict.search(new RegExp('\\/'+key+'\\s*<<'));
+  if(i<0) return null;
+  var j=dict.indexOf('<<',i), depth=0;
+  for(var p=j;p<dict.length-1;p++){
+    if(dict[p]==='<'&&dict[p+1]==='<'){depth++;p++;}
+    else if(dict[p]==='>'&&dict[p+1]==='>'){depth--;p++; if(!depth) return dict.slice(j+2,p-1);}
+  }
+  return dict.slice(j+2);
+}
+/* ページの中身：「/Contents 12 0 R」のほか、「/Contents [12 0 R 13 0 R]」や、
+   配列を別のオブジェクトに置いた形もある。全部つないで1ページ分にする */
+async function pageContent(objs, po, u8, inflate){
+  var refs=[], m=/\/Contents\s*\[([^\]]*)\]/.exec(po.dict);
+  if(m) refs=(m[1].match(/(\d+)\s+\d+\s+R/g)||[]).map(function(x){return +/(\d+)/.exec(x)[1];});
+  else { var n=refNum(po.dict,'Contents'); if(n) refs=[n]; }
+  if(refs.length===1 && objs[refs[0]] && objs[refs[0]].start<0){
+    var arr=/^\s*\[([\s\S]*?)\]/.exec(objs[refs[0]].dict);
+    if(arr) refs=(arr[1].match(/(\d+)\s+\d+\s+R/g)||[]).map(function(x){return +/(\d+)/.exec(x)[1];});
+  }
+  var parts=[];
+  for(var i=0;i<refs.length;i++){ if(objs[refs[i]]){ var t=await streamText(objs[refs[i]], u8, inflate); if(t) parts.push(t); } }
+  return parts.join('\n');
+}
+/* ページのリソース（フォントなど）。参照になっていたり、親の /Pages から受け継いでいたりする */
+function pageResources(objs, po){
+  var seen={}, d=po.dict;
+  for(var hop=0; hop<20 && d; hop++){
+    var r=dictOf(objs, d, 'Resources');
+    if(r!==null) return r;
+    var par=refNum(d,'Parent'); if(!par || seen[par] || !objs[par]) break;
+    seen[par]=1; d=objs[par].dict;
+  }
+  return po.dict;
+}
 
 /* ---------- フォント解決 ---------- */
 async function buildFonts(objs, u8, inflate, resDict){
   var fonts={};
-  var fm=/\/Font\s*<<([\s\S]*?)>>/.exec(resDict);
-  if(!fm) return fonts;
+  var fdict=dictOf(objs, resDict, 'Font');
+  if(!fdict) return fonts;
+  var fm=[null, fdict];
   var entries=fm[1].match(/\/([A-Za-z0-9_]+)\s+(\d+)\s+\d+\s+R/g)||[];
   for(var i=0;i<entries.length;i++){
     var em=/\/([A-Za-z0-9_]+)\s+(\d+)/.exec(entries[i]);
@@ -1223,9 +1279,11 @@ async function parsePdf(arrayBuffer, inflate){
   if(raw.slice(0,5)!=='%PDF-') throw new Error('PDFファイルではありません。');
   if(/\/Encrypt\s/.test(raw)) throw new Error('暗号化されたPDFは読めません。');
   var objs=scanObjects(u8, raw);
+  await expandObjStms(objs, u8, inflate);
 
   var pageNums=[];
   var kids=/\/Type\s*\/Pages[\s\S]{0,200}?\/Kids\s*\[([\s\S]*?)\]/.exec(raw);
+  if(!kids){ for(var on in objs){ var kk=/\/Type\s*\/Pages[\s\S]{0,200}?\/Kids\s*\[([\s\S]*?)\]/.exec(objs[on].dict); if(kk){ kids=kk; break; } } }
   if(kids){ var km=kids[1].match(/(\d+)\s+\d+\s+R/g)||[]; pageNums=km.map(function(x){return +/(\d+)/.exec(x)[1];}); }
   var isPage=function(n){ return objs[n] && /\/Type\s*\/Page[^s]/.test(objs[n].dict); };
   pageNums=pageNums.filter(isPage);
@@ -1238,15 +1296,12 @@ async function parsePdf(arrayBuffer, inflate){
   var allRows=[], warn=[], pageInfo=[], fontCache={};
   for(var p=0;p<pageNums.length;p++){
     var po=objs[pageNums[p]];
-    var resM=/\/Resources\s*(<<[\s\S]*?)\/(?:MediaBox|Contents|Group|Tabs|StructParents)/.exec(po.dict);
-    var resDict=resM? resM[1] : po.dict;
-    var fkey=(/\/Font\s*<<([\s\S]*?)>>/.exec(resDict)||[])[1]||('p'+p);
+    var resDict=pageResources(objs, po);
+    var fkey=dictOf(objs, resDict, 'Font')||('p'+p);
     if(!fontCache[fkey]) fontCache[fkey]=await buildFonts(objs, u8, inflate, resDict);
     var fonts=fontCache[fkey];
 
-    var cNum=refNum(po.dict,'Contents');
-    var content='';
-    if(cNum && objs[cNum]) content=await streamText(objs[cNum], u8, inflate);
+    var content=await pageContent(objs, po, u8, inflate);
     if(!content){ warn.push((p+1)+'ページ目の中身が読めませんでした。'); continue; }
     var page=extractRuns(content, fonts);
     var built=buildRows(page);
