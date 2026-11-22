@@ -1556,6 +1556,35 @@ function onDuty(roster, day, key) {
 }
 function todayDow() { return DOW_JP[new Date().getDay()]; }
 
+/* コマ組ツールがスプシに保存した「曜日ごとの出勤先生」を受け取る。
+   コマ組を触るのはパソコンでも、スマホのSSで絞り込めるようにするため。
+   どちらが新しいかは basis（コマ組を最後に手で触った時刻）で決め、同じなら書き出した日で決める。 */
+function dowNewer(a, b) {
+  if (!a || !a.days) return false;
+  if (!b || !b.days) return true;
+  var ab = a.basis || '', bb = b.basis || '';
+  if (ab !== bb) return ab > bb;
+  return (a.savedAt || '') > (b.savedAt || '');
+}
+var dowFetching = false;
+async function fetchKomaRoster() {
+  var url = (DB.cfg.syncUrl || '').trim(), key = (DB.cfg.syncKey || '').trim();
+  if (!url || !key || dowFetching) return;
+  dowFetching = true;
+  try {
+    var res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ key: key, tool: 'komawari', action: 'load' }) });
+    var j = await res.json();
+    if (!j.ok || !j.data) return;
+    var remote = (JSON.parse(j.data) || {}).dowRoster;
+    if (dowNewer(remote, lsGet(LS_DOW, null))) {
+      lsSet(LS_DOW, remote);
+      if ((DB.ui.tab || 'touch') === 'touch' && VIEW.date) renderTouch();
+    }
+  } catch (e) { /* つながらないときは手元のものを使う */ }
+  finally { dowFetching = false; }
+}
+
 /* 曜日の切り替えボタン。その曜日に授業がある人数も出す（0名の曜日が一目で分かる） */
 function dowTabs(roster, all) {
   var days = ['月', '火', '水', '木', '金', '土'];
@@ -1588,12 +1617,12 @@ function renderTouch() {
   /* その曜日に生徒が入っている先生だけに絞る。声をかけられない相手を出しても仕方がない。
      コマ組の配置が読めないとき・「全員」を選んだときは絞らない。 */
   var roster = dowRoster();
-  var day = VIEW.dow, offCount = 0;
+  var day = VIEW.dow, offCount = 0, noMatch = false;
   if (roster && day !== '全') {
     var kept = all.filter(function (T) { return onDuty(roster, day, T.key); });
     offCount = all.length - kept.length;
     if (kept.length) all = kept;    // 全員外れるなら絞らない（配置が古い等）
-    else offCount = 0;
+    else { offCount = 0; noMatch = !!roster.idx[day]; }
   }
   var scored = all.filter(function (T) { return T.score !== null; });
 
@@ -1623,7 +1652,7 @@ function renderTouch() {
     '</b>（日〜土）。配信ファイルの中身は <b>' + dataThrough(d) + 'まで</b>です。' +
     (s.finalized ? '日曜配信なので<b>前週の確定値</b>です。' : '週の途中経過なので、母数はこれから増えます。') +
     '</div>' + dowTabs(roster, everyone) +
-    dutyLine(roster, day, all.length, offCount) + '</div>';
+    dutyLine(roster, day, all.length, offCount, noMatch) + '</div>';
 
   html += '<div class="touch">';
   good.forEach(function (T) { html += touchCard(T, 'good', '🟢 ほめる・表彰候補'); });
@@ -1646,7 +1675,7 @@ function renderTouch() {
   });
 }
 /* 絞り込みの状態を必ず画面に出す。黙って人数が減っていると原因が分からなくなる。 */
-function dutyLine(roster, day, nOn, nOff) {
+function dutyLine(roster, day, nOn, nOff, noMatch) {
   var td = todayDow();
   if (!roster) {
     return '<div class="muted">コマ組ツールの通常コマに生徒が入っていれば、' +
@@ -1659,6 +1688,11 @@ function dutyLine(roster, day, nOn, nOff) {
   // その曜日の配置が空＝日曜など授業が無い日。絞ったように書くと誤解される
   if (!roster.idx[day]) {
     return '<div class="muted">' + esc(day) + '曜は' + src + 'に授業が1件も無いので、しぼらず全員を出しています。</div>';
+  }
+  /* 黙って全員を出すと「しぼれている」と思ってしまうので、はっきり書く */
+  if (noMatch) {
+    return '<div class="msg er">' + esc(day) + '曜に授業がある先生（' + src + '）が、SSの先生と<b>名前で1人も一致しません</b>でした。' +
+      'しぼれないので全員を出しています。コマ組とSSで先生の名前の書き方が違う可能性があります。</div>';
   }
   return '<div class="muted"><b>' + esc(day) + '曜' + (day === td ? '（今日）' : '') +
     'に授業がある' + nOn + '名</b>にしぼっています' +
@@ -4008,6 +4042,8 @@ function boot(reload) {
   if (!reload && fsSupported()) { setTimeout(function () { fsScan(false); }, 400); }
   // メールから自動取込を設定済みなら、開いた時点で新しいSSを受け取る
   if (!reload) { setTimeout(function () { var c = mailCfg(); if (c.auto && c.url && c.key) mailPull(false); }, 600); }
+  // コマ組の出勤先生をスプシから受け取る（パソコンで組んだ配置をスマホでも使う）
+  if (!reload) { setTimeout(fetchKomaRoster, 900); }
 }
 
 if (typeof document !== 'undefined' && document.getElementById('selDate')) boot();

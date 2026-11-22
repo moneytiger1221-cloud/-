@@ -1240,7 +1240,10 @@ function exportDowRoster(){
     });
     const n=new Date();
     const savedAt=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
-    LS.set(LSDOW,JSON.stringify({savedAt,src:'配置',days}));
+    /* basis＝この端末で最後にコマ組を手で触った時刻。スプシ経由で他の端末(SS)に渡したとき、
+       どの端末の配置がいちばん新しいかをこれで決める（開いただけの古い端末で上書きしないため） */
+    const basis=(window.JUKU_SYNC&&JUKU_SYNC.touchedAt('komawari'))||'';
+    LS.set(LSDOW,JSON.stringify({savedAt,basis,src:'配置',days}));
     LS.del('komawari_dow_v1');   // シフトで作った古い書き出しは残さない
   }catch(e){}
 }
@@ -3198,10 +3201,13 @@ async function syncSave(opts){
   if(!curStudentCsv){ if(!opts.auto) syncMsgSet('保存するデータがありません。先に生徒CSVを取り込んでください。','#b8433a'); return; }
   syncMsgSet(opts.auto?'自動で保存中…':'スプシに保存中…','#6a7889');
   try{
+    /* 曜日ごとの出勤先生も載せる。SS管理ツールが別の端末（スマホ）からでも読めるように */
+    exportDowRoster();
+    let dowRoster=null; try{dowRoster=JSON.parse(LS.get(LSDOW)||'null');}catch(e){}
     const res=await fetch(c.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
       body:JSON.stringify({key:c.key,tool:'komawari',
         data:JSON.stringify(Object.assign(JUKU_SYNC.stamp(syncPayload()),
-          {_touchedAt:JUKU_SYNC.touchedAt('komawari')}))})});
+          {_touchedAt:JUKU_SYNC.touchedAt('komawari'),dowRoster}))})});
     const d=await res.json();
     if(d.ok){
       JUKU_SYNC.noteSaved('komawari'); JUKU_SYNC.refresh('syncInfoBox');
