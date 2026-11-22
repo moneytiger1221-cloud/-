@@ -610,7 +610,8 @@
     if (m === r) return m;
     if (b === m) return r;
     if (b === r) return m;
-    var mineNewer = (mt || '') > (rt || '');
+    // 一度もスプシで見ていない項目（この端末が初めて加わったとき）は、ぶつかったらスプシ側を採る
+    var mineNewer = b === null ? false : (mt || '') > (rt || '');
     var B = parse(b), M = parse(m), R = parse(r);
     if (M === undefined || R === undefined || (M && M.__raw !== undefined) || (R && R.__raw !== undefined)) return mineNewer ? m : r;
     var v = merge3(B, M, R, mineNewer);
@@ -621,8 +622,9 @@
   var SYNC = { role: false, status: { state: 'idle', at: '', msg: '' }, busy: false, again: false, timer: null };
   function post(body) {
     var c = syncCfg();
+    var payload = JSON.stringify(Object.assign({ key: c.key }, body));
     return fetch(c.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(Object.assign({ key: c.key }, body)) }).then(function (r) { return r.json(); });
+      body: payload, keepalive: payload.length < 60000 }).then(function (r) { return r.json(); });
   }
   function setStatus(state, msg) {
     SYNC.status = { state: state, at: nowIso(), msg: msg || '' };
@@ -680,21 +682,26 @@
   SYNC.cycle = function () {
     if (!db || !syncCfg().url) return Promise.resolve();
     if (SYNC.busy) { SYNC.again = true; return Promise.resolve(); }
-    SYNC.busy = true; setStatus('busy');
+    SYNC.busy = true; SYNC.pending = false; setStatus('busy');
     return reloadMem().then(function () {
       // まとまりごとに並行してやりとりする（順番に待つと開くのが遅くなる）
       return Promise.all(GROUPS.map(function (g) { return syncGroup(g); })).then(function (rs) {
         setStatus('ok'); return rs.some(Boolean); });
-    }).catch(function (e) { setStatus('error', e && e.message ? e.message : String(e)); })
+    }).catch(function (e) { setStatus('error', e && e.message ? e.message : String(e)); SYNC.retry = true; })
       .then(function (sent) {
         SYNC.busy = false;
         // 送ったら、別の端末が同時に上書きしていないか少しあとで確かめる
         if (SYNC.again || sent) { SYNC.again = false; SYNC.soon(sent ? 4000 : 500); }
+        else if (SYNC.retry) { SYNC.retry = false; clearTimeout(SYNC.timer); SYNC.timer = setTimeout(SYNC.cycle, 30000); }
       });
   };
-  SYNC.soon = function (ms) { clearTimeout(SYNC.timer); SYNC.timer = setTimeout(SYNC.cycle, ms || 1500); setStatus('pending'); };
+  SYNC.soon = function (ms) { clearTimeout(SYNC.timer); SYNC.pending = true; SYNC.timer = setTimeout(SYNC.cycle, ms || 400); setStatus('pending'); };
   SYNC.start = function () {
-    document.addEventListener('visibilitychange', function () { if (!document.hidden) SYNC.soon(300); });
+    /* スマホ(Safari)は、閉じたりアプリを切り替えたりした瞬間に処理を止める。
+       送る前に止まると、保存したつもりの変更が別の端末に届かないので、隠れる瞬間にすぐ送る */
+    var flush = function () { if (SYNC.pending) { clearTimeout(SYNC.timer); SYNC.cycle(); } };
+    document.addEventListener('visibilitychange', function () { if (document.hidden) flush(); else SYNC.soon(300); });
+    window.addEventListener('pagehide', flush);
     window.addEventListener('focus', function () { SYNC.soon(300); });
     window.addEventListener('online', function () { SYNC.soon(300); });
     setInterval(function () { if (!document.hidden) SYNC.cycle(); }, 300000);   // 開きっぱなしのとき用（隠れているときは通信しない）
@@ -719,7 +726,7 @@
       document.body.appendChild(el);
     }
     var s = SYNC.status, t = s.at ? new Date(s.at) : null, hm = t ? t.getHours() + ':' + String(t.getMinutes()).padStart(2, '0') : '';
-    el.textContent = s.state === 'ok' ? '☁ 同期済み ' + hm : s.state === 'busy' ? '☁ 同期中…' : s.state === 'pending' ? '☁ 送信待ち…' :
+    el.textContent = s.state === 'ok' ? '☁ 同期済み ' + hm : s.state === 'busy' ? '☁ 同期中…' : s.state === 'pending' ? '☁ 送信中…' :
       s.state === 'error' ? '⚠ 同期できません（' + s.msg + '）' : '';
     el.style.background = s.state === 'error' ? 'rgba(184,67,58,.92)' : 'rgba(30,40,55,.82)';
   }
