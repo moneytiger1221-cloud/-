@@ -196,6 +196,27 @@ tr.drow.ddone td:not(.dck){text-decoration:line-through;}
 .bprinttitle{display:none;}
 @media print{ .bnoprint{display:none!important;} .bprinttitle{display:block;font-weight:800;font-size:16px;margin-bottom:8px;}
   .boothbody{overflow:visible!important;} .bmap{page-break-inside:avoid;} .bcell{width:90px;height:44px;} }
+.ppage{margin-bottom:18px;}
+.phd{display:flex;justify-content:space-between;align-items:flex-end;font-size:11px;margin-bottom:3px;}
+.pmeta{font-size:10px;color:#555;}
+.ptbl{border-collapse:collapse;table-layout:fixed;font-size:10px;}
+.ptbl th,.ptbl td{border:1px solid #333;}
+.ptbl th{font-weight:600;padding:2px;background:#fff;}
+.ptbl .plim{width:20px;text-align:center;}
+.ptbl .ptime{width:56px;text-align:center;font-size:9.5px;line-height:1.3;}
+.ptbl .pteach{width:190px;}
+.pbooth{height:22px;text-align:center;font-size:17px;font-weight:800;letter-spacing:2px;border-bottom:none!important;}
+.pcell{padding:0!important;vertical-align:top;border-top:none!important;}
+.pcell.pnone{background:#fff;height:40px;}
+.pin{border-collapse:collapse;width:100%;table-layout:fixed;}
+.pin td{border:none!important;border-left:1px solid #999!important;vertical-align:top;padding:1px 3px;width:50%;}
+.pin td:first-child{border-left:none!important;}
+.pin tr+tr td{border-top:1px solid #999!important;}
+.pst{line-height:1.25;}
+.pr1,.pr3{display:flex;justify-content:space-between;font-size:8.5px;color:#333;}
+.pnm{font-size:11.5px;font-weight:700;}
+.pgrp{text-align:center;font-weight:800;padding:8px 0;font-size:11px;}
+@media print{ .ppage{page-break-after:always;} .ppage:last-child{page-break-after:auto;} }
 /* 名簿モーダル */
 .modal{display:none;position:fixed;inset:0;z-index:200;background:rgba(20,28,40,.5);align-items:center;justify-content:center;}
 .modalbox{background:#fff;border-radius:12px;width:min(560px,92vw);max-height:86vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.3);}
@@ -3590,6 +3611,59 @@ function boothListHTML(period){
     const has=boothTeachersAt(period,l)[t];return '<td>'+(has?esc((day[l]||{})[t]||'未定'):'')+'</td>';}).join('')+'</tr>';});
   return h+'</tbody></table>';
 }
+/* ---- 掲示用（社内の「通常時間割(掲示用)」と同じ形）----
+   先生が列、時限が行。先生の枠の上に、手書きしていたブース名（A1など）を印字する。
+   手書き用に空欄で出すこともできる。 */
+let boothPosterBlank=false;
+function boothPosterCell(period,tid,l,gmap){
+  const g=gmap[period+'|'+tid+'|'+l];
+  const ks=komas.filter(k=>k.period===period&&k.teacherId===tid&&k.limitNo===l);
+  if(!ks.length&&!g)return '<td class="pcell pnone" colspan="2"></td>';
+  if(!ks.length)return '<td class="pcell pgroup" colspan="2"><div class="pgrp">集団<br>'+esc((g.subjects||[]).join('・'))+'</div></td>';
+  // 席は2つ。中高(半分に分かれない授業)を先に入れ、小学生の前半・後半はあいている席に上下で入れる
+  const seats=[{full:null,h1:null,h2:null},{full:null,h1:null,h2:null}];
+  ks.filter(k=>!k.half).forEach(k=>{const s=seats.find(x=>!x.full&&!x.h1&&!x.h2);if(s)s.full=k;});
+  [1,2].forEach(h=>ks.filter(k=>k.half===h).forEach(k=>{const s=seats.find(x=>!x.full&&!x['h'+h]);if(s)s['h'+h]=k;}));
+  const card=k=>{if(!k)return '';const s=students[k.sid]||{};
+    return '<div class="pst"><div class="pr1"><span>'+esc(s.school||'')+'</span><span>'+esc(s.grade||'')+'</span></div>'+
+      '<div class="pnm">'+esc(s.name||'')+'</div><div class="pr3"><span>'+esc(k.subject||'')+'</span><span>'+esc(k.sid)+'</span></div></div>';};
+  const split=seats.some(x=>x.h1||x.h2);
+  const inner=split
+    ? '<table class="pin"><tr>'+seats.map(x=>x.full?'<td rowspan="2">'+card(x.full)+'</td>':'<td>'+card(x.h1)+'</td>').join('')+'</tr>'+
+      '<tr>'+seats.map(x=>x.full?'':'<td>'+card(x.h2)+'</td>').join('')+'</tr></table>'
+    : '<table class="pin"><tr>'+seats.map(x=>'<td>'+card(x.full)+'</td>').join('')+'</tr></table>';
+  return '<td class="pcell" colspan="2">'+inner+'</td>';
+}
+function boothPosterHTML(period){
+  const day=((BOOTH.assign[MODE]||{})[period]||{}), gmap=groupAssignedMap();
+  const lims=[...new Set(boothLimitsOf(period).concat(groupClasses.filter(g=>g.period===period&&g.teacherId&&groupInMode(g)).map(g=>g.limitNo)))].sort((a,b)=>a-b);
+  const tids=teachers.filter(t=>lims.some(l=>komas.some(k=>k.period===period&&k.teacherId===t.id&&k.limitNo===l)||gmap[period+'|'+t.id+'|'+l])).map(t=>t.id);
+  if(!tids.length)return '<div class="muted">この日に授業がある先生がいません。</div>';
+  const slots=limitsFor(period);
+  const timesOf=l=>{const ss=slots.filter(s=>s.limit===l);
+    const el=ss.filter(s=>s.half).map(s=>s.time), full=(NORMAL_FULL[(period==='土')?'土':'平日']||{})[l];
+    return {el:el.join('<br>'), mid:full||(ss.find(s=>!s.half)||{}).time||''};};
+  const PER=5, pages=[];for(let i=0;i<tids.length;i+=PER)pages.push(tids.slice(i,i+PER));
+  return pages.map((pg,pi)=>{
+    let h='<div class="ppage"><div class="phd"><div><b>'+esc(period)+(MODE==='tsu'?'曜日':'')+'</b><br>'+(MODE==='tsu'?'通常時間割(掲示用)':'講習時間割(掲示用)')+'</div>'+
+      '<div class="pmeta">ページ '+(pi+1)+' / '+pages.length+'</div></div><table class="ptbl"><thead><tr><th class="plim"></th>'+
+      (MODE==='tsu'?'<th class="ptime">小学生</th><th class="ptime">中高生</th>':'<th class="ptime">時間</th>')+
+      pg.map(t=>'<th colspan="2" class="pteach">'+esc(tShort(t))+' 先生</th>').join('')+'</tr></thead><tbody>';
+    lims.forEach(l=>{
+      const tm=timesOf(l);
+      // 1段目：手書きしていたブース名の欄
+      h+='<tr class="pbrow"><td class="plim" rowspan="2">'+(l||'')+'</td>'+
+        (MODE==='tsu'?'<td class="ptime" rowspan="2">'+tm.el+'</td><td class="ptime" rowspan="2">'+esc(tm.mid)+'</td>'
+          :'<td class="ptime" rowspan="2">'+esc(boothLimitLabel(period,l))+'</td>')+
+        pg.map(t=>{const has=komas.some(k=>k.period===period&&k.teacherId===t&&k.limitNo===l);
+          const g=gmap[period+'|'+t+'|'+l];
+          const b=(day[l]||{})[t]||'';
+          return '<td colspan="2" class="pbooth">'+(boothPosterBlank?'':has?esc(b?b[0]+' — '+b.slice(1):''):g?'集団':'')+'</td>';}).join('')+'</tr>';
+      h+='<tr>'+pg.map(t=>boothPosterCell(period,t,l,gmap)).join('')+'</tr>';
+    });
+    return h+'</tbody></table></div>';
+  }).join('');
+}
 function boothTeacherSettingsHTML(){
   const term=boothTermNow(), stale=BOOTH.colorTerm&&BOOTH.colorTerm!==term;
   const list=teachers.filter(t=>!t.retire&&komas.some(k=>k.teacherId===t.id));
@@ -3640,13 +3714,15 @@ function openBoothModal(){
   const day=boothDay, lims=boothLimitsOf(day), done=((BOOTH.assign[MODE]||{})[day]);
   let h='<div class="modalbox boothbox"><div class="modalhd"><b>🪑 ブース割</b><button class="mclose" onclick="closeModal()">×</button></div>';
   h+='<div class="btabs bnoprint">'+PERIODS.map(p=>'<button class="dmode'+(p===day?' on':'')+'" data-bday="'+esc(p)+'">'+esc(p)+'</button>').join('')+'</div>';
-  h+='<div class="btabs bnoprint">'+[['map','ブース図'],['list','先生ごと'],['set','先生の設定']].map(v=>'<button class="dmode'+(boothView===v[0]?' on':'')+'" data-bview="'+v[0]+'">'+v[1]+'</button>').join('')+
+  h+='<div class="btabs bnoprint">'+[['map','ブース図'],['poster','掲示用（手書きの形）'],['list','先生ごと'],['set','先生の設定']].map(v=>'<button class="dmode'+(boothView===v[0]?' on':'')+'" data-bview="'+v[0]+'">'+v[1]+'</button>').join('')+
     ' <button class="toolbtn primary" id="bAuto">'+esc(day)+'を自動で割り振る</button> <button class="toolbtn" id="bAutoAll">全部の'+(MODE==='tsu'?'曜日':'期')+'</button> <button class="toolbtn" id="bPrint">印刷</button></div>';
   h+='<div class="boothbody"><div class="bprinttitle">'+esc(day)+'　ブース割（'+esc(MODE==='tsu'?'通常':'講習')+'）</div>';
   if(boothView==='set')h+=boothTeacherSettingsHTML();
   else if(!lims.length)h+='<div class="muted">この'+(MODE==='tsu'?'曜日':'期')+'にブースで授業する先生がいません。</div>';
   else if(!done)h+='<div class="muted" style="padding:14px 0">まだ割り振っていません。上の「自動で割り振る」を押してください。<br>先に「先生の設定」でカラーを入れておくと、ルールどおりに並びます。</div>';
   else if(boothView==='list')h+=boothListHTML(day);
+  else if(boothView==='poster')h+='<div class="bnoprint" style="margin-bottom:8px;font-size:12px"><label><input type="checkbox" id="bBlank"'+(boothPosterBlank?' checked':'')+'> ブース名を空欄にする（手書き用）</label>'+
+      '　<span class="muted">印刷はA3横向きです。</span></div>'+boothPosterHTML(day);
   else h+='<div class="muted bnoprint" style="font-size:11.5px;margin-bottom:6px">ブースを2つ続けて押すと入れ替わります。下が入口側（1ブース）。　'+
       '<span class="btag">社</span>社員 <span class="btag bnew">新</span>新人 <span class="btag btr">育</span>2ブース候補（ホワイト・期が浅い・課題あり）</div>'+
       '<div class="bmaps">'+lims.map(l=>boothMapHTML(day,l)).join('')+'</div>';
@@ -3660,7 +3736,13 @@ function openBoothModal(){
     list.forEach(p=>boothAutoDay(p)); boothSave(); boothView=boothView==='set'?'map':boothView; openBoothModal();};
   document.getElementById('bAuto').onclick=()=>auto([day]);
   document.getElementById('bAutoAll').onclick=()=>auto(PERIODS.slice());
-  document.getElementById('bPrint').onclick=()=>window.print();
+  document.getElementById('bPrint').onclick=()=>{
+    // 掲示用は社内の時間割と同じくA3横で出す（他の印刷の用紙設定は変えない）
+    let st=null;
+    if(boothView==='poster'){st=document.createElement('style');st.textContent='@page{size:A3 landscape;margin:8mm}';document.head.appendChild(st);}
+    window.print();
+    if(st)setTimeout(()=>st.remove(),1000);};
+  const bb=document.getElementById('bBlank'); if(bb)bb.onchange=()=>{boothPosterBlank=bb.checked;openBoothModal();};
   md.querySelectorAll('[data-bb]').forEach(td=>td.onclick=()=>{
     const l=+td.dataset.bl, b=td.dataset.bb;
     if(!boothPick||boothPick.l!==l){boothPick={l,b};openBoothModal();return;}
