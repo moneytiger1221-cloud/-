@@ -196,10 +196,12 @@ tr.drow.ddone td:not(.dck){text-decoration:line-through;}
 .bprinttitle{display:none;}
 @media print{ .bnoprint{display:none!important;} .bprinttitle{display:block;font-weight:800;font-size:16px;margin-bottom:8px;}
   .boothbody{overflow:visible!important;} .bmap{page-break-inside:avoid;} .bcell{width:90px;height:44px;} }
+.pfit{overflow:hidden;width:100%;}
+.pfitin{width:1090px;transform-origin:0 0;}
 .ppage{margin-bottom:18px;}
 .phd{display:flex;justify-content:space-between;align-items:flex-end;font-size:11px;margin-bottom:3px;}
 .pmeta{font-size:10px;color:#555;}
-.ptbl{border-collapse:collapse;table-layout:fixed;font-size:10px;}
+.ptbl{border-collapse:collapse;table-layout:fixed;font-size:10px;width:1082px;}
 .ptbl th,.ptbl td{border:1px solid #333;}
 .ptbl th{font-weight:600;padding:2px;background:#fff;}
 .ptbl .plim{width:20px;text-align:center;}
@@ -3643,6 +3645,17 @@ function boothPosterCell(period,tid,l,gmap){
     : '<table class="pin"><tr>'+seats.map(x=>'<td>'+card(x.full)+'</td>').join('')+'</tr></table>';
   return '<td class="pcell" colspan="2">'+inner+'</td>';
 }
+/* 掲示用はパソコンと同じ幅で組んで、画面に収まるように全体を縮める。
+   スマホの幅に合わせて表を細くすると、先生の枠が縦書きのようにつぶれて読めないため。
+   細かいところは指で拡大して見る。 */
+const POSTER_W=1090;
+function boothFitPoster(){
+  const box=document.querySelector('.pfit'), inner=box&&box.querySelector('.pfitin'); if(!inner)return;
+  const sc=Math.min(1,box.clientWidth/POSTER_W);
+  inner.style.transform=sc<1?'scale('+sc+')':''; 
+  box.style.height=sc<1?Math.ceil(inner.offsetHeight*sc)+'px':'';
+}
+window.addEventListener('resize',()=>boothFitPoster());
 function boothPosterHTML(period){
   const day=((BOOTH.assign[MODE]||{})[period]||{}), gmap=groupAssignedMap();
   const lims=[...new Set(boothLimitsOf(period).concat(groupClasses.filter(g=>g.period===period&&g.teacherId&&groupInMode(g)).map(g=>g.limitNo)))].sort((a,b)=>a-b);
@@ -3730,12 +3743,13 @@ function openBoothModal(){
   else if(!lims.length)h+='<div class="muted">この'+(MODE==='tsu'?'曜日':'期')+'にブースで授業する先生がいません。</div>';
   else if(!done)h+='<div class="muted" style="padding:14px 0">まだ割り振っていません。上の「自動で割り振る」を押してください。<br>先に「先生の設定」でカラーを入れておくと、ルールどおりに並びます。</div>';
   else if(boothView==='list')h+=boothListHTML(day);
-  else if(boothView==='poster')h+=boothPosterHTML(day);
+  else if(boothView==='poster')h+='<div class="pfit"><div class="pfitin">'+boothPosterHTML(day)+'</div></div>';
   else h+='<div class="muted bnoprint" style="font-size:11.5px;margin-bottom:6px">ブースを2つ続けて押すと入れ替わります。下が入口側（1ブース）。　'+
       '<span class="btag">社</span>社員 <span class="btag bnew">新</span>新人 <span class="btag btr">育</span>2ブース候補（ホワイト・期が浅い・課題あり）</div>'+
       '<div class="bmaps">'+lims.map(l=>boothMapHTML(day,l)).join('')+'</div>';
   h+='</div><div class="modalfoot"><button class="toolbtn" onclick="closeModal()">閉じる</button></div></div>';
   const md=document.getElementById('modal'); md.innerHTML=h; md.style.display='flex';
+  boothFitPoster();
   md.querySelectorAll('[data-bday]').forEach(b=>b.onclick=()=>{boothDay=b.dataset.bday;boothPick=null;openBoothModal();});
   md.querySelectorAll('[data-bview]').forEach(b=>b.onclick=()=>{boothView=b.dataset.bview;openBoothModal();});
   const auto=(list)=>{
