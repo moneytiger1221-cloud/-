@@ -205,7 +205,8 @@ tr.drow.ddone td:not(.dck){text-decoration:line-through;}
 .ptbl .plim{width:20px;text-align:center;}
 .ptbl .ptime{width:56px;text-align:center;font-size:9.5px;line-height:1.3;}
 .ptbl .pteach{width:190px;}
-.pbooth{height:22px;text-align:center;font-size:17px;font-weight:800;letter-spacing:2px;border-bottom:none!important;}
+.pbooth{height:22px;text-align:center;font-size:17px;font-weight:800;letter-spacing:1px;color:#d0201a;border-bottom:none!important;}
+.pgtag{color:#33465a;font-size:12px;}
 .pcell{padding:0!important;vertical-align:top;border-top:none!important;}
 .pcell.pnone{background:#fff;height:40px;}
 .pin{border-collapse:collapse;width:100%;table-layout:fixed;}
@@ -3622,9 +3623,7 @@ function boothListHTML(period){
   return h+'</tbody></table>';
 }
 /* ---- 掲示用（社内の「通常時間割(掲示用)」と同じ形）----
-   先生が列、時限が行。先生の枠の上に、手書きしていたブース名（A1など）を印字する。
-   手書き用に空欄で出すこともできる。 */
-let boothPosterBlank=false;
+   先生が列、時限が行。先生の枠の上に、手書きしていたブース名（A1など）を赤字で出す。 */
 function boothPosterCell(period,tid,l,gmap){
   const g=gmap[period+'|'+tid+'|'+l];
   const ks=komas.filter(k=>k.period===period&&k.teacherId===tid&&k.limitNo===l);
@@ -3668,7 +3667,7 @@ function boothPosterHTML(period){
         pg.map(t=>{const has=komas.some(k=>k.period===period&&k.teacherId===t&&k.limitNo===l);
           const g=gmap[period+'|'+t+'|'+l];
           const b=(day[l]||{})[t]||'';
-          return '<td colspan="2" class="pbooth">'+(boothPosterBlank?'':has?esc(b?b[0]+' — '+b.slice(1):''):g?'集団':'')+'</td>';}).join('')+'</tr>';
+          return '<td colspan="2" class="pbooth">'+(has?esc(b):g?'<span class="pgtag">集団</span>':'')+'</td>';}).join('')+'</tr>';
       h+='<tr>'+pg.map(t=>boothPosterCell(period,t,l,gmap)).join('')+'</tr>';
     });
     return h+'</tbody></table></div>';
@@ -3725,14 +3724,13 @@ function openBoothModal(){
   let h='<div class="modalbox boothbox"><div class="modalhd"><b>🪑 ブース割</b><button class="mclose" onclick="closeModal()">×</button></div>';
   h+='<div class="btabs bnoprint">'+PERIODS.map(p=>'<button class="dmode'+(p===day?' on':'')+'" data-bday="'+esc(p)+'">'+esc(p)+'</button>').join('')+'</div>';
   h+='<div class="btabs bnoprint">'+[['map','ブース図'],['poster','掲示用（手書きの形）'],['list','先生ごと'],['set','先生の設定']].map(v=>'<button class="dmode'+(boothView===v[0]?' on':'')+'" data-bview="'+v[0]+'">'+v[1]+'</button>').join('')+
-    ' <button class="toolbtn primary" id="bAuto">'+esc(day)+'を自動で割り振る</button> <button class="toolbtn" id="bAutoAll">全部の'+(MODE==='tsu'?'曜日':'期')+'</button> <button class="toolbtn" id="bPrint">印刷</button></div>';
+    ' <button class="toolbtn primary" id="bAuto">'+esc(day)+'を自動で割り振る</button> <button class="toolbtn" id="bAutoAll">全部の'+(MODE==='tsu'?'曜日':'期')+'</button></div>';
   h+='<div class="boothbody"><div class="bprinttitle">'+esc(day)+'　ブース割（'+esc(MODE==='tsu'?'通常':'講習')+'）</div>';
   if(boothView==='set')h+=boothTeacherSettingsHTML();
   else if(!lims.length)h+='<div class="muted">この'+(MODE==='tsu'?'曜日':'期')+'にブースで授業する先生がいません。</div>';
   else if(!done)h+='<div class="muted" style="padding:14px 0">まだ割り振っていません。上の「自動で割り振る」を押してください。<br>先に「先生の設定」でカラーを入れておくと、ルールどおりに並びます。</div>';
   else if(boothView==='list')h+=boothListHTML(day);
-  else if(boothView==='poster')h+='<div class="bnoprint" style="margin-bottom:8px;font-size:12px"><label><input type="checkbox" id="bBlank"'+(boothPosterBlank?' checked':'')+'> ブース名を空欄にする（手書き用）</label>'+
-      '　<span class="muted">印刷はA3横向きです。</span></div>'+boothPosterHTML(day);
+  else if(boothView==='poster')h+=boothPosterHTML(day);
   else h+='<div class="muted bnoprint" style="font-size:11.5px;margin-bottom:6px">ブースを2つ続けて押すと入れ替わります。下が入口側（1ブース）。　'+
       '<span class="btag">社</span>社員 <span class="btag bnew">新</span>新人 <span class="btag btr">育</span>2ブース候補（ホワイト・期が浅い・課題あり）</div>'+
       '<div class="bmaps">'+lims.map(l=>boothMapHTML(day,l)).join('')+'</div>';
@@ -3746,13 +3744,6 @@ function openBoothModal(){
     list.forEach(p=>boothAutoDay(p)); boothSave(); boothView=boothView==='set'?'map':boothView; openBoothModal();};
   document.getElementById('bAuto').onclick=()=>auto([day]);
   document.getElementById('bAutoAll').onclick=()=>auto(PERIODS.slice());
-  document.getElementById('bPrint').onclick=()=>{
-    // 掲示用は社内の時間割と同じくA3横で出す（他の印刷の用紙設定は変えない）
-    let st=null;
-    if(boothView==='poster'){st=document.createElement('style');st.textContent='@page{size:A3 landscape;margin:8mm}';document.head.appendChild(st);}
-    window.print();
-    if(st)setTimeout(()=>st.remove(),1000);};
-  const bb=document.getElementById('bBlank'); if(bb)bb.onchange=()=>{boothPosterBlank=bb.checked;openBoothModal();};
   md.querySelectorAll('[data-bb]').forEach(td=>td.onclick=()=>{
     const l=+td.dataset.bl, b=td.dataset.bb;
     if(!boothPick||boothPick.l!==l){boothPick={l,b};openBoothModal();return;}
