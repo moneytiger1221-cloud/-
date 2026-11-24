@@ -461,6 +461,117 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;
     el.style.background = s.state === 'error' ? 'rgba(184,67,58,.92)' : 'rgba(30,40,55,.82)';
   }
 
+  /* ===== 控え（元に戻す用）=====
+     取り込みの直前と、毎日最初に開いたときに、ツールごとのまとまり（kv_*）を丸ごと控えておく。
+     控えはこの端末の中だけ（別の IndexedDB。スプシには送らない）。
+     戻すと、戻す前の状態も控えに残すので、「やっぱり元に戻す」（一つ進む）もできる。
+     端末ごとの項目（接続先・同期の記録など）は控えにも入れず、戻しても変えない。 */
+  var SNAP_DB = 'juku_snap', SNAP_ST = 'snap', KEEP_DAY = 7, KEEP_EVT = 8;
+  function snapDb() {
+    return new Promise(function (res) {
+      try {
+        var r = indexedDB.open(SNAP_DB, 1);
+        r.onupgradeneeded = function () { r.result.createObjectStore(SNAP_ST, { keyPath: 'id' }); };
+        r.onsuccess = function () { res(r.result); };
+        r.onerror = function () { res(null); };
+      } catch (e) { res(null); }
+    });
+  }
+  function snapList(d) {
+    return new Promise(function (res) {
+      var out = [];
+      try {
+        var tx = d.transaction(SNAP_ST, 'readonly');
+        tx.objectStore(SNAP_ST).openCursor().onsuccess = function (e) {
+          var c = e.target.result; if (!c) return;
+          var v = c.value; out.push({ id: v.id, at: v.at, group: v.group, label: v.label, kind: v.kind, size: v.size });
+          c['continue']();
+        };
+        tx.oncomplete = function () { out.sort(function (a, b) { return a.at < b.at ? 1 : -1; }); res(out); };
+        tx.onabort = function () { res(out); };
+      } catch (e) { res(out); }
+    });
+  }
+  function snapPrune(d) {
+    return snapList(d).then(function (all) {
+      var cnt = {}, del = [];
+      all.forEach(function (x) {
+        var k = x.group + (x.kind === 'day' ? ':day' : ':evt');
+        cnt[k] = (cnt[k] || 0) + 1;
+        if (cnt[k] > (x.kind === 'day' ? KEEP_DAY : KEEP_EVT)) del.push(x.id);
+      });
+      if (!del.length) return;
+      return new Promise(function (res) {
+        try {
+          var tx = d.transaction(SNAP_ST, 'readwrite'), st = tx.objectStore(SNAP_ST);
+          del.forEach(function (id) { st['delete'](id); });
+          tx.oncomplete = res; tx.onabort = res;
+        } catch (e) { res(); }
+      });
+    });
+  }
+  /* group（kv_ys など）を今の中身で控える。中身が空なら控えない */
+  api.snapshot = function (group, label, kind) {
+    if (!db) return Promise.resolve(null);
+    return reloadMem().then(function () {
+      var data = {}, size = 0;
+      Object.keys(mem).forEach(function (k) { if (grp(k) === group) { data[k] = mem[k]; size += String(mem[k]).length; } });
+      if (!size) return null;
+      return snapDb().then(function (d) {
+        if (!d) return null;
+        var rec = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at: nowIso(),
+                    group: group, label: label || '', kind: kind || 'event', size: size, data: data };
+        return new Promise(function (res) {
+          try {
+            var tx = d.transaction(SNAP_ST, 'readwrite');
+            tx.objectStore(SNAP_ST).put(rec);
+            tx.oncomplete = function () { res(rec.id); };
+            tx.onabort = function () { res(null); };
+          } catch (e) { res(null); }
+        }).then(function (id) { return snapPrune(d).then(function () { d.close(); return id; }); });
+      });
+    });
+  };
+  api.snapshotAll = function (label, kind) {
+    return GROUPS.reduce(function (p, g) { return p.then(function () { return api.snapshot(g, label, kind); }); }, Promise.resolve());
+  };
+  /* 控えの一覧（新しい順、中身は含まない） */
+  api.snapshots = function () {
+    return snapDb().then(function (d) { if (!d) return []; return snapList(d).then(function (l) { d.close(); return l; }); });
+  };
+  /* 控えの時点に戻す。戻す前の状態も控えておく */
+  api.restoreSnapshot = function (id) {
+    return snapDb().then(function (d) {
+      if (!d) throw new Error('控えを開けません');
+      return new Promise(function (res, rej) {
+        var tx = d.transaction(SNAP_ST, 'readonly'), q = tx.objectStore(SNAP_ST).get(id);
+        q.onsuccess = function () { res(q.result); }; q.onerror = function () { rej(q.error); };
+      }).then(function (rec) {
+        d.close();
+        if (!rec) throw new Error('控えが見つかりません');
+        var when = new Date(rec.at), hm = (when.getMonth() + 1) + '/' + when.getDate() + ' ' + when.getHours() + ':' + String(when.getMinutes()).padStart(2, '0');
+        return api.snapshot(rec.group, '「' + hm + 'の控え」に戻す直前の状態', 'undo').then(function () {
+          Object.keys(mem).forEach(function (k) { if (grp(k) === rec.group && !Object.prototype.hasOwnProperty.call(rec.data, k)) api.removeItem(k); });
+          Object.keys(rec.data).forEach(function (k) { if (grp(k) === rec.group) api.setItem(k, rec.data[k]); });
+          return rec.group;
+        });
+      });
+    });
+  };
+  /* 毎日最初に開いたときの控え（最上位のページだけ。iframe の中のツールは撮らない） */
+  function dailySnapshot() {
+    if (!db || window.top !== window) return;
+    var today = new Date().toDateString();
+    api.snapshots().then(function (l) {
+      var done = {};
+      l.forEach(function (x) { if (x.kind === 'day' && new Date(x.at).toDateString() === today) done[x.group] = 1; });
+      var d = new Date(), label = (d.getMonth() + 1) + '/' + d.getDate() + ' 最初に開いたとき';
+      return GROUPS.reduce(function (p, g) {
+        return p.then(function () { if (!done[g]) return api.snapshot(g, label, 'day'); });
+      }, Promise.resolve());
+    })['catch'](function () {});
+  }
+
   function run() {
     started = true;
     var list = Array.prototype.slice.call(document.querySelectorAll('script[type="text/juku-deferred"]'));
@@ -470,6 +581,7 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;
       s.text = o.text;
       o.parentNode.replaceChild(s, o);
     });
+    setTimeout(dailySnapshot, 6000);   // 開くのを遅くしないよう、少しあとで
     // 本体は読み込み完了の後に動くので、それを待っているコードのために合図を出し直す
     try { document.dispatchEvent(new Event('DOMContentLoaded')); } catch (e) {}
     if (document.readyState === 'complete') { try { window.dispatchEvent(new Event('load')); } catch (e) {} }
@@ -500,12 +612,12 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;
    file:// の同一オリジンなので localStorage も従来どおり共有される
    （コマ組ツールが成績・アンケート・YSのデータを参照する仕組みもそのまま動く）。 */
 const TOOLS=[
-  {k:'koma',   label:'コマ組',     src:'komawari.html?v=202611291310'},
-  {k:'grade',  label:'成績',       src:'grade-tracker.html?v=202611291310'},
-  {k:'survey', label:'アンケート', src:'survey-app.html?v=202611291310'},
-  {k:'ys',     label:'YSボード',   src:'ys-board-sync.html?v=202611291310'},
-  {k:'ss',     label:'SS',         src:'ss-tracker.html?v=202611291310'},
-  {k:'shinro', label:'進路',       src:'shinro.html?v=202611291310'},
+  {k:'koma',   label:'コマ組',     src:'komawari.html?v=202611291320'},
+  {k:'grade',  label:'成績',       src:'grade-tracker.html?v=202611291320'},
+  {k:'survey', label:'アンケート', src:'survey-app.html?v=202611291320'},
+  {k:'ys',     label:'YSボード',   src:'ys-board-sync.html?v=202611291320'},
+  {k:'ss',     label:'SS',         src:'ss-tracker.html?v=202611291320'},
+  {k:'shinro', label:'進路',       src:'shinro.html?v=202611291320'},
   /* 取込センターだけは中身をここに直接書く（iframeではない） */
   {k:'import', label:'取込',       local:true}
 ];
@@ -873,6 +985,8 @@ async function runImport(){
     const k = KINDS[q.kind];
     if(!k){ say('⏭ '+esc(q.name)+'：種類が分からないので飛ばしました'); continue; }
     try{
+      /* 取り込む前の状態を控えておく（間違えて入れたら「元に戻す」から戻せるように） */
+      try{ if(JUKU_LS.snapshot) await JUKU_LS.snapshot(k.shelf ? 'kv_common' : SNAP_GROUP[k.tool], '「'+q.name+'」取り込み前', 'import'); }catch(e){}
       if(k.shelf){
         shelved = true;
         const text = await readText(q.file);
@@ -896,6 +1010,54 @@ async function runImport(){
   drawShelf();
   drawTools();
   say('— おわり —　各ツールのタブを開くと反映されます');
+  drawSnaps();
+}
+
+/* ===== 元に戻す（控えの一覧）===== */
+const SNAP_GROUP = { koma:'kv_koma', grade:'kv_grade', survey:'kv_survey', ys:'kv_ys', shinro:'kv_shinro', ss:'kv_ss' };
+const SNAP_LABEL = { kv_koma:'コマ組', kv_grade:'成績', kv_survey:'アンケート', kv_ys:'YSボード', kv_shinro:'進路', kv_ss:'SS', kv_common:'共通（名簿の棚など）' };
+let snapFilter = '';
+function snapWhen(iso){ const d=new Date(iso); return (d.getMonth()+1)+'/'+d.getDate()+' '+d.getHours()+':'+String(d.getMinutes()).padStart(2,'0'); }
+async function drawSnaps(){
+  const box=document.getElementById('impSnap'); if(!box) return;
+  if(!JUKU_LS.snapshots || !JUKU_LS.usingIdb()){ box.innerHTML='<div class="imp-dim">この端末では控えを取れません。</div>'; return; }
+  const all=await JUKU_LS.snapshots();
+  const list=all.filter(x=>!snapFilter || x.group===snapFilter);
+  const opts=['<option value="">すべてのツール</option>'].concat(Object.keys(SNAP_LABEL).map(g=>
+    '<option value="'+g+'"'+(g===snapFilter?' selected':'')+'>'+SNAP_LABEL[g]+'</option>')).join('');
+  let h='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">'+
+    '<select id="snapFilter" style="font-size:12px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;">'+opts+'</select>'+
+    '<button id="snapNow" class="imp-btn" style="padding:6px 12px;font-size:12px;background:#64748b;">今の状態を控える</button></div>';
+  if(!list.length) h+='<div class="imp-dim">控えはまだありません。</div>';
+  else{
+    /* スマホでも押しやすいよう、表ではなく1件ずつの行にする（長いファイル名で戻すボタンが隠れないように） */
+    h+=list.map(x=>'<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9;">'+
+        '<div style="flex:1;min-width:0;">'+
+          '<div style="font-size:12.5px;"><b>'+esc(snapWhen(x.at))+'</b>　'+esc(SNAP_LABEL[x.group]||x.group)+'</div>'+
+          '<div style="font-size:12px;color:#475569;word-break:break-all;">'+esc(x.label)+'<span class="imp-dim"> '+Math.max(1,Math.round(x.size/1024))+'KB</span></div>'+
+        '</div>'+
+        '<button class="imp-btn snapGo" data-id="'+esc(x.id)+'" style="flex-shrink:0;padding:6px 10px;font-size:12px;white-space:nowrap;'+(x.kind==='undo'?'background:#0f766e;':'')+'">'+(x.kind==='undo'?'やり直す':'この時点に戻す')+'</button>'+
+      '</div>').join('');
+  }
+  h+='<div class="imp-dim" style="margin-top:6px;line-height:1.7;">控えはこの端末の中だけにあります（ツールごとに、取り込み前などを8回分・毎日のぶんを7日分）。<br>'+
+     '戻すと、戻す前の状態も「やり直す」として残るので、一つ進むこともできます。戻した内容はほかの端末にも同期されます。</div>';
+  box.innerHTML=h;
+  document.getElementById('snapFilter').onchange=function(){ snapFilter=this.value; drawSnaps(); };
+  document.getElementById('snapNow').onclick=async function(){
+    this.disabled=true; await JUKU_LS.snapshotAll('手で控えた', 'event'); drawSnaps(); };
+  box.querySelectorAll('.snapGo').forEach(b=>b.onclick=async ()=>{
+    const x=all.find(s=>s.id===b.dataset.id); if(!x) return;
+    if(!confirm((SNAP_LABEL[x.group]||x.group)+' を '+snapWhen(x.at)+'「'+x.label+'」の状態に戻します。\n'+
+      '今の状態は「やり直す」として控えに残ります。戻した内容はほかの端末にも同期されます。よろしいですか？')) return;
+    b.disabled=true; b.textContent='戻しています…';
+    try{
+      await JUKU_LS.restoreSnapshot(x.id);
+      /* スプシへ送り終えてから読み直す（途中で読み直すと送り損ねるため） */
+      try{ if(JUKU_LS.syncOn()){ await JUKU_LS.syncNow();
+        for(let i=0;i<40;i++){ const st=JUKU_LS.syncStatus(); if(!st||(st.state!=='busy'&&st.state!=='pending')) break; await new Promise(r=>setTimeout(r,250)); } } }catch(e){}
+      location.reload();
+    }catch(e){ alert('戻せませんでした: '+(e&&e.message?e.message:e)); drawSnaps(); }
+  });
 }
 
 function drawShelf(){
@@ -937,41 +1099,7 @@ function drawShelf(){
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-/* ===== フォルダ監視 =====
-   社内システムのリンクからは自動でファイルを取れないので、
-   「いつも通りダウンロードする」ところまでは人がやり、そこから先を自動にする。
-   SSツールで動いている仕組みをそのまま持ってきて、行き先を増やしたもの。
-
-   ・一度フォルダを許可すれば、取込タブを開くだけで未取込のファイルを拾う
-   ・**名簿以外は、そのまま取り込む**（毎日のSSやYSを1手も掛けずに入れるため）
-   ・**名簿は取り込まず、確認の一覧に残す**（どの学期のぶんかを人が決める必要があるため） */
-var IDB_NAME='juku_import', IDB_STORE='kv';
-function idb(){
-  return new Promise(function(res,rej){
-    var r=indexedDB.open(IDB_NAME,1);
-    r.onupgradeneeded=function(){ r.result.createObjectStore(IDB_STORE); };
-    r.onsuccess=function(){ res(r.result); };
-    r.onerror=function(){ rej(r.error); };
-  });
-}
-async function idbSet(k,v){
-  var db=await idb();
-  return new Promise(function(res,rej){
-    var tx=db.transaction(IDB_STORE,'readwrite');
-    tx.objectStore(IDB_STORE).put(v,k);
-    tx.oncomplete=function(){res();}; tx.onerror=function(){rej(tx.error);};
-  });
-}
-async function idbGet(k){
-  var db=await idb();
-  return new Promise(function(res,rej){
-    var tx=db.transaction(IDB_STORE,'readonly');
-    var q=tx.objectStore(IDB_STORE).get(k);
-    q.onsuccess=function(){res(q.result);}; q.onerror=function(){rej(q.error);};
-  });
-}
-function fsSupported(){ return typeof window.showDirectoryPicker==='function'; }
-
+/* 取り込んだファイル名を覚えておく（同じファイルを2回入れたか分かるように） */
 const SEEN_KEY='juku_seen_files_v1';
 function seenFiles(){ try{ return JSON.parse(JUKU_LS.getItem(SEEN_KEY)||'{}')||{}; }catch(e){ return {}; } }
 function markSeenFile(name, at){
@@ -979,108 +1107,6 @@ function markSeenFile(name, at){
   try{ JUKU_LS.setItem(SEEN_KEY, JSON.stringify(o)); }catch(e){}
 }
 
-function watchMsg(t, ng){
-  var el=document.getElementById('impWatchMsg'); if(!el) return;
-  el.textContent=t||''; el.className='imp-log'+(ng?' imp-ng':'');
-}
-
-async function pickWatchDir(){
-  if(!fsSupported()){
-    watchMsg('この開き方ではフォルダ監視が使えません。START-TOOL.bat（localhost）か公開版のURLから、ChromeかEdgeで開いてください。', true);
-    return;
-  }
-  try{
-    var h=await window.showDirectoryPicker({ id:'jukudl', mode:'read' });
-    await idbSet('dir', h);
-    watchMsg('フォルダを登録しました。未取込のファイルを見にいきます…');
-    await scanWatchDir(true);
-    drawWatch();
-  }catch(e){
-    if(e && e.name==='AbortError') return;
-    watchMsg('登録できませんでした: '+(e&&e.message?e.message:e), true);
-  }
-}
-async function forgetWatchDir(){
-  await idbSet('dir', null);
-  watchMsg('フォルダの登録を解除しました。');
-  drawWatch();
-}
-
-async function scanWatchDir(verbose){
-  if(!fsSupported()){ if(verbose) watchMsg('この開き方では使えません。', true); return; }
-  var h=null;
-  try{ h=await idbGet('dir'); }catch(e){ h=null; }
-  if(!h){ if(verbose) watchMsg('まだフォルダが登録されていません。', true); return; }
-
-  var perm=await h.queryPermission({ mode:'read' });
-  if(perm!=='granted'){
-    if(!verbose){ watchMsg('フォルダの読み取り許可が切れています。「今すぐ見にいく」を押して許可してください。', true); return; }
-    perm=await h.requestPermission({ mode:'read' });
-    if(perm!=='granted'){ watchMsg('許可されませんでした。', true); return; }
-  }
-
-  var seen=seenFiles(), picks=[];
-  for await (var ent of h.values()){
-    if(ent.kind!=='file') continue;
-    if(!/\.(csv|xlsx?|pdf)$/i.test(ent.name)) continue;
-    if(seen[ent.name]) continue;
-    picks.push(ent);
-  }
-  if(!picks.length){ if(verbose) watchMsg('新しいファイルはありませんでした。'); return; }
-
-  /* 種類を見分けて、名簿以外はそのまま取り込む */
-  var auto=[], wait=[];
-  for(var i=0;i<picks.length;i++){
-    var f=await picks[i].getFile();
-    var head=await headOf(f);
-    var kind=detectKind(f.name, head);
-    var k=KINDS[kind];
-    if(k && !k.shelf) auto.push({file:f, name:f.name, kind:kind});
-    else if(k) wait.push({file:f, name:f.name, kind:kind, term:guessTerm(f.name, kind)});
-    /* 種類が分からないものは触らない（毎日フォルダに増える無関係なファイルを拾わないため） */
-  }
-
-  var done=0, ngs=[];
-  for(const q of auto){
-    const k=KINDS[q.kind];
-    try{
-      const w=await toolWindow(k.tool);
-      await w.JUKU_IMPORT[k.fn](q.file);
-      markSeenFile(q.name, Date.now());
-      done++;
-    }catch(e){ ngs.push(q.name+'（'+(e&&e.message?e.message:e)+'）'); }
-  }
-  wait.forEach(q=>QUEUE.push(q));
-  drawQueue();
-
-  var msg=[];
-  if(done) msg.push('新しく '+done+'件 取り込みました');
-  if(wait.length) msg.push('名簿 '+wait.length+'件は、学期を確かめてから取り込みます（上の一覧）');
-  if(ngs.length) msg.push('読めなかったもの: '+ngs.join('、'));
-  if(!msg.length) msg.push('新しく取り込めるファイルはありませんでした');
-  watchMsg(msg.join('／'), ngs.length>0);
-}
-
-async function drawWatch(){
-  var box=document.getElementById('impWatch'); if(!box) return;
-  var has=false;
-  try{ has=!!(await idbGet('dir')); }catch(e){}
-  var n=Object.keys(seenFiles()).length;
-  box.innerHTML =
-    '<div class="imp-dim" style="margin-bottom:8px;line-height:1.8;">'+
-      'ダウンロード先のフォルダを一度だけ許可しておくと、<b>この取込タブを開くだけ</b>で新しいファイルを拾います。<br>'+
-      'SSの成績進捗やYSの名前聞きリストなど<b>毎日のぶんはそのまま取り込み</b>、'+
-      '<b>名簿は学期を確かめてから</b>にします。'+
-    '</div>'+
-    '<button class="imp-btn" id="impPick">'+(has?'フォルダを選び直す':'フォルダを登録する')+'</button> '+
-    '<button class="imp-btn" id="impScan" style="background:#64748b;">今すぐ見にいく</button> '+
-    (has?'<button class="imp-btn danger" id="impForget">登録を解除</button>':'')+
-    '<span class="imp-dim"> 取り込み済み '+n+'件</span>'+
-    '<div id="impWatchMsg" class="imp-log"></div>';
-  var p=document.getElementById('impPick'); if(p) p.onclick=pickWatchDir;
-  var s=document.getElementById('impScan'); if(s) s.onclick=()=>scanWatchDir(true);
-  var g=document.getElementById('impForget'); if(g) g.onclick=forgetWatchDir;
-}
 
 /* ===== 同期の「いつ・どの端末で保存したか」（塾ツール共通）=====
    今の同期は「まるごと置き換え」なので、どっちが新しいかを人が知っている必要がある。
@@ -1416,8 +1442,8 @@ function mountImport(pane){
         '<div id="impLog" class="imp-log"></div>'+
       '</div>'+
       '<div class="imp-card">'+
-        '<h3>フォルダを見張る <span class="imp-dim">毎日のぶんを自動で</span></h3>'+
-        '<div id="impWatch"></div>'+
+        '<h3>元に戻す <span class="imp-dim">取り込みの直前と、毎日最初に開いたときに自動で控えています</span></h3>'+
+        '<div id="impSnap"></div>'+
       '</div>'+
       '<div class="imp-card">'+
         '<h3>スプシ同期の設定 <span class="imp-dim">全ツール共通</span></h3>'+
@@ -1460,9 +1486,7 @@ function mountImport(pane){
   document.getElementById('impBkR').onclick = ()=> document.getElementById('impBkFile').click();
   document.getElementById('impBkFile').onchange = function(){ if(this.files[0]) restoreAll(this.files[0]); this.value=''; };
   drawQueue(); drawShelf(); drawTools();
-  drawWatch(); drawHubSync();
-  /* 開いたときに一度だけ見にいく（許可が生きていれば黙って取り込む） */
-  scanWatchDir(false);
+  drawHubSync(); drawSnaps();
 }
 
 /* 各ツールが今どの学期の名簿を見ているか。ここで直すこともできる。 */
@@ -1519,7 +1543,7 @@ show(init);
    （保存したデータはサイトごとなので、?v= が付いても外れても同じものが見える。
      取り込み直しは起きない） */
 (function(){
-  var MINE = '202611291310';
+  var MINE = '202611291320';
   /* 読み直しのために付いた ?v=… を、見た目から外す */
   try{
     if(/[?&]v=/.test(location.search) && history.replaceState)

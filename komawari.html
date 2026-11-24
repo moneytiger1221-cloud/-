@@ -854,6 +854,117 @@ body.trayh-x .traycnt2{top:2px;}
     el.style.background = s.state === 'error' ? 'rgba(184,67,58,.92)' : 'rgba(30,40,55,.82)';
   }
 
+  /* ===== 控え（元に戻す用）=====
+     取り込みの直前と、毎日最初に開いたときに、ツールごとのまとまり（kv_*）を丸ごと控えておく。
+     控えはこの端末の中だけ（別の IndexedDB。スプシには送らない）。
+     戻すと、戻す前の状態も控えに残すので、「やっぱり元に戻す」（一つ進む）もできる。
+     端末ごとの項目（接続先・同期の記録など）は控えにも入れず、戻しても変えない。 */
+  var SNAP_DB = 'juku_snap', SNAP_ST = 'snap', KEEP_DAY = 7, KEEP_EVT = 8;
+  function snapDb() {
+    return new Promise(function (res) {
+      try {
+        var r = indexedDB.open(SNAP_DB, 1);
+        r.onupgradeneeded = function () { r.result.createObjectStore(SNAP_ST, { keyPath: 'id' }); };
+        r.onsuccess = function () { res(r.result); };
+        r.onerror = function () { res(null); };
+      } catch (e) { res(null); }
+    });
+  }
+  function snapList(d) {
+    return new Promise(function (res) {
+      var out = [];
+      try {
+        var tx = d.transaction(SNAP_ST, 'readonly');
+        tx.objectStore(SNAP_ST).openCursor().onsuccess = function (e) {
+          var c = e.target.result; if (!c) return;
+          var v = c.value; out.push({ id: v.id, at: v.at, group: v.group, label: v.label, kind: v.kind, size: v.size });
+          c['continue']();
+        };
+        tx.oncomplete = function () { out.sort(function (a, b) { return a.at < b.at ? 1 : -1; }); res(out); };
+        tx.onabort = function () { res(out); };
+      } catch (e) { res(out); }
+    });
+  }
+  function snapPrune(d) {
+    return snapList(d).then(function (all) {
+      var cnt = {}, del = [];
+      all.forEach(function (x) {
+        var k = x.group + (x.kind === 'day' ? ':day' : ':evt');
+        cnt[k] = (cnt[k] || 0) + 1;
+        if (cnt[k] > (x.kind === 'day' ? KEEP_DAY : KEEP_EVT)) del.push(x.id);
+      });
+      if (!del.length) return;
+      return new Promise(function (res) {
+        try {
+          var tx = d.transaction(SNAP_ST, 'readwrite'), st = tx.objectStore(SNAP_ST);
+          del.forEach(function (id) { st['delete'](id); });
+          tx.oncomplete = res; tx.onabort = res;
+        } catch (e) { res(); }
+      });
+    });
+  }
+  /* group（kv_ys など）を今の中身で控える。中身が空なら控えない */
+  api.snapshot = function (group, label, kind) {
+    if (!db) return Promise.resolve(null);
+    return reloadMem().then(function () {
+      var data = {}, size = 0;
+      Object.keys(mem).forEach(function (k) { if (grp(k) === group) { data[k] = mem[k]; size += String(mem[k]).length; } });
+      if (!size) return null;
+      return snapDb().then(function (d) {
+        if (!d) return null;
+        var rec = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at: nowIso(),
+                    group: group, label: label || '', kind: kind || 'event', size: size, data: data };
+        return new Promise(function (res) {
+          try {
+            var tx = d.transaction(SNAP_ST, 'readwrite');
+            tx.objectStore(SNAP_ST).put(rec);
+            tx.oncomplete = function () { res(rec.id); };
+            tx.onabort = function () { res(null); };
+          } catch (e) { res(null); }
+        }).then(function (id) { return snapPrune(d).then(function () { d.close(); return id; }); });
+      });
+    });
+  };
+  api.snapshotAll = function (label, kind) {
+    return GROUPS.reduce(function (p, g) { return p.then(function () { return api.snapshot(g, label, kind); }); }, Promise.resolve());
+  };
+  /* 控えの一覧（新しい順、中身は含まない） */
+  api.snapshots = function () {
+    return snapDb().then(function (d) { if (!d) return []; return snapList(d).then(function (l) { d.close(); return l; }); });
+  };
+  /* 控えの時点に戻す。戻す前の状態も控えておく */
+  api.restoreSnapshot = function (id) {
+    return snapDb().then(function (d) {
+      if (!d) throw new Error('控えを開けません');
+      return new Promise(function (res, rej) {
+        var tx = d.transaction(SNAP_ST, 'readonly'), q = tx.objectStore(SNAP_ST).get(id);
+        q.onsuccess = function () { res(q.result); }; q.onerror = function () { rej(q.error); };
+      }).then(function (rec) {
+        d.close();
+        if (!rec) throw new Error('控えが見つかりません');
+        var when = new Date(rec.at), hm = (when.getMonth() + 1) + '/' + when.getDate() + ' ' + when.getHours() + ':' + String(when.getMinutes()).padStart(2, '0');
+        return api.snapshot(rec.group, '「' + hm + 'の控え」に戻す直前の状態', 'undo').then(function () {
+          Object.keys(mem).forEach(function (k) { if (grp(k) === rec.group && !Object.prototype.hasOwnProperty.call(rec.data, k)) api.removeItem(k); });
+          Object.keys(rec.data).forEach(function (k) { if (grp(k) === rec.group) api.setItem(k, rec.data[k]); });
+          return rec.group;
+        });
+      });
+    });
+  };
+  /* 毎日最初に開いたときの控え（最上位のページだけ。iframe の中のツールは撮らない） */
+  function dailySnapshot() {
+    if (!db || window.top !== window) return;
+    var today = new Date().toDateString();
+    api.snapshots().then(function (l) {
+      var done = {};
+      l.forEach(function (x) { if (x.kind === 'day' && new Date(x.at).toDateString() === today) done[x.group] = 1; });
+      var d = new Date(), label = (d.getMonth() + 1) + '/' + d.getDate() + ' 最初に開いたとき';
+      return GROUPS.reduce(function (p, g) {
+        return p.then(function () { if (!done[g]) return api.snapshot(g, label, 'day'); });
+      }, Promise.resolve());
+    })['catch'](function () {});
+  }
+
   function run() {
     started = true;
     var list = Array.prototype.slice.call(document.querySelectorAll('script[type="text/juku-deferred"]'));
@@ -863,6 +974,7 @@ body.trayh-x .traycnt2{top:2px;}
       s.text = o.text;
       o.parentNode.replaceChild(s, o);
     });
+    setTimeout(dailySnapshot, 6000);   // 開くのを遅くしないよう、少しあとで
     // 本体は読み込み完了の後に動くので、それを待っているコードのために合図を出し直す
     try { document.dispatchEvent(new Event('DOMContentLoaded')); } catch (e) {}
     if (document.readyState === 'complete') { try { window.dispatchEvent(new Event('load')); } catch (e) {} }
