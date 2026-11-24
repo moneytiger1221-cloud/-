@@ -1734,9 +1734,11 @@ async function parseXLSX(buf, sheetNameWanted){
   const rowRe=/<row\b[^>]*>([\s\S]*?)<\/row>/g; let rm;
   while((rm=rowRe.exec(sx))){
     const cells=[];
-    const cRe=/<c\b([^>]*)>([\s\S]*?)<\/c>|<c\b([^>]*)\/>/g; let cm;
+    /* 中身の無いセル（<c .../>）を先に見る。逆だと次のセルまで飲み込み、
+       その次の列の値（生徒の一言など）が消えていた */
+    const cRe=/<c\b([^>]*?)\/>|<c\b([^>]*)>([\s\S]*?)<\/c>/g; let cm;
     while((cm=cRe.exec(rm[1]))){
-      const attr=(cm[1]||cm[3]||""); const inner=cm[2]||"";
+      const attr=(cm[1]!==undefined?cm[1]:cm[2])||""; const inner=cm[3]||"";
       const refM=attr.match(/r="([A-Z]+\d+)"/); const idx=refM?colIndex(refM[1]):cells.length;
       const isStr=/t="s"/.test(attr);
       const vM=inner.match(/<v\b[^>]*>([\s\S]*?)<\/v>/);
@@ -1781,6 +1783,20 @@ async function onSurveyFile(input){
     } else {
       raw=await parseXLSX(buf); // 自前パーサーのみ（外部ライブラリ不使用）
     }
+    /* 2026年2学期からの新しい形（帳票21）なら、そちらで読む */
+    if(report21HeaderRow(raw)>=0){
+      let sheets=[raw];
+      if(!/\.csv$/i.test(file.name)){
+        const names=await xlsxSheetNames(buf);
+        if(names.length>1){ sheets=[]; for(const n of names) sheets.push(await parseXLSX(buf,n)); }
+      }
+      const res=report21Records(sheets);
+      if(!res.recs.length) throw new Error("回答のある行が見つかりません");
+      if(res.newTeachers) LS.set("survey_roster",state.roster);
+      applyImportedRecords(res.recs, state.campus||"");
+      if(res.skipped) toast(`✅ ${res.recs.length} 件を取り込みました（未回答の ${res.skipped} 行は除外）`);
+      input.value=""; return;
+    }
     const headers=raw[0]||[];
     const tcCols=headers.reduce((a,h,i)=>{ if(String(h).includes("先生コード"))a.push(i); return a; },[]);
     if(!tcCols.length) throw new Error("「先生コード」列が見つかりません");
@@ -1818,6 +1834,50 @@ async function onSurveyFile(input){
     applyImportedRecords(recs, campusList[0]||"");
   }catch(err){ state.err="読み込みエラー: "+err.message; render(); }
   input.value="";
+}
+/* ── 新しい形（帳票21「生徒アンケートの回収状況」）──
+   担任ごとにシートが分かれ、タイトル行のあと「生徒NO・生徒名・学校・学年・科目・通塾曜日・
+   回答日・先生コード・先生名・①〜⑤・理由・伝えたいこと」の見出しが来る。1行＝生徒×科目。
+   未回答の行（①〜⑤が空）も入っているので、回答のある行だけを取り込む。
+   校舎の列は無い（1ファイル＝自分の校舎）ので、今の校舎として取り込む。 */
+function report21HeaderRow(rows){
+  for(let i=0;i<Math.min(rows.length,15);i++){
+    const r=(rows[i]||[]).map(x=>String(x||"").replace(/[\s　]/g,""));
+    if(r.includes("生徒NO") && r.some(x=>x.includes("先生コード"))) return i;
+  }
+  return -1;
+}
+function report21Records(sheets){
+  const recs=[]; let uid=0, skipped=0, newTeachers=0;
+  const campus=state.campus||"";
+  sheets.forEach(rows=>{
+    const h=report21HeaderRow(rows); if(h<0) return;
+    const head=(rows[h]||[]).map(x=>String(x||"").replace(/[\s　]/g,""));
+    const col=(test)=>head.findIndex(test);
+    const c={ no:col(x=>x==="生徒NO"), name:col(x=>x==="生徒名"), school:col(x=>x==="学校"), grade:col(x=>x==="学年"),
+      subject:col(x=>x==="科目"), yobi:col(x=>x==="通塾曜日"), date:col(x=>x==="回答日"),
+      code:col(x=>x.includes("先生コード")), tname:col(x=>x==="先生名"),
+      q:["①","②","③","④","⑤"].map(m=>col(x=>x.startsWith(m))),
+      reason:col(x=>x.includes("理由")), msg:col(x=>x.includes("伝えたい")) };
+    const v=(row,i)=>i>=0?String(row[i]==null?"":row[i]).trim():"";
+    rows.slice(h+1).forEach(row=>{
+      const code=v(row,c.code), name=v(row,c.name);
+      if(!code || !name) return;
+      const q=c.q.map(i=>v(row,i));
+      if(!q.some(Boolean)){ skipped++; return; }
+      const tc=normCode(code);
+      /* 名簿に無い先生は、ファイルの先生名で補う（新しく入った先生も名前で出るように） */
+      const tn=v(row,c.tname).replace(/　/g," ");
+      if(tn && !state.roster[tc]){ state.roster[tc]={ full:code.replace(/[^0-9]/g,""), name:tn, nick:"" }; newTeachers++; }
+      uid++;
+      recs.push({ id:uid, campus, studentNo:v(row,c.no), studentName:name, grade:v(row,c.grade), school:v(row,c.school),
+        teacherCode:tc, subject:v(row,c.subject),
+        q1:q[0], q2:q[1], q3:q[2], q4:q[3], q5:q[4],
+        comment:v(row,c.reason), studentMsg:v(row,c.msg),
+        yobi:v(row,c.yobi).replace(/曜日?$/,""), answeredAt:v(row,c.date) });
+    });
+  });
+  return { recs, skipped, newTeachers };
 }
 /* 取り込んだ回答を「1校舎ぶんだけ」に絞って保存する。
    ここでメモリ（state.allRecords）も絞るのが大事。絞らないと、あとの保存で
@@ -2603,13 +2663,18 @@ function renderComments(){
   const byStudent={};
   rs.forEach(r=>{
     const k=r.studentName;
-    if(!byStudent[k]) byStudent[k]={ name:r.studentName, grade:r.grade, msg:"", teachers:[] };
-    if(r.studentMsg && !byStudent[k].msg) byStudent[k].msg=r.studentMsg;
+    if(!byStudent[k]) byStudent[k]={ name:r.studentName, grade:r.grade, msgs:{}, teachers:[] };
+    /* 新しい形では一言が先生ごとに書かれるので、文ごとに「誰あてか」をまとめる。
+       前の形（生徒に1つ）では全員あてになり、これまでと同じ見え方になる */
+    if(r.studentMsg){
+      const m=byStudent[k].msgs[r.studentMsg]||(byStudent[k].msgs[r.studentMsg]=[]);
+      if(!m.some(t=>t.code===r.teacherCode&&t.subject===r.subject)) m.push({ code:r.teacherCode, subject:r.subject });
+    }
     if(!byStudent[k].teachers.some(t=>t.code===r.teacherCode))
       byStudent[k].teachers.push({ code:r.teacherCode, subject:r.subject, q5:r.q5 });
   });
   // 一言が書かれている生徒だけ表示
-  const withMsg=Object.values(byStudent).filter(s=>s.msg);
+  const withMsg=Object.values(byStudent).filter(s=>Object.keys(s.msgs).length);
   if(!withMsg.length){
     return `<div class="card" style="padding:28px;text-align:center;color:#94a3b8">生徒の一言コメントはありません。<br><span style="font-size:11px">（アンケート末尾の自由記述欄）</span></div>`;
   }
@@ -2620,15 +2685,16 @@ function renderComments(){
         <b style="font-size:14px">${esc(s.name)}</b>
         <span style="font-size:11px;color:#94a3b8">${esc(s.grade)}</span>
       </div>
-      <div style="background:#f0fdf4;border-left:3px solid #22c55e;border-radius:0 8px 8px 0;padding:11px 13px;font-size:13px;line-height:1.7;color:#334155;white-space:pre-wrap">${esc(s.msg)}</div>
-      <div style="margin-top:10px">
-        <div style="font-size:10px;color:#94a3b8;margin-bottom:5px">担当の先生</div>
+      ${Object.entries(s.msgs).map(([msg,ts])=>`<div style="margin-bottom:10px">
+      <div style="background:#f0fdf4;border-left:3px solid #22c55e;border-radius:0 8px 8px 0;padding:11px 13px;font-size:13px;line-height:1.7;color:#334155;white-space:pre-wrap">${esc(msg)}</div>
+      <div style="margin-top:6px">
+        <div style="font-size:10px;color:#94a3b8;margin-bottom:5px">あての先生</div>
         <div style="display:flex;flex-wrap:wrap;gap:5px">
-          ${s.teachers.sort((a,b)=>a.code.localeCompare(b.code)).map(t=>`<span style="background:#eff6ff;border:1px solid #dbeafe;border-radius:6px;padding:3px 8px;font-size:11px">
+          ${ts.sort((a,b)=>a.code.localeCompare(b.code)).map(t=>`<span style="background:#eff6ff;border:1px solid #dbeafe;border-radius:6px;padding:3px 8px;font-size:11px">
             <span style="color:#1d4ed8;font-weight:600">${esc(t.code)}</span> ${esc(tName(t.code))}<span style="color:#94a3b8"> · ${esc(t.subject)}</span>
           </span>`).join("")}
         </div>
-      </div>
+      </div></div>`).join("")}
     </div>`).join("")}`;
 }
 
