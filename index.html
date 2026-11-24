@@ -500,12 +500,12 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;
    file:// の同一オリジンなので localStorage も従来どおり共有される
    （コマ組ツールが成績・アンケート・YSのデータを参照する仕組みもそのまま動く）。 */
 const TOOLS=[
-  {k:'koma',   label:'コマ組',     src:'komawari.html?v=202611291300'},
-  {k:'grade',  label:'成績',       src:'grade-tracker.html?v=202611291300'},
-  {k:'survey', label:'アンケート', src:'survey-app.html?v=202611291300'},
-  {k:'ys',     label:'YSボード',   src:'ys-board-sync.html?v=202611291300'},
-  {k:'ss',     label:'SS',         src:'ss-tracker.html?v=202611291300'},
-  {k:'shinro', label:'進路',       src:'shinro.html?v=202611291300'},
+  {k:'koma',   label:'コマ組',     src:'komawari.html?v=202611291310'},
+  {k:'grade',  label:'成績',       src:'grade-tracker.html?v=202611291310'},
+  {k:'survey', label:'アンケート', src:'survey-app.html?v=202611291310'},
+  {k:'ys',     label:'YSボード',   src:'ys-board-sync.html?v=202611291310'},
+  {k:'ss',     label:'SS',         src:'ss-tracker.html?v=202611291310'},
+  {k:'shinro', label:'進路',       src:'shinro.html?v=202611291310'},
   /* 取込センターだけは中身をここに直接書く（iframeではない） */
   {k:'import', label:'取込',       local:true}
 ];
@@ -828,13 +828,13 @@ function drawQueue(){
       '<td class="imp-name">'+esc(q.name)+'</td>'+
       '<td><select data-i="'+i+'" class="imp-kind"><option value="">— 選んでください —</option>'+opts+'</select></td>'+
       '<td class="imp-to">'+(k? esc(k.to) : '<span class="imp-ng">種類が分かりません</span>')+'</td>'+
-      '<td>'+(k&&k.shelf? '<select data-i="'+i+'" class="imp-term">'+terms+'</select>' : '<span class="imp-dim">—</span>')+'</td>'+
+      '<td>'+(k&&(k.shelf||k.tool==='survey')? '<select data-i="'+i+'" class="imp-term">'+terms+'</select>' : '<span class="imp-dim">—</span>')+'</td>'+
       '<td><button class="imp-x" data-i="'+i+'" title="この行をやめる">×</button></td></tr>';
   });
   h += '</tbody></table>';
   box.innerHTML = h;
   box.querySelectorAll('.imp-kind').forEach(s=>s.onchange=()=>{
-    QUEUE[+s.dataset.i].kind = s.value; drawQueue(); });
+    const q = QUEUE[+s.dataset.i]; q.kind = s.value; q.term = guessTerm(q.name, q.kind); drawQueue(); });
   box.querySelectorAll('.imp-term').forEach(s=>s.onchange=()=>{
     QUEUE[+s.dataset.i].term = s.value; });
   box.querySelectorAll('.imp-x').forEach(b=>b.onclick=()=>{
@@ -882,8 +882,9 @@ async function runImport(){
         say('✅ '+esc(q.name)+' → 棚（'+esc(q.term)+'）に入れました');
       }else{
         const w = await toolWindow(k.tool);
-        await w.JUKU_IMPORT[k.fn](q.file);
-        say('✅ '+esc(q.name)+' → '+esc(k.to)+' に取り込みました');
+        /* アンケートは学期ごとに回答を持つので、どの学期の回答かを一緒に渡す */
+        await w.JUKU_IMPORT[k.fn](q.file, k.tool==='survey' ? q.term : undefined);
+        say('✅ '+esc(q.name)+' → '+esc(k.to)+(k.tool==='survey'? '（'+esc(q.term)+'）' : '')+' に取り込みました');
       }
       markSeenFile(q.name, Date.now());
     }catch(e){
@@ -1518,7 +1519,7 @@ show(init);
    （保存したデータはサイトごとなので、?v= が付いても外れても同じものが見える。
      取り込み直しは起きない） */
 (function(){
-  var MINE = '202611291300';
+  var MINE = '202611291310';
   /* 読み直しのために付いた ?v=… を、見た目から外す */
   try{
     if(/[?&]v=/.test(location.search) && history.replaceState)

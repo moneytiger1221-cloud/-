@@ -1767,7 +1767,7 @@ function decodeXMLEntities(s){
   return s.replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(+n)).replace(/&amp;/g,"&");
 }
 
-async function onSurveyFile(input){
+async function onSurveyFile(input, term){
   const file=input.files[0]; if(!file) return;
   state.err="読み込み中…"; render();
   try{
@@ -1793,8 +1793,8 @@ async function onSurveyFile(input){
       const res=report21Records(sheets);
       if(!res.recs.length) throw new Error("回答のある行が見つかりません");
       if(res.newTeachers) LS.set("survey_roster",state.roster);
-      applyImportedRecords(res.recs, state.campus||"");
-      if(res.skipped) toast(`✅ ${res.recs.length} 件を取り込みました（未回答の ${res.skipped} 行は除外）`);
+      applyImportedRecords(res.recs, state.campus||"", term);
+      if(res.skipped) toast(`✅ ${term||curTerm()} の回答 ${res.recs.length} 件を取り込みました（未回答の ${res.skipped} 行は除外）`);
       input.value=""; return;
     }
     const headers=raw[0]||[];
@@ -1828,10 +1828,10 @@ async function onSurveyFile(input){
       // 選ばなかった校舎は保存もしないし、メモリにも残さない（容量あふれの原因だった）
       const cnt={}; recs.forEach(r=>{ if(r.campus) cnt[r.campus]=(cnt[r.campus]||0)+1; });
       state.err="";
-      state.modal={ type:"pickCampus", list:campusList, cnt, pending:recs };
+      state.modal={ type:"pickCampus", list:campusList, cnt, pending:recs, term };
       render(); input.value=""; return;
     }
-    applyImportedRecords(recs, campusList[0]||"");
+    applyImportedRecords(recs, campusList[0]||"", term);
   }catch(err){ state.err="読み込みエラー: "+err.message; render(); }
   input.value="";
 }
@@ -1882,18 +1882,26 @@ function report21Records(sheets){
 /* 取り込んだ回答を「1校舎ぶんだけ」に絞って保存する。
    ここでメモリ（state.allRecords）も絞るのが大事。絞らないと、あとの保存で
    他校舎ぶんまで localStorage に書き戻されて容量があふれる。 */
-function applyImportedRecords(recs, campus){
+function applyImportedRecords(recs, campus, term){
   const keep = campus ? recs.filter(r=>r.campus===campus) : recs;
   const dropped = recs.length - keep.length;
-  const t = curTerm();
-  keep.forEach(r=>{ if(!r.term) r.term = t; });   /* いつの学期に集めた回答かを焼き付ける */
-  state.allRecords = keep;
+  /* どの学期の回答か。取込タブで選んだ学期があればそれ、無ければ今見ている学期 */
+  const t = term || curTerm();
+  keep.forEach(r=>{ r.term = t; });   /* いつの学期に集めた回答かを焼き付ける */
+  /* 置き換えるのは「この学期の中高生の回答」だけ。ほかの学期と小学生のぶんは残す。
+     前は全部を置き換えていて、2学期を取り込むと1学期の回答が消えていた（2026-11-25） */
+  const others = state.allRecords.filter(r => (termOf(r)!==t || r.elem) && (!campus || !r.campus || r.campus===campus));
+  /* id は学期をまたいで重ならないように、残すぶんの続きから振る（同期は id で1件ずつ混ぜるため） */
+  let uid = Math.max(0, ...others.map(r=>r.id||0));
+  keep.forEach(r=>{ r.id = ++uid; });
+  const all = others.concat(keep);
+  state.allRecords = all;
   state.campus = campus; LS.set("survey_campus", campus);
-  const sizeKB=Math.round(LS.sizeOf(keep)/1024);
-  const ok=LS.set("survey_allRecords", keep);
+  const sizeKB=Math.round(LS.sizeOf(all)/1024);
+  const ok=LS.set("survey_allRecords", all);
   state.err = ok ? "" : `⚠ データの保存に失敗しました（推定${sizeKB}KB）。容量不足の可能性があります。`;
   loadWork();
-  toast(`✅ ${keep.length} 件を取り込みました（${sizeKB}KB）${campus?" · "+campus:""}`+
+  toast(`✅ ${t} の回答 ${keep.length} 件を取り込みました（${sizeKB}KB）${campus?" · "+campus:""}`+
         (dropped? ` ／ 他校舎 ${dropped} 件は保存していません` : ""));
   render();
 }
@@ -1913,8 +1921,8 @@ function filterCampusList(q){
 }
 function pickCampus(c){
   const m=state.modal; if(!m||m.type!=="pickCampus") return;
-  const recs=m.pending; state.modal=null;
-  applyImportedRecords(recs, c);
+  const recs=m.pending, term=m.term; state.modal=null;
+  applyImportedRecords(recs, c, term);
 }
 function onTeacherFile(input){
   const file=input.files[0]; if(!file) return;
@@ -3255,7 +3263,7 @@ pullRoster(false);
 /* 取込センターから呼ばれる窓口。既存の取り込み処理は input を受けるので、
    ファイル1つを入れた入れ物の形にして渡す。 */
 window.JUKU_IMPORT = {
-  survey: function(f){ return onSurveyFile({files:[f], value:''}); },
+  survey: function(f, term){ return onSurveyFile({files:[f], value:''}, term); },
   elem:   function(f){ return onElemSurveyFile({files:[f], value:''}); }
 };
 /* 取り込んだ結果も自動でスプシへ */
