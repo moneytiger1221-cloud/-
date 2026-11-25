@@ -50,6 +50,7 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;
   #brand{padding:0 8px;font-size:12px;}    /* タブに幅を回す */
   #brand span:last-child{display:none;}
   .navtab{padding:8px 9px;font-size:12.5px;}
+  #navtabs{flex-wrap:wrap;overflow-x:visible;}   /* 進路・取込が右に隠れないよう、入りきらなければ2段にする */
   .navtab .ld{display:none;}
   #navright{padding:0 8px;gap:6px;}
   #hint{display:none;}                     /* 長い説明文がタブの幅を奪うため隠す */
@@ -612,12 +613,12 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;
    file:// の同一オリジンなので localStorage も従来どおり共有される
    （コマ組ツールが成績・アンケート・YSのデータを参照する仕組みもそのまま動く）。 */
 const TOOLS=[
-  {k:'koma',   label:'コマ組',     src:'komawari.html?v=202611251010'},
-  {k:'grade',  label:'成績',       src:'grade-tracker.html?v=202611251010'},
-  {k:'survey', label:'アンケート', src:'survey-app.html?v=202611251010'},
-  {k:'ys',     label:'YSボード',   src:'ys-board-sync.html?v=202611251010'},
-  {k:'ss',     label:'SS',         src:'ss-tracker.html?v=202611251010'},
-  {k:'shinro', label:'進路',       src:'shinro.html?v=202611251010'},
+  {k:'koma',   label:'コマ組',     src:'komawari.html?v=202611251050'},
+  {k:'grade',  label:'成績',       src:'grade-tracker.html?v=202611251050'},
+  {k:'survey', label:'アンケート', src:'survey-app.html?v=202611251050'},
+  {k:'ys',     label:'YSボード',   src:'ys-board-sync.html?v=202611251050'},
+  {k:'ss',     label:'SS',         src:'ss-tracker.html?v=202611251050'},
+  {k:'shinro', label:'進路',       src:'shinro.html?v=202611251050'},
   /* 取込センターだけは中身をここに直接書く（iframeではない） */
   {k:'import', label:'取込',       local:true}
 ];
@@ -929,21 +930,24 @@ async function addFiles(files){
 function drawQueue(){
   const box = document.getElementById('impQueue');
   if(!QUEUE.length){ box.innerHTML='<div class="imp-empty">ここにファイルを置くと、種類と行き先を見分けて一覧にします。</div>'; return; }
-  let h = '<table class="imp-tbl"><thead><tr><th>ファイル</th><th>種類</th><th>行き先</th><th>学期</th><th></th></tr></thead><tbody>';
+  /* スマホでもはみ出さないよう、表ではなく1ファイルずつのまとまりにする */
+  let h = '';
   QUEUE.forEach((q,i)=>{
     const k = KINDS[q.kind];
     const opts = Object.keys(KINDS).map(kk=>
       '<option value="'+kk+'"'+(kk===q.kind?' selected':'')+'>'+KINDS[kk].label+'</option>').join('');
     const terms = JUKU_TERM.list().map(t=>
       '<option value="'+t+'"'+(t===q.term?' selected':'')+'>'+t+'</option>').join('');
-    h += '<tr'+(k?'':' class="imp-unknown"')+'>'+
-      '<td class="imp-name">'+esc(q.name)+'</td>'+
-      '<td><select data-i="'+i+'" class="imp-kind"><option value="">— 選んでください —</option>'+opts+'</select></td>'+
-      '<td class="imp-to">'+(k? esc(k.to) : '<span class="imp-ng">種類が分かりません</span>')+'</td>'+
-      '<td>'+(k&&(k.shelf||k.tool==='survey')? '<select data-i="'+i+'" class="imp-term">'+terms+'</select>' : '<span class="imp-dim">—</span>')+'</td>'+
-      '<td><button class="imp-x" data-i="'+i+'" title="この行をやめる">×</button></td></tr>';
+    h += '<div style="padding:8px;border-bottom:1px solid #f1f5f9;border-radius:6px;'+(k?'':'background:#fffbeb;')+'">'+
+      '<div style="display:flex;align-items:flex-start;gap:8px;">'+
+        '<div style="flex:1;min-width:0;font-size:12.5px;font-weight:700;word-break:break-all;">'+esc(q.name)+'</div>'+
+        '<button class="imp-x" data-i="'+i+'" title="この行をやめる" style="flex-shrink:0;">×</button></div>'+
+      '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:5px;font-size:12px;">'+
+        '<select data-i="'+i+'" class="imp-kind" style="max-width:100%;font-size:12px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;"><option value="">— 種類を選んでください —</option>'+opts+'</select>'+
+        (k&&(k.shelf||k.tool==='survey')? '<select data-i="'+i+'" class="imp-term" style="max-width:100%;font-size:12px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">'+terms+'</select>' : '')+
+        '<span>'+(k? '<span class="imp-dim">行き先 </span>'+esc(k.to) : '<span class="imp-ng">種類が分かりません</span>')+'</span>'+
+      '</div></div>';
   });
-  h += '</tbody></table>';
   box.innerHTML = h;
   box.querySelectorAll('.imp-kind').forEach(s=>s.onchange=()=>{
     const q = QUEUE[+s.dataset.i]; q.kind = s.value; q.term = guessTerm(q.name, q.kind); drawQueue(); });
@@ -1006,11 +1010,27 @@ async function runImport(){
     }
   }
   QUEUE = [];
+  if(shelved) setTimeout(tellToolsShelf, 800);   /* 書いた中身が各ツールに届くのを少し待つ */
   drawQueue();
   drawShelf();
   drawTools();
   say('— おわり —　各ツールのタブを開くと反映されます');
   drawSnaps();
+}
+
+/* 棚に名簿を入れたら、もう開いているツールにもその場で知らせる。
+   知らせないと、開き直すまで「棚に先生名簿がありません」のような古い案内が出たままになる。 */
+function tellToolsShelf(){
+  ['koma','grade','survey'].forEach(k=>{
+    if(!loaded[k]) return;
+    try{
+      const fr=document.querySelector('#pane-'+k+' iframe');
+      const w=fr && fr.contentWindow; if(!w) return;
+      if(typeof w.pullRoster==='function') w.pullRoster(false);
+      if(typeof w.shelfNotice==='function') w.shelfNotice();
+      if(typeof w.teacherWarn==='function') w.teacherWarn();
+    }catch(e){}
+  });
 }
 
 /* ===== 元に戻す（控えの一覧）===== */
@@ -1546,7 +1566,7 @@ show(init);
    （保存したデータはサイトごとなので、?v= が付いても外れても同じものが見える。
      取り込み直しは起きない） */
 (function(){
-  var MINE = '202611251010';
+  var MINE = '202611251050';
   /* 読み直しのために付いた ?v=… を、見た目から外す */
   try{
     if(/[?&]v=/.test(location.search) && history.replaceState)

@@ -439,10 +439,9 @@ body.trayh-x .traycnt2{top:2px;}
    PCの見た目は一切変えない。狭い画面のときだけ、
    ツールバーが画面を占領して盤面が見えなくなる問題を解消する。 */
 @media (max-width: 820px){
-  .topbar{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;
-          gap:8px;padding:6px 10px;scrollbar-width:none;}
-  .topbar::-webkit-scrollbar{display:none;}
-  .topbar>*{flex:0 0 auto;}
+  /* ボタンが横にはみ出して隠れないよう折り返す。そのぶん高くなるので、上に貼り付けず一緒にスクロールさせる */
+  .topbar{flex-wrap:wrap;position:static;gap:6px 8px;padding:6px 10px;}
+  .topbar>*{flex:0 1 auto;min-width:0;}
   .title{font-size:14px;}
   .toolbtn{padding:5px 9px;font-size:11.5px;}
   .mdbtn{padding:5px 10px;font-size:11.5px;}
@@ -4076,8 +4075,8 @@ console.log('komas on board:',komas.length,'skipped(no teacher match):',skipped)
    押されたときだけ、今までと同じ確認を通してから取り込む。 */
 function shelfNotice(){
   var bar=document.getElementById('jtNote'); if(!bar) return;
-  /* 学期がまだ決まっていなくても、棚に今の月ぶんがあればそれを使う（使ったら記録する） */
-  if(!JUKU_TERM.mark('koma') && JUKU_ROSTER.entry(JUKU_TERM.want('koma'),'student'))
+  /* 学期がまだ決まっていなくても、棚に今の月ぶん（生徒か先生の名簿）があればそれを使う（使ったら記録する） */
+  if(!JUKU_TERM.mark('koma') && (JUKU_ROSTER.entry(JUKU_TERM.want('koma'),'student')||JUKU_ROSTER.entry(JUKU_TERM.want('koma'),'teacher')))
     JUKU_TERM.setMark('koma', JUKU_TERM.want('koma'));
   JUKU_TERM.paint('jtBar','koma', function(){ JUKU_ROSTER.forget('koma'); shelfNotice(); teacherWarn();
 });

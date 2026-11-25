@@ -3588,8 +3588,8 @@ render();
    importNameCSV は上書きではなく足し込みなので、何度読んでも壊れない。 */
 function pullRoster(force){
   if(force) JUKU_ROSTER.forget('grade');
-  /* 学期がまだ決まっていなくても、棚に今の月ぶんがあればそれを使う（使ったら記録する） */
-  if(!JUKU_TERM.mark('grade') && JUKU_ROSTER.entry(JUKU_TERM.want('grade'),'student'))
+  /* 学期がまだ決まっていなくても、棚に今の月ぶん（生徒か先生の名簿）があればそれを使う（使ったら記録する） */
+  if(!JUKU_TERM.mark('grade') && (JUKU_ROSTER.entry(JUKU_TERM.want('grade'),'student')||JUKU_ROSTER.entry(JUKU_TERM.want('grade'),'teacher')))
     JUKU_TERM.setMark('grade', JUKU_TERM.want('grade'));
   const got = JUKU_ROSTER.pull('grade','student', function(text){
     const n = importNameCSV(text);

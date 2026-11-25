@@ -14673,7 +14673,7 @@ ${[...unmatchedTeachers].join("\n")}
     if (locked) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LockScreen, { onUnlock: () => setLocked(false) });
     if (!loaded) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { minHeight: "100vh", background: "#080f1a", display: "flex", alignItems: "center", justifyContent: "center", color: "#475569", fontFamily: "'Hiragino Sans','Yu Gothic',sans-serif" }, children: "\u8AAD\u307F\u8FBC\u307F\u4E2D..." });
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { minHeight: "100vh", background: "#080f1a", fontFamily: "'Hiragino Sans','Yu Gothic',sans-serif", color: "#e2e8f0", overflowX: "hidden" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { background: "#0f172a", borderBottom: "1px solid #1e293b", padding: "0 16px" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 900, margin: "0 auto", display: "flex", alignItems: "center", overflowX: "auto", WebkitOverflowScrolling: "touch" }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { background: "#0f172a", borderBottom: "1px solid #1e293b", padding: "0 16px" }, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { maxWidth: 900, margin: "0 auto", display: "flex", alignItems: "center", flexWrap: "wrap" }, children: [
         { key: "dashboard", label: "\u30C0\u30C3\u30B7\u30E5\u30DC\u30FC\u30C9" },
         { key: "today", label: "\u4ECA\u65E5\u306E\u30BF\u30C3\u30C1" },
         { key: "records", label: "\u7D39\u4ECB\u8A18\u9332" },
@@ -14685,7 +14685,8 @@ ${[...unmatchedTeachers].join("\n")}
         border: "none",
         borderBottom: `3px solid ${tab === t.key ? "#3b82f6" : "transparent"}`,
         color: tab === t.key ? "#60a5fa" : "#64748b",
-        padding: "14px 12px 11px",
+        /* スマホで全部のタブが見えるよう、入りきらなければ2段に折り返す */
+        padding: "12px 10px 9px",
         fontSize: 13,
         cursor: "pointer",
         fontWeight: tab === t.key ? 700 : 400,

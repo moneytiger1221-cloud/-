@@ -3356,8 +3356,8 @@ function radarSVG(data, series){
    既存の取り込み処理にそのまま渡す（文字コードの判定はそちらに任せる）。 */
 function pullRoster(force){
   if(force) JUKU_ROSTER.forget('survey');
-  /* 学期がまだ決まっていなくても、棚に今の月ぶんがあればそれを使う（使ったら記録する） */
-  if(!JUKU_TERM.mark('survey') && JUKU_ROSTER.entry(JUKU_TERM.want('survey'),'student'))
+  /* 学期がまだ決まっていなくても、棚に今の月ぶん（生徒か先生の名簿）があればそれを使う（使ったら記録する） */
+  if(!JUKU_TERM.mark('survey') && (JUKU_ROSTER.entry(JUKU_TERM.want('survey'),'student')||JUKU_ROSTER.entry(JUKU_TERM.want('survey'),'teacher')))
     JUKU_TERM.setMark('survey', JUKU_TERM.want('survey'));
   const shim = (text,name) => ({ files:[ new File([text], name, {type:'text/csv'}) ], value:'' });
   JUKU_ROSTER.pull('survey','teacher', function(text,info){
