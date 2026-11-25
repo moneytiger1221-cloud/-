@@ -612,12 +612,12 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;
    file:// の同一オリジンなので localStorage も従来どおり共有される
    （コマ組ツールが成績・アンケート・YSのデータを参照する仕組みもそのまま動く）。 */
 const TOOLS=[
-  {k:'koma',   label:'コマ組',     src:'komawari.html?v=202611291320'},
-  {k:'grade',  label:'成績',       src:'grade-tracker.html?v=202611291320'},
-  {k:'survey', label:'アンケート', src:'survey-app.html?v=202611291320'},
-  {k:'ys',     label:'YSボード',   src:'ys-board-sync.html?v=202611291320'},
-  {k:'ss',     label:'SS',         src:'ss-tracker.html?v=202611291320'},
-  {k:'shinro', label:'進路',       src:'shinro.html?v=202611291320'},
+  {k:'koma',   label:'コマ組',     src:'komawari.html?v=202611251010'},
+  {k:'grade',  label:'成績',       src:'grade-tracker.html?v=202611251010'},
+  {k:'survey', label:'アンケート', src:'survey-app.html?v=202611251010'},
+  {k:'ys',     label:'YSボード',   src:'ys-board-sync.html?v=202611251010'},
+  {k:'ss',     label:'SS',         src:'ss-tracker.html?v=202611251010'},
+  {k:'shinro', label:'進路',       src:'shinro.html?v=202611251010'},
   /* 取込センターだけは中身をここに直接書く（iframeではない） */
   {k:'import', label:'取込',       local:true}
 ];
@@ -1065,16 +1065,19 @@ function drawShelf(){
   const all = JUKU_ROSTER.all();
   const terms = Object.keys(all).sort();
   if(!terms.length){ box.innerHTML='<div class="imp-empty">棚はまだ空です。</div>'; return; }
-  let h = '<table class="imp-tbl"><thead><tr><th>学期</th><th>生徒名簿</th><th>先生名簿</th><th>講習</th><th></th><th></th></tr></thead><tbody>';
-  terms.forEach(t=>{
+  /* スマホでも全部見えるよう、表ではなく学期ごとのまとまりにする（横にはみ出して先生名簿が隠れないように） */
+  const f = (x)=> x ? ('<span style="word-break:break-all;">'+esc(x.file||'（名前なし）')+'</span><span class="imp-dim"> '+new Date(x.at).toLocaleDateString('ja-JP')+'</span>') : '<span class="imp-dim">まだありません</span>';
+  const row = (lb, v)=> '<div style="display:flex;gap:8px;font-size:12.5px;padding:2px 0;"><span style="flex-shrink:0;width:5.5em;color:#64748b;">'+lb+'</span><span style="flex:1;min-width:0;">'+v+'</span></div>';
+  let h = terms.map(t=>{
     const e = all[t];
-    const f = (x)=> x ? (esc(x.file||'（名前なし）')+'<span class="imp-dim"> '+new Date(x.at).toLocaleDateString('ja-JP')+'</span>') : '<span class="imp-dim">—</span>';
-    h += '<tr><td><b>'+esc(t)+'</b></td><td>'+f(e.student)+'</td><td>'+f(e.teacher)+'</td>'+
-         '<td class="imp-dim">'+esc(e.kousyu||'—')+'</td>'+
-         '<td>'+(e.teacher? '<button class="imp-ys" data-t="'+esc(t)+'" title="この学期の先生名簿をYSボードに送る（新しい先生だけ足されます）">YSへ送る</button>' : '')+'</td>'+
-         '<td><button class="imp-x" data-t="'+esc(t)+'" title="この学期を棚から消す">×</button></td></tr>';
-  });
-  h += '</tbody></table><div class="imp-dim" style="margin-top:6px;">棚の大きさ '+JUKU_ROSTER.sizeKB()+'KB</div>';
+    return '<div style="padding:8px 0;border-bottom:1px solid #f1f5f9;">'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><b style="flex:1;">'+esc(t)+'</b>'+
+        (e.teacher? '<button class="imp-ys" data-t="'+esc(t)+'" title="この学期の先生名簿をYSボードに送る（新しい先生だけ足されます）">YSへ送る</button>' : '')+
+        '<button class="imp-x" data-t="'+esc(t)+'" title="この学期を棚から消す">×</button></div>'+
+      row('生徒名簿', f(e.student))+row('先生名簿', f(e.teacher))+row('講習', e.kousyu? esc(e.kousyu) : '<span class="imp-dim">—</span>')+
+    '</div>';
+  }).join('');
+  h += '<div class="imp-dim" style="margin-top:6px;">棚の大きさ '+JUKU_ROSTER.sizeKB()+'KB</div>';
   box.innerHTML = h;
   box.querySelectorAll('.imp-x').forEach(b=>b.onclick=()=>{
     if(!confirm(b.dataset.t+' を棚から消します。よろしいですか？')) return;
@@ -1543,7 +1546,7 @@ show(init);
    （保存したデータはサイトごとなので、?v= が付いても外れても同じものが見える。
      取り込み直しは起きない） */
 (function(){
-  var MINE = '202611291320';
+  var MINE = '202611251010';
   /* 読み直しのために付いた ?v=… を、見た目から外す */
   try{
     if(/[?&]v=/.test(location.search) && history.replaceState)
