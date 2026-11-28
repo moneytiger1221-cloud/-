@@ -14130,10 +14130,14 @@ var JUKU_SYNC = (function(){
         return entries.some((en) => en.day === filterDay);
       });
       if (searchQuery.trim()) {
-        const q = searchQuery.trim();
+        /* ひらがな・カタカナ・半角カナ・空白の違いを気にせず探せるようにする。
+           読み（ｾｲ・ﾒｲ）でも当たるので「よこた」で「横田」が出る（2026-11-28） */
+        const norm = (x) => String(x || "").normalize("NFKC").replace(/[\u30a1-\u30f6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 96)).replace(/[\s\u3000]/g, "").toLowerCase();
+        const q = norm(searchQuery);
         r = r.filter((rec) => {
           const t = teachers.find((t2) => t2.id === rec.teacherId)?.name || rec.teacherNameRaw || "";
-          return t.includes(q) || rec.referralName.includes(q) || rec.studentName.includes(q);
+          const raw = rec.raw || {};
+          return [t, rec.referralName, rec.studentName, (raw["\uFF7E\uFF72"] || "") + (raw["\uFF92\uFF72"] || ""), raw["\u7D39\u4ECB\u8005"]].some((x) => norm(x).includes(q));
         });
       }
       return r;
