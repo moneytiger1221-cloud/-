@@ -443,8 +443,11 @@ tr.area .v{font-weight:700;color:#5b6c7e;}
     if (m === r) return m;
     if (b === m) return r;
     if (b === r) return m;
-    // 一度もスプシで見ていない項目（この端末が初めて加わったとき）は、ぶつかったらスプシ側を採る
-    var mineNewer = b === null ? false : (mt || '') > (rt || '');
+    /* 一度もスプシで見ていない項目（この端末が初めて加わったとき・久しぶりに開いた古い端末）は、
+       スプシ側をそのまま採る。混ぜると「この端末にしか無いもの」が足されてしまい、
+       別の端末で消した先生・変えたチームやリーダーが古い中身で生き返る（2026-11-28 YSボードで起きた） */
+    if (b === null && r !== null) return r;
+    var mineNewer = (mt || '') > (rt || '');
     var B = parse(b), M = parse(m), R = parse(r);
     if (M === undefined || R === undefined || (M && M.__raw !== undefined) || (R && R.__raw !== undefined)) return mineNewer ? m : r;
     var v = merge3(B, M, R, mineNewer);
