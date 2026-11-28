@@ -14918,7 +14918,11 @@ ${mPts}pt${mGoal}
               list.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: 11, color: "#334155", textAlign: "center", padding: "8px 0" }, children: "\u5BFE\u8C61\u306A\u3057" }) : list.map((rec) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }, children: [
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 11, fontWeight: 700, color: "#e2e8f0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }, children: rec.referralName }),
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 9, color: "#475569" }, children: "\u2192" }),
-                /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 11, fontWeight: 700, color: "#60a5fa", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: rec.studentName }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { style: { fontSize: 11, fontWeight: 700, color: "#60a5fa", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: [
+                  rec.studentName,
+                  /* 担当の先生名も出す（2026-11-28） */
+                  (() => { const tn = (teachers.find((t2) => t2.id === rec.teacherId) || {}).name || rec.teacherNameRaw || ""; return tn ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { style: { fontSize: 10, fontWeight: 400, color: "#94a3b8", marginLeft: 4 }, children: "\uFF08" + tn + "\uFF09" }) : null; })()
+                ] }),
                 /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
                   "select",
                   {
