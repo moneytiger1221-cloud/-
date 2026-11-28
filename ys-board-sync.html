@@ -13991,6 +13991,9 @@ var JUKU_SYNC = (function(){
     const today = TODAY;
     const todayWeekday = todayWeekdayJP();
     const [selectedWeekday, setSelectedWeekday] = (0, import_react.useState)(todayWeekday);
+    /* 「全」を選ぶと全曜日をまとめて出す（2026-11-28） */
+    const ALL_DAYS = "\u5168";
+    const dayHit = (en) => selectedWeekday === ALL_DAYS || en.day === selectedWeekday;
     const todayTeacherIds = (0, import_react.useMemo)(() => {
       const ids = /* @__PURE__ */ new Set();
       Object.values(studentSchedules).forEach((entries) => {
@@ -14148,7 +14151,7 @@ var JUKU_SYNC = (function(){
     const selectedDayStudentTasks = (0, import_react.useMemo)(() => {
       const list = [];
       Object.entries(studentSchedules).forEach(([studentName, entries]) => {
-        const dayEntries = entries.filter((en) => en.day === selectedWeekday);
+        const dayEntries = entries.filter(dayHit);
         if (!dayEntries.length) return;
         const recs = termRecords.filter((r) => r.studentName === studentName && r.status !== "declined" && r.status !== "enrolled").sort((a, b) => getStatus(a.status).priority - getStatus(b.status).priority);
         if (!recs.length) return;
@@ -14392,7 +14395,7 @@ var JUKU_SYNC = (function(){
       }
       const COLS = ["\u5B66\u6821", "\u5B66\u5E74", "\u59D3", "\u540D", "YS\u540D\u524D\u805E\u3044\u305F\u65E5", "\u30B9\u30BF\u30C3\u30D5\u540D", "YS", "\u5148\u751F", "\u7D39\u4ECB\u8005", "\u5099\u8003"];
       const dayNames = new Set(
-        Object.entries(studentSchedules).filter(([, entries]) => entries.some((en) => en.day === selectedWeekday)).map(([name]) => name)
+        Object.entries(studentSchedules).filter(([, entries]) => entries.some(dayHit)).map(([name]) => name)
       );
       const todayRecs = termRecords.filter((r) => dayNames.has(r.studentName) && r.status !== "declined" && r.status !== "enrolled");
       const toRows = (recs) => recs.map((r) => {
@@ -14435,7 +14438,7 @@ var JUKU_SYNC = (function(){
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `\u4ECA\u65E5\u306E\u30BF\u30C3\u30C1\u30EA\u30B9\u30C8_${selectedWeekday}_${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.xlsx`;
+      a.download = `\u4ECA\u65E5\u306E\u30BF\u30C3\u30C1\u30EA\u30B9\u30C8_${selectedWeekday === ALL_DAYS ? "\u5168\u66DC\u65E5" : selectedWeekday}_${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.xlsx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -14945,9 +14948,9 @@ ${mPts}pt${mGoal}
         ] }),
         tab === "today" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: 13, fontWeight: 700, color: "#60a5fa", marginBottom: 10 }, children: "\u30BF\u30C3\u30C1\u30BF\u30FC\u30B2\u30C3\u30C8" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", gap: 4, marginBottom: 12 }, children: WEEKDAYS_JP.map((d) => {
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", gap: 4, marginBottom: 12 }, children: [...WEEKDAYS_JP, ALL_DAYS].map((d) => {
             const dayNames = new Set(
-              Object.entries(studentSchedules).filter(([, entries]) => entries.some((en) => en.day === d)).map(([name]) => name)
+              Object.entries(studentSchedules).filter(([, entries]) => entries.some((en) => d === ALL_DAYS || en.day === d)).map(([name]) => name)
             );
             const dayRecs = termRecords.filter((r) => dayNames.has(r.studentName) && r.status !== "declined" && r.status !== "enrolled");
             const total = dayRecs.length;
@@ -14971,8 +14974,8 @@ ${mPts}pt${mGoal}
               ] })
             ] }, d);
           }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: 11, color: "#475569", margin: "4px 0 12px" }, children: selectedWeekday === todayWeekday ? `\u4ECA\u65E5\uFF08${todayWeekday}\uFF09\u306E\u5BFE\u8C61` : `${selectedWeekday}\u66DC\u65E5\u306E\u5BFE\u8C61` }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: () => exportTodayExcel(), style: { ...btnOut, width: "100%", marginBottom: 12, fontSize: 13, color: "#22c55e", borderColor: "#166534" }, children: "\u{1F4CA} \u4ECA\u65E5\u306E\u30BF\u30C3\u30C1\u30EA\u30B9\u30C8\u3092Excel\u51FA\u529B\uFF083\u30B7\u30FC\u30C8\uFF09" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { fontSize: 11, color: "#475569", margin: "4px 0 12px" }, children: selectedWeekday === ALL_DAYS ? "\u5168\u66DC\u65E5\u306E\u5BFE\u8C61\uFF08\u540C\u3058\u751F\u5F92\u306F1\u56DE\u3060\u3051\uFF09" : selectedWeekday === todayWeekday ? `\u4ECA\u65E5\uFF08${todayWeekday}\uFF09\u306E\u5BFE\u8C61` : `${selectedWeekday}\u66DC\u65E5\u306E\u5BFE\u8C61` }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: () => exportTodayExcel(), style: { ...btnOut, width: "100%", marginBottom: 12, fontSize: 13, color: "#22c55e", borderColor: "#166534" }, children: selectedWeekday === ALL_DAYS ? "\u{1F4CA} \u5168\u66DC\u65E5\u306E\u30BF\u30C3\u30C1\u30EA\u30B9\u30C8\u3092Excel\u51FA\u529B\uFF083\u30B7\u30FC\u30C8\uFF09" : "\u{1F4CA} \u4ECA\u65E5\u306E\u30BF\u30C3\u30C1\u30EA\u30B9\u30C8\u3092Excel\u51FA\u529B\uFF083\u30B7\u30FC\u30C8\uFF09" }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { style: { display: "flex", gap: 8 }, children: ["J", "M"].map((team) => {
             const color = team === "J" ? "#c084fc" : "#4ade80";
             const groups = selectedDayTouchByTeam[team];
@@ -15061,7 +15064,7 @@ ${mPts}pt${mGoal}
           }) }),
           (() => {
             const dayNames = new Set(
-              Object.entries(studentSchedules).filter(([, entries]) => entries.some((en) => en.day === selectedWeekday)).map(([name]) => name)
+              Object.entries(studentSchedules).filter(([, entries]) => entries.some(dayHit)).map(([name]) => name)
             );
             const staffItems = termRecords.filter((r) => {
               if (!dayNames.has(r.studentName)) return false;
