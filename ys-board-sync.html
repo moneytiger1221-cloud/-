@@ -13717,7 +13717,10 @@ var JUKU_SYNC = (function(){
   /* 名前を聞いた日の一覧（yyyy-mm-dd、古い順）。同じ紹介を別の日にも聞いたら全部の日付を持つ。
      期間ごとにゼロから数えるため、期間内に1回でも聞いていればその期間の1件になる（2026-11-17） */
   function datesOf(r) {
-    const src = r && Array.isArray(r.dates) && r.dates.length ? r.dates : [r && r.date];
+    let src = r && Array.isArray(r.dates) && r.dates.length ? r.dates : [r && r.date];
+    /* 日付を手で打ち直した記録は date が dates に入っていない。打ち直した日を正とする（2026-11-28） */
+    const d0 = ymdOf(r && r.date);
+    if (d0 && !src.map(ymdOf).includes(d0)) src = [d0];
     return [...new Set(src.map(ymdOf).filter(Boolean))].sort();
   }
   function getSemesterInfo() {
@@ -14185,8 +14188,15 @@ var JUKU_SYNC = (function(){
     const handleSubmit = () => {
       if (!form.studentName || !form.referralName) return;
       const pts = form.status === "enrolled" ? 10 : 1;
-      if (editId !== null) setRecords((r) => r.map((rec) => rec.id === editId ? { ...form, id: editId, pts } : rec));
-      else setRecords((r) => [...r, { ...form, id: Date.now(), pts }]);
+      /* 日付を打ち直したら、聞いた日の一覧（dates）もその日だけにする。
+         dates が古いままだと、集計は dates を見るので打ち直しが効かなかった（2026-11-28） */
+      if (editId !== null) setRecords((r) => r.map((rec) => {
+        if (rec.id !== editId) return rec;
+        const nd = ymdOf(form.date);
+        const changed = nd && nd !== ymdOf(rec.date);
+        return { ...form, id: editId, pts, dates: changed ? [nd] : (form.dates || rec.dates) };
+      }));
+      else setRecords((r) => [...r, { ...form, id: Date.now(), pts, dates: datesOf({ date: form.date }) }]);
       resetForm();
       setShowForm(false);
     };
